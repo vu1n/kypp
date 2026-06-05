@@ -20,7 +20,7 @@ from dataclasses import asdict
 
 from .store import BadHandle, Claim, MemoryStore, store_from_env
 from .view import briefing_claims, render_claims
-from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, TYPES
+from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, SURFACES, TYPES
 
 
 def _project_arg(ap: argparse.ArgumentParser) -> None:
@@ -143,17 +143,44 @@ def correct_main():
 
 def usage_main():
     ap = argparse.ArgumentParser(
-        description="inspect memory usage provenance: which claims a run saw, or which runs saw a claim")
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--session", help="the claims this run/session was shown")
-    g.add_argument("--claim", help="the runs/sessions a claim was shown to (id or 8-char handle)")
+        description="memory usage provenance: RECORD that a run was shown claims (--record), or READ "
+                    "which claims a run saw (--session) / which runs saw a claim (--claim)")
+    ap.add_argument("--record", action="store_true",
+                    help="WRITE mode: record that --session was shown the --claim handles (a run-loop "
+                         "hook; default is READ mode)")
+    ap.add_argument("--session", help="read: claims this session saw; record: the session shown the claims")
+    ap.add_argument("--claim", action="append",
+                    help="read: runs that saw this claim (one handle); record: a shown handle (repeatable)")
+    ap.add_argument("--surface", choices=SURFACES, default="briefing", help="record mode: how the claims were surfaced")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     store = store_from_env()
+
+    if args.record:
+        if not args.session or not args.claim:
+            ap.error("--record needs --session and at least one --claim")
+        # Resilient: skip handles that no longer resolve (a briefed claim may have been superseded
+        # between brief and record) rather than abort — the recorder is a best-effort run-loop hook.
+        ids = []
+        for h in args.claim:
+            try:
+                c = store.get(h)
+            except BadHandle:
+                print(f"kypp: skipping bad handle {h!r}", file=sys.stderr); continue
+            if c is None:
+                print(f"kypp: skipping unknown claim {h!r}", file=sys.stderr); continue
+            ids.append(c.id)
+        n = store.record_usage(args.session, ids, surface=args.surface,
+                               project=os.environ.get("KYPP_PROJECT"))
+        print(f"recorded {n} usage(s) for session {args.session!r}")
+        return
+
+    if bool(args.session) == bool(args.claim):
+        ap.error("read mode needs exactly one of --session or --claim")
     if args.session:
         rows = store.usages_for(args.session)
     else:
-        rows = store.usage_of(_resolve_handle(store, args.claim).id)
+        rows = store.usage_of(_resolve_handle(store, args.claim[0]).id)
     if args.json:
         print(json.dumps(rows, indent=2))
         return

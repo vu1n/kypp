@@ -31,7 +31,7 @@ def _claim_dict(c: Claim) -> dict:
     return {"id": c.id, "type": c.type, "subject": c.subject, "content": c.content, "scope": c.scope,
             "status": c.status, "authority": c.authority, "confidence": c.confidence,
             "source_ids": c.source_ids, "code_refs": c.code_refs, "grounding": c.grounding,
-            "low_confidence": c.low_confidence}
+            "low_confidence": c.low_confidence, "stale": c.stale}
 
 
 def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
@@ -207,7 +207,8 @@ elif __name__ == "__main__":
     top = hits[0]
     assert top["subject"] == "libkrun rebuild", hits
     assert set(top) == {"id", "type", "subject", "content", "scope", "status", "authority",
-                        "confidence", "source_ids", "code_refs", "grounding", "low_confidence"}, set(top)
+                        "confidence", "source_ids", "code_refs", "grounding", "low_confidence",
+                        "stale"}, set(top)
     assert top["status"] == "accepted" and top["source_ids"] == [oid]
     assert top["grounding"] and top["grounding"][0]["status"] == "grounded" \
         and top["grounding"][0]["location"]["line"] == 1, top["grounding"]

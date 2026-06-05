@@ -113,6 +113,7 @@ class Claim:
     agent: str | None = None
     updated_at: str = ""  # recency — the arbiter ranks on it; recall orders by it
     low_confidence: bool = False
+    stale: bool = False  # advisory (set at grounding): code-anchored, but EVERY anchor unresolved — the code it's about is gone
 
 
 # --- code grounding: resolve a claim's anchor to a LIVE pointer at recall ----------------------
@@ -456,6 +457,10 @@ class MemoryStore:
             for c in claims:
                 if c.code_refs:
                     c.grounding = [self.resolver.resolve(ref) for ref in c.code_refs]
+                    # code-ref staleness (advisory, NOT destructive — a moved/renamed symbol re-resolves
+                    # and the lesson may hold even if the code is gone): every anchor unresolved ⇒ the
+                    # code this claim points at no longer exists, so flag it for the reader to weigh.
+                    c.stale = all(g.get("status") == "unresolved" for g in c.grounding)
         return claims
 
     @staticmethod
@@ -597,6 +602,13 @@ if __name__ == "__main__":
         moved = rg.resolve({"symbol": "select_backend", "path": "wrong/place.rs", "query": "select_backend"})
         assert moved["status"] == "moved" and not moved["location"]["path"].startswith("./"), moved
         grounded = f"; grounded → {g[0]['location']['path']}:{g[0]['location']['line']}"
+        # code-ref STALENESS: a grounded claim is not stale; a claim whose only anchor resolves to
+        # nothing (the code is gone) is flagged stale (advisory — the lesson may still hold).
+        gs = MemoryStore(db, resolver=rg)
+        assert not gs.recall("libkrun rebuild feature codesign", project="pillbox")[0].stale, "grounded → not stale"
+        sc = gs.claim("pitfall", "gone code", "lesson about a deleted symbol", scope="project", project="pillbox",
+                      accept=True, code_refs=[{"symbol": "deleted_fn", "path": "nowhere.rs", "query": "deleted_fn"}])
+        assert gs.get(sc).stale, "all-unresolved anchor → stale"
 
     # embedder branch (the LIKE→embedder upgrade path the prod code will hit). A toy 1-D embedder; the
     # claims above were written WITHOUT one (embedding=NULL). Recalling under an embedder must still

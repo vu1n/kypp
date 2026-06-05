@@ -34,8 +34,8 @@ def compact_line(c: Claim) -> str:
         line += f" → {loc['path']}:{loc.get('line') or '?'}"
         if hit.get("status") != "grounded":
             line += " (moved)"
-    elif c.grounding:  # anchors exist but none resolved against this tree — say so, don't hide it
-        line += " (code ref unresolved here)"
+    elif c.grounding:  # anchors exist but none resolved against this tree → the code is gone
+        line += " ⚠ code gone (stale)"
     return line
 
 
@@ -87,6 +87,13 @@ if __name__ == "__main__":
     assert line.startswith(pid[:8]) and "[pitfall ✓0.9]" in line, line
     assert f"(expand {pid[:8]} for full)" in line, line  # 300 chars > _CLIP → clip marker + handle
     assert "→ mod.rs:1" in line, line  # grounded pointer, not file content
+
+    # code-ref staleness: a claim whose only anchor resolves to nothing is flagged in the line.
+    # Own project ("sp") so the extra pitfall doesn't perturb the briefing-order assertion below.
+    store.claim("pitfall", "gone code", "lesson about a deleted symbol", scope="project", project="sp",
+                accept=True, code_refs=[{"symbol": "deleted_fn", "path": "gone.rs", "query": "deleted_fn"}])
+    sline = compact_line(store.recall("gone code", project="sp")[0])
+    assert "code gone (stale)" in sline, sline
 
     # briefing: pitfall before decision before fact; candidates excluded (browse = accepted only)
     b = briefing_claims(store, "p")
