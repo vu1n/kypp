@@ -84,6 +84,13 @@ def _uid() -> str:
     return uuid.uuid4().hex
 
 
+class BadHandle(ValueError):
+    """A claim handle that can't be resolved to one claim — malformed (not 4-32 hex) or an ambiguous
+    prefix. A ValueError subclass so existing `except ValueError` still catches it, but typed so a CLI
+    can translate just handle mistakes into a clean message, leaving real data errors (e.g. a corrupt
+    row's JSON) to surface loud."""
+
+
 @dataclass
 class Claim:
     id: str
@@ -352,13 +359,16 @@ class MemoryStore:
     def get(self, claim_id: str) -> Claim | None:
         """Dereference a claim id or unique prefix — recall/briefing hand out 8-char HANDLES; this is
         how an agent expands one to the full claim (grounding resolved). Returns regardless of status
-        (a handle may point into history). None when unknown; an ambiguous prefix raises rather than
-        silently picking one."""
-        _require(bool(re.fullmatch(r"[0-9a-f]{4,32}", claim_id)), f"bad claim handle {claim_id!r}")
+        (a handle may point into history), or None when unknown. Raises `BadHandle` (a ValueError) for
+        the two un-resolvable shapes — malformed (not 4-32 hex) and ambiguous prefix — so a CLI/tool
+        caller can distinguish a caller mistake from a clean miss, and from a real data error."""
+        if not re.fullmatch(r"[0-9a-f]{4,32}", claim_id):
+            raise BadHandle(f"bad claim handle {claim_id!r} (expected 4-32 hex chars)")
         cur = self.db.cursor()
         rows = cur.execute("SELECT * FROM memory_claims WHERE id LIKE ? LIMIT 2",
                            (claim_id + "%",)).fetchall()
-        _require(len(rows) < 2, f"ambiguous claim handle {claim_id!r}")
+        if len(rows) >= 2:
+            raise BadHandle(f"ambiguous claim handle {claim_id!r} (matches multiple — use more chars)")
         claims = self.ground(self._hydrate(cur, rows))
         return claims[0] if claims else None
 
@@ -518,6 +528,13 @@ if __name__ == "__main__":
                    confidence=0.4, authority="human")
     hc = m.get(hcid)
     assert hc.authority == "human" and hc.status == "accepted", (hc.authority, hc.status)
+    # handle resolution: valid-but-unknown → None (clean miss); malformed → BadHandle (caller mistake)
+    assert m.get("deadbeef") is None, "valid hex, no match → None"
+    for bad in ("zzzz", "ab", "x"):  # non-hex / too-short
+        try:
+            m.get(bad); raise AssertionError(f"expected BadHandle for {bad!r}")
+        except BadHandle:
+            pass
     # concurrent writes: two stores writing the same db at once (the tursodb reason)
     m2 = MemoryStore(db)
     a = m.observe("agent_a", "x", project="pillbox"); b = m2.observe("agent_b", "y", project="pillbox")

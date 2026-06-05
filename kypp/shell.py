@@ -18,13 +18,26 @@ import sys
 # updated_at) is the point. _claim_dict is the trimmed agent contract; don't unify the two.
 from dataclasses import asdict
 
-from .store import store_from_env
+from .store import BadHandle, Claim, store_from_env
 from .view import briefing_claims, render_claims
 from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, TYPES
 
 
 def _project_arg(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
+
+
+def _resolve_handle(store, handle: str) -> Claim:
+    """Resolve a claim handle for a CLI command. The store raises BadHandle on a malformed/ambiguous
+    handle and returns None on a clean miss — turn both into a friendly SystemExit (exit 1) instead of
+    a traceback. A non-handle error (e.g. a corrupt row) is NOT caught, so real bugs still surface."""
+    try:
+        c = store.get(handle)
+    except BadHandle as e:
+        raise SystemExit(f"kypp: {e}")
+    if c is None:
+        raise SystemExit(f"no claim {handle!r}")
+    return c
 
 
 def _session_arg(ap: argparse.ArgumentParser) -> None:
@@ -57,10 +70,7 @@ def show_main():
     ap = argparse.ArgumentParser(description="expand a claim handle (id or 8-char prefix) to the full claim")
     ap.add_argument("handle")
     args = ap.parse_args()
-    c = store_from_env().get(args.handle)
-    if c is None:
-        raise SystemExit(f"no claim {args.handle!r}")
-    print(json.dumps(asdict(c), indent=2))
+    print(json.dumps(asdict(_resolve_handle(store_from_env(), args.handle)), indent=2))
 
 
 def remember_main():
@@ -139,10 +149,7 @@ def usage_main():
     if args.session:
         rows = store.usages_for(args.session)
     else:
-        c = store.get(args.claim)  # resolve handle → full id (errors on ambiguous prefix)
-        if c is None:  # distinguish "no such claim" from "claim exists but unused" (matches show_main)
-            raise SystemExit(f"no claim {args.claim!r}")
-        rows = store.usage_of(c.id)
+        rows = store.usage_of(_resolve_handle(store, args.claim).id)
     if args.json:
         print(json.dumps(rows, indent=2))
         return
