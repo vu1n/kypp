@@ -46,7 +46,7 @@ hook) to load the project's pitfalls and decisions before the agent has a query.
 | var | meaning |
 |---|---|
 | `KYPP_MEMORY_DB` | store path (default `~/.kypp/memory.db`) |
-| `KYPP_PROJECT` | claim scope (default `default`) |
+| `KYPP_PROJECT` | project binding (default `default`); `sweep`/`capture` instead derive each session's project from its pillbox log path (`global/` vs `projects/<key>/`) when unset |
 | `KYPP_REPO_ROOT` | repo the ripgrep code-resolver grounds against (default `.`) |
 | `KYPP_EMBED_MODEL` | ollama model → semantic vector recall (unset → keyword) |
 | `KYPP_DISTILL_MODEL` | ollama model → LLM distillation (unset → heuristic floor) |

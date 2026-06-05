@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+*.db
+*.db-log
+*.db-wal
+*.db-shm

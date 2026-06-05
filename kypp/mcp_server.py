@@ -90,7 +90,9 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
     @mcp.tool()
     def expand(handle: str) -> dict:
         """Dereference a recall/briefing handle (claim id or its 8-char prefix) to the full claim:
-        unclipped content, provenance (source_ids), code_refs + live grounding."""
+        unclipped content, provenance (source_ids), code_refs + live grounding. Also resolves
+        superseded/rejected claims — a handle held from earlier context may point into history, so
+        check `status` before trusting the content."""
         c = store.get(handle)
         if c is None:
             raise ValueError(f"unknown claim handle {handle!r}")

@@ -409,7 +409,7 @@ def store_from_env(embed: Callable[[str], list[float]] | None = None) -> MemoryS
     KYPP_MEMORY_DB = db path; KYPP_REPO_ROOT = the RipgrepResolver's repo; KYPP_EMBED_MODEL set →
     semantic vector recall via ollama (KYPP_OLLAMA_HOST overrides), else keyword (LIKE) recall."""
     db = os.environ.get("KYPP_MEMORY_DB", os.path.expanduser("~/.kypp/memory.db"))
-    os.makedirs(os.path.dirname(db), exist_ok=True)
+    os.makedirs(os.path.dirname(db) or ".", exist_ok=True)  # bare filename → dirname '' → makedirs raises
     if embed is None and os.environ.get("KYPP_EMBED_MODEL"):
         host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
         embed = ollama_embed(os.environ["KYPP_EMBED_MODEL"], host)

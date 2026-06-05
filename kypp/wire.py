@@ -21,7 +21,7 @@ import json
 import os
 import sys
 
-from ._pillbox import find_session_log
+from ._pillbox import find_session_log, project_for_log
 from .distill import Distiller, build_trace, distill_session, distiller_from_env, parse_jsonl, read_log
 from .store import MemoryStore, store_from_env
 
@@ -104,7 +104,9 @@ def main():
     ap = argparse.ArgumentParser(description="bridge a session's §0 log into the memory store")
     ap.add_argument("source", nargs="?", help="path to a §0 log.jsonl, or - for stdin (e.g. `pillbox session log ID | wire.py -`)")
     ap.add_argument("--session", help="resolve a session id (or prefix) to its log under ~/.pillbox")
-    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
+    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT"),
+                    help="claim/observation project (default: derived from the log's pillbox path; "
+                         "stdin or a foreign path → 'default')")
     ap.add_argument("--task", default="", help="the session's prompt (context for --distill)")
     ap.add_argument("--distill", action="store_true", help="also distill claims in the same pass")
     args = ap.parse_args()
@@ -112,14 +114,16 @@ def main():
     store = store_from_env()
     distiller = distiller_from_env() if args.distill else None
 
-    if args.source == "-":  # streaming source has no path/marker — capture inline
+    if args.source == "-":  # streaming source has no path/marker — capture inline, nothing to derive from
+        project = args.project or "default"
         events = parse_jsonl(sys.stdin)
-        res = capture_events(events, store, project=args.project, task=args.task, distiller=distiller)
+        res = capture_events(events, store, project=project, task=args.task, distiller=distiller)
     else:
         logpath = args.source or (find_session_log(args.session) if args.session else None)
         if not logpath:
             ap.error("need a log path, - for stdin, or --session ID")
-        res = capture_log_file(logpath, store, project=args.project, task=args.task, distiller=distiller)
+        project = args.project or project_for_log(logpath) or "default"
+        res = capture_log_file(logpath, store, project=project, task=args.task, distiller=distiller)
         if res is None:
             print(f"already observed: {logpath}")
             return
@@ -127,7 +131,7 @@ def main():
     msg = f"observed {res['observations']} outcome signal(s)"
     if args.distill:
         msg += f", distilled {res['claims']} claim(s)"
-    print(f"{msg} → project {args.project!r}")
+    print(f"{msg} → project {project!r}")
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:

@@ -18,19 +18,25 @@ import glob
 import os
 import sys
 
-from ._pillbox import session_logs
+from ._pillbox import project_for_log, session_logs
 from .distill import Distiller, distiller_from_env
 from .store import MemoryStore, store_from_env
 from .wire import capture_log_file
 
 
-def sweep(store: MemoryStore, *, project: str, log_glob: str | None = None,
+def sweep(store: MemoryStore, *, project: str | None = None, log_glob: str | None = None,
           distiller: Distiller | None = None) -> dict:
     """Capture every completed, uncaptured session in the default pillbox source (or `log_glob`).
-    Returns {captured, skipped, observations, claims} — skipped counts in-flight + already-captured."""
+    project=None (the default) derives EACH session's project from its pillbox log path (global vs
+    projects/<key>) — sessions from many projects file correctly; an explicit project forces ONE
+    project for ALL sessions (only right when the source really is single-project — forcing it over
+    a mixed store is the 359→"default" mis-filing incident). Foreign-layout paths with no project
+    in them fall back to "default". Returns {captured, skipped, observations, claims} — skipped
+    counts in-flight + already-captured."""
     captured = skipped = obs = claims = 0
     for path in session_logs(log_glob):
-        res = capture_log_file(path, store, project=project, distiller=distiller, require_complete=True)
+        res = capture_log_file(path, store, project=project or project_for_log(path) or "default",
+                               distiller=distiller, require_complete=True)
         if res is None:
             skipped += 1
             continue
@@ -42,7 +48,9 @@ def sweep(store: MemoryStore, *, project: str, log_glob: str | None = None,
 
 def main():
     ap = argparse.ArgumentParser(description="sweep completed sessions into swarm memory (idempotent)")
-    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
+    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT"),
+                    help="force ONE project for ALL captured sessions (default: derive each from its "
+                         "pillbox log path — global vs projects/<key>)")
     ap.add_argument("--logs", default=None, help="override the §0 log source (glob); default = pillbox global + projects")
     ap.add_argument("--no-distill", action="store_true", help="record outcome observations only, skip claims")
     args = ap.parse_args()
@@ -51,7 +59,7 @@ def main():
     res = sweep(store_from_env(), project=args.project, log_glob=args.logs, distiller=distiller)
     print(f"autocapture: captured {res['captured']} new session(s), skipped {res['skipped']} "
           f"(in-flight or already captured) → {res['observations']} observations, {res['claims']} claims, "
-          f"project {args.project!r}")
+          f"project {args.project or '(per-path)'}")
 
 
 if __name__ == "__main__" and len(sys.argv) > 1:
@@ -95,8 +103,25 @@ elif __name__ == "__main__":
     assert not os.path.exists(os.path.join(live, "log.jsonl.kypp-observed")), "in-flight → unmarked (retry later)"
     assert sweep(store, project="p", log_glob=glob_pat, distiller=HeuristicDistiller())["captured"] == 0, "idempotent"
 
+    # per-path project derivation: a pillbox-shaped tree, NO explicit project → the session files
+    # under its own project (proj-a), not one forced project (the 359→"default" mis-filing incident).
+    root2 = "/tmp/autocap-selftest-pillbox"
+    shutil.rmtree(root2, ignore_errors=True)
+    pdir = os.path.join(root2, ".pillbox", "projects", "proj-a", "sessions", "s1")
+    os.makedirs(pdir)
+    write_log(pdir, [
+        {"sessionId": "s1", "payload": {"type": "run_failed", "reason": "agent exited 1", "exitCode": 1}},
+    ])
+    res2 = sweep(store, log_glob=os.path.join(root2, ".pillbox", "projects", "*", "sessions", "*", "log.jsonl"),
+                 distiller=HeuristicDistiller())
+    assert res2["captured"] == 1, res2
+    assert store.recall("run failed", project="proj-a", include_candidates=True), \
+        "claims must file under the path-derived project"
+
     shutil.rmtree(root, ignore_errors=True)
+    shutil.rmtree(root2, ignore_errors=True)
     for f in glob.glob(db + "*"):
         try: os.remove(f)
         except OSError: pass
-    print("OK — autocapture sweep: captured the completed session, skipped the in-flight one, idempotent on re-run")
+    print("OK — autocapture sweep: captured the completed session, skipped the in-flight one, "
+          "idempotent on re-run; project derived per log path (proj-a)")

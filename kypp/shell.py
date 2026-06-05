@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 # asdict, not mcp_server._claim_dict: the CLI is a DEBUG surface — full fidelity (project, agent,
 # updated_at) is the point. _claim_dict is the trimmed agent contract; don't unify the two.
 from dataclasses import asdict
@@ -63,9 +64,17 @@ def remember_main():
     ap.add_argument("--accept", action="store_true", help="land accepted, not candidate")
     _project_arg(ap)
     args = ap.parse_args()
-    cid = store_from_env().claim(args.type, args.subject, args.content, scope=args.scope,
-                                 project=args.project, confidence=args.confidence, accept=args.accept)
-    print(f"{cid[:8]} [{args.type}] {args.subject}")
+    store = store_from_env()
+    cid = store.claim(args.type, args.subject, args.content, scope=args.scope,
+                      project=args.project, confidence=args.confidence, accept=args.accept)
+    # read the status back rather than re-spelling the store's rule (decision auto-accepts).
+    status = store.get(cid).status
+    print(f"{cid[:8]} [{status} {args.type}] {args.subject}")
+    if status == "candidate":
+        # the footgun this warns about: briefing + default recall are accepted-only, so a naively
+        # seeded memory silently never surfaces.
+        print("note: candidates are hidden from `kypp briefing` and default recall — "
+              "use --accept, or inspect with `kypp recall --candidates`", file=sys.stderr)
 
 
 def briefing_main():
