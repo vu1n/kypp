@@ -20,7 +20,7 @@ from dataclasses import asdict
 
 from .store import store_from_env
 from .view import briefing_claims, render_claims
-from .vocab import SCOPES, TYPES
+from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, TYPES
 
 
 def _project_arg(ap: argparse.ArgumentParser) -> None:
@@ -112,7 +112,7 @@ def correct_main():
     ap.add_argument("content", help="the correct answer (model-agnostic — it's shared)")
     ap.add_argument("--type", choices=TYPES, default="fact")
     ap.add_argument("--scope", choices=SCOPES, default="project")
-    ap.add_argument("--confidence", type=float, default=0.95)
+    ap.add_argument("--confidence", type=float, default=HUMAN_CORRECTION_CONFIDENCE)
     ap.add_argument("--semantic", type=float, default=None, metavar="DIST",
                     help="also supersede differently-worded near-dups within this cosine distance "
                          "(needs KYPP_EMBED_MODEL)")

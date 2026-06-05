@@ -34,15 +34,22 @@ def _corroboration(members: list[Claim]) -> int:
     return len({s for m in members for s in m.source_ids})
 
 
+def _survivor(members: list[Claim]) -> Claim:
+    """The strongest claim in a group — THE one selection, shared by supersede (_plan_groups keeps it,
+    drops the rest) and promote (the corroboration pass accepts it). Single-sourced so the two passes
+    can't pick different winners as _rank evolves."""
+    return max(members, key=_rank)
+
+
 def _plan_groups(groups: list[list[Claim]]) -> list[dict]:
     """For each group of >1, keep the strongest (by _rank) and supersede the rest."""
     plan = []
     for members in groups:
         if len(members) < 2:
             continue
-        survivor, *losers = sorted(members, key=_rank, reverse=True)
+        survivor = _survivor(members)
         plan.append({"subject": survivor.subject, "survivor": survivor.id,
-                     "superseded": [m.id for m in losers]})
+                     "superseded": [m.id for m in members if m.id != survivor.id]})
     return plan
 
 
@@ -96,8 +103,14 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
     promoted = []
     if accept_corroboration:
         for members in groups:
-            survivor = max(members, key=_rank)
+            survivor = _survivor(members)
+            # Two conditions, both required: >= K distinct CLAIMS on the subject (so one agent can't
+            # self-corroborate with a single multi-source claim) AND >= K distinct source observations
+            # (so K claims citing the same one source don't count as K). `not in superseded` is
+            # load-bearing under semantic: that pass can supersede an exact-subject survivor (a
+            # different-subject near-dup outranked it) — don't promote a just-superseded claim.
             if survivor.status == "candidate" and survivor.id not in superseded \
+                    and len(members) >= accept_corroboration \
                     and _corroboration(members) >= accept_corroboration:
                 promoted.append(survivor.id)
 
@@ -205,6 +218,11 @@ elif __name__ == "__main__":
                 confidence=0.6, source_ids=["sessC"])
     assert consolidate(store, project="q")["promoted"] == 0, "a single session must NOT auto-accept"
     assert not store.recall("lonely", project="q"), "lone candidate stays hidden from accepted recall"
+    # a SINGLE claim citing many sources must NOT self-corroborate (needs >= K distinct CLAIMS too)
+    store.claim("pitfall", "self-cited", "one claim, many sources", scope="project", project="q",
+                confidence=0.6, source_ids=["x1", "x2", "x3"])
+    assert consolidate(store, project="q")["promoted"] == 0, "one multi-source claim must NOT self-accept"
+    assert not store.recall("self-cited", project="q"), "self-cited lone claim stays candidate"
     print("OK — arbiter corroboration: 2 sessions agreeing → candidate promoted to accepted; "
           "lone candidate stays a candidate")
 

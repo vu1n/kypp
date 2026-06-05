@@ -147,7 +147,7 @@ class HeuristicDistiller:
             # into a shared, run-time-injectable claim leaks the grader and invites Goodhart; real
             # per-failure LESSONS come from the judgment-capable LLM distiller, not this floor.
             n, total = len(trace.verdict.failed_criteria), len(trace.verdict.criteria)
-            scheme = _grader_scheme(trace.verdict.grader)
+            scheme = grader_scheme(trace.verdict.grader)
             drafts.append(ClaimDraft(
                 "pitfall", f"{scheme} criteria failed ({n}/{total})",
                 f"{n} of {total} {scheme} criteria failed; the verbatim grader feedback is recorded "
@@ -330,7 +330,7 @@ def distill_session(events: list[dict], store: MemoryStore, *, project: str, sco
                         metadata={"models": trace.models, "event_count": trace.event_count})
     ids = []
     for d in distiller.distill(trace):
-        content = _path_agnostic(_model_agnostic(d.content, trace.models, scope), scope)
+        content = redact_for_scope(d.content, scope, models=trace.models)
         ids.append(store.claim(d.type, d.subject, content, scope=scope, project=project,
                                confidence=d.confidence, source_ids=[oid], code_refs=d.code_refs))
     return ids
@@ -378,9 +378,18 @@ def _path_agnostic(content: str, scope: str) -> str:
     return _ABS_PATH.sub("<path>", content) if scope in ("project", "global") else content
 
 
-def _grader_scheme(grader: str) -> str:
+def redact_for_scope(content: str, scope: str, *, models: list[str]) -> str:
+    """Make claim content swarm-safe — the ONE redaction entry point (so callers don't re-chain the
+    individual strips in the right order/scope). Strips the producing model's identity and host paths
+    for SHARED (project/global) scopes; a no-op for single-actor (agent/user) scopes. grader-id
+    scrubbing happens at the distiller (where the raw grader string lives), via `grader_scheme`."""
+    return _path_agnostic(_model_agnostic(content, models, scope), scope)
+
+
+def grader_scheme(grader: str) -> str:
     """A grader id stripped to its scheme ('rubric:/abs/rubric.txt' → 'rubric', 'cmd' → 'cmd') — the
-    path arg is a host-ephemeral tmp location, never part of a shareable claim."""
+    path arg is a host-ephemeral tmp location, never part of a shareable claim. Public: shared with
+    wire.py's observation labels."""
     return (grader or "").split(":", 1)[0] or "grader"
 
 
@@ -433,12 +442,13 @@ if __name__ == "__main__":
         {"sessionId": "sess1", "payload": {"type": "run_failed", "reason": "agent exited 1", "exitCode": 1}},
     ]
 
-    # leak hygiene: shared scope redacts host paths + the grader scheme drops its path arg
-    assert _path_agnostic("see /var/folders/x/grader/rubric.txt and /tmp/y", "project") == "see <path> and <path>"
-    assert _path_agnostic("/Users/a/keep-for-agent-scope", "agent").startswith("/Users")  # non-shared kept
-    assert _path_agnostic("anchor src/sandbox/mod.rs stays", "project") == "anchor src/sandbox/mod.rs stays"  # rel ref kept
-    assert _grader_scheme("rubric:/var/folders/x/grader/rubric.txt") == "rubric"
-    assert _grader_scheme("cmd") == "cmd" and _grader_scheme("") == "grader"
+    # leak hygiene: shared scope redacts host paths + model id (one entry point); grader scheme drops path arg
+    assert redact_for_scope("see /var/folders/x/grader/rubric.txt and /tmp/y", "project", models=[]) == "see <path> and <path>"
+    assert redact_for_scope("ran on gpt-9 at /tmp/z", "project", models=["gpt-9"]) == "ran on <model> at <path>"
+    assert redact_for_scope("/Users/a/keep-for-agent-scope", "agent", models=[]).startswith("/Users")  # non-shared kept
+    assert redact_for_scope("anchor src/sandbox/mod.rs stays", "project", models=[]) == "anchor src/sandbox/mod.rs stays"  # rel ref kept
+    assert grader_scheme("rubric:/var/folders/x/grader/rubric.txt") == "rubric"
+    assert grader_scheme("cmd") == "cmd" and grader_scheme("") == "grader"
 
     store = MemoryStore(db)
     ids = distill_session(events, store, project="pillbox", task="add libkrun feature flag")

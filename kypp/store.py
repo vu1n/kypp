@@ -37,7 +37,7 @@ from typing import Callable, Protocol
 
 import turso  # pyturso — the tursodb engine (concurrent writes + native vectors)
 
-from .vocab import AUTHORITIES, OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, TYPES  # single-sourced vocabulary (turso-free leaf)
+from .vocab import AUTHORITIES, OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, SURFACES, TYPES  # single-sourced vocabulary (turso-free leaf)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -274,8 +274,10 @@ class MemoryStore:
         source_ids. The foundation for outcome-driven memory quality: a later pass attributes the
         consumer's verifiable score back to each row by `consumer`, so a claim whose runs underperform
         can be down-weighted/rejected (the 'this memory isn't good' signal that importance/agreement
-        heuristics can't give). `claims` may be Claim objects or ids. No-op on an empty consumer or
-        empty set, so a caller can pass an optional session id unconditionally."""
+        heuristics can't give). `claims` may be Claim objects or ids. `surface` is always validated;
+        recording is a no-op on an empty consumer or empty set, so a caller can pass an optional
+        session id unconditionally."""
+        _require(surface in SURFACES, f"bad surface {surface!r}")
         ids = [c.id if isinstance(c, Claim) else c for c in claims]
         if not consumer or not ids:
             return 0

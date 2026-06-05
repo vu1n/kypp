@@ -22,7 +22,7 @@ from .arbiter import consolidate as _consolidate
 from .arbiter import resolve_conflicts as _resolve_conflicts
 from .store import Claim, MemoryStore, RipgrepResolver, store_from_env
 from .view import briefing_claims, render_claims
-from .vocab import ClaimType, Scope
+from .vocab import HUMAN_CORRECTION_CONFIDENCE, ClaimType, Scope
 
 
 def _claim_dict(c: Claim) -> dict:
@@ -116,7 +116,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         It outranks any agent claim AND any amount of agent corroboration, lands accepted, and
         supersedes prior claims on the same subject. Returns the claim id."""
         cid = store.claim(type, subject, content, scope="project", project=project,
-                          confidence=0.95, authority="human")
+                          confidence=HUMAN_CORRECTION_CONFIDENCE, authority="human")
         _consolidate(store, project=project, subject=subject)
         return cid
 
@@ -135,11 +135,13 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
 
     @mcp.tool()
     def consolidate(subject: str = "", dry_run: bool = False, semantic: float = 0.0) -> dict:
-        """Dedup memory: group claims by subject and SUPERSEDE all but the strongest (accepted >
-        confident > more-evidenced > newer). subject="" consolidates the whole project; dry_run=true
-        previews the plan without writing. semantic>0 (a cosine distance — calibrate per embedder,
-        ~0.25 for nomic-embed-text) ALSO merges different-subject near-duplicates (needs an embedder).
-        Superseded claims are kept for history but excluded from recall."""
+        """Dedup memory: group claims by subject and SUPERSEDE all but the strongest (authority >
+        accepted > confident > more-evidenced > newer). ALSO PROMOTES a candidate survivor to accepted
+        once >= 2 independent sessions corroborate it (the swarm-truth gate). subject="" consolidates
+        the whole project; dry_run=true previews the plan without writing. semantic>0 (a cosine
+        distance — calibrate per embedder, ~0.25 for nomic-embed-text) ALSO merges different-subject
+        near-duplicates (needs an embedder). Superseded claims are kept for history but excluded from
+        recall."""
         return _consolidate(store, project=project, subject=subject or None, dry_run=dry_run,
                             semantic=semantic or None)
 

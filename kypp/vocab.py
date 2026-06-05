@@ -15,11 +15,20 @@ Status = Literal["candidate", "accepted", "superseded", "rejected"]  # claim lif
 # outranks any agent claim (and any amount of agent corroboration), a deterministically-verified
 # claim outranks an agent guess. Ordered low→high; AUTHORITY_RANK is the survivor tie-break.
 Authority = Literal["agent", "verified", "human"]
+# How a claim was surfaced to a consumer — the closed set usage provenance records (recall/briefing
+# read paths; expand dereferences a handle). Single-sourced so a new read surface picks from the set.
+Surface = Literal["recall", "briefing", "expand"]
 
 SCOPES: tuple[str, ...] = get_args(Scope)
 TYPES: tuple[str, ...] = get_args(ClaimType)
 STATUSES: tuple[str, ...] = get_args(Status)
 AUTHORITIES: tuple[str, ...] = get_args(Authority)
 AUTHORITY_RANK: dict[str, int] = {a: i for i, a in enumerate(AUTHORITIES)}
+SURFACES: tuple[str, ...] = get_args(Surface)
+
+# Confidence a human correction lands at — high, but the AUTHORITY tier (not this number) is what makes
+# it win ranking, so the exact value is secondary signal, not the dominating one. Single-sourced so the
+# CLI default and the MCP `correct` tool can't drift.
+HUMAN_CORRECTION_CONFIDENCE = 0.95
 
 OLLAMA_DEFAULT_HOST = "http://127.0.0.1:11434"  # shared default: ollama_embed (store) + ollama_complete (distill)
