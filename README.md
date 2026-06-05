@@ -35,8 +35,10 @@ two equivalent surfaces — pick whichever you have:
    line per claim: `handle [type ✓conf] subject — content → path:line`. The 8-char **handle** is a
    pointer — `expand(handle)` / `kypp show <handle>` dereferences the full claim (unclipped content,
    provenance, live code grounding). Only expand what you act on; the line is usually enough.
-   `✓` = accepted, `?` = candidate; the `path:line` pointer is resolved against the *current* tree —
-   read the code yourself, memory never inlines file content.
+   Reading the marks: `✓` accepted / `?` candidate; `👤` human-corrected and `☑` verified outrank
+   agent claims — trust them over your own inference. `⚠ code gone (stale)` means every code anchor
+   failed to resolve (advisory — the lesson may still hold). The `path:line` pointer is resolved
+   against the *current* tree — read the code yourself, memory never inlines file content.
 3. **When you learn something durable — write it.** `claim`/`remember` a distilled lesson, not a
    transcript. The rules that make it useful to the next agent:
    - **`subject` is the claim's identity.** Reuse an existing subject to update/correct it
@@ -49,17 +51,33 @@ two equivalent surfaces — pick whichever you have:
    - **Candidate vs accepted:** plain claims land as *candidates* — visible to `recall
      include_candidates=true`, **invisible to `briefing` and default recall**. For settled team
      truths use `decide` / `remember_procedure` (MCP) or `kypp remember --accept`.
-4. **Wrong memory — correct it, don't ignore it.** Write the correction under the **same subject**
-   with higher confidence; `consolidate` supersedes the loser. Nothing is ever deleted; superseded
-   claims stay as history (handles still `expand` — check `status` before trusting one from old
-   context).
+4. **Wrong memory — correct it, don't ignore it.** Two cases:
+   - *A human told you the right answer* → `correct(subject, content)` (MCP) / `kypp correct`. It
+     records with **human authority** — outranking any agent claim and any amount of agent
+     corroboration — and immediately supersedes the subject's other claims. Reserve it for actual
+     human input.
+   - *You believe it's wrong* → write the counter-claim under the **same subject** with higher
+     confidence; `consolidate` supersedes the loser.
+   Nothing is ever deleted; superseded claims stay as history (handles still `expand` — check
+   `status` before trusting one from old context).
 
-### Capture (host side, after runs)
+### Host side (capture & maintenance — operator, not agent)
 
 The write side runs without any agent cooperation: `kypp sweep` captures every completed §0 session
 log (idempotent, cron-friendly), deriving each session's project from its pillbox path; `kypp
 capture <log.jsonl>` does one. With `KYPP_DISTILL_MODEL` set, captured traces are distilled into
 claims by a local LLM (heuristic failure-mining is the fallback floor).
+
+Cron-safe maintenance alongside `sweep`:
+
+- `kypp verify` — re-runs claims' attached `verify` shell checks (exit 0 = still true): pass →
+  accepted + `☑ verified` authority; fail → rejected (revives when the check passes again).
+  **Trust boundary:** verify commands are arbitrary shell — attach them yourself (`kypp remember
+  --verify 'cmd'` / `kypp correct --verify`), and never run `kypp verify` against a shared store
+  whose claims you didn't vet. An operator capability; agents shouldn't mint verifiers unattended.
+- `kypp consolidate [--semantic D]` — dedup/supersede near-duplicates.
+- `kypp usage --record --session ID --claim H…` — record which claims a run was shown (the
+  run-loop hook); read back with `kypp usage --session ID` / `--claim H` for outcome attribution.
 
 ## Commands
 
@@ -68,7 +86,10 @@ kypp serve [--http --port 7077]   # the MCP server — stdio by default, --http 
 kypp recall "libkrun docker"      # search memory → compact lines with handles
 kypp show a1b2c3d4                # expand a handle → the full claim (JSON)
 kypp remember "subject" "lesson"  # store a claim (subject = identity key; --accept for team truth)
-kypp briefing                     # session-start digest: strongest accepted memory, pitfalls first
+kypp correct "subject" "answer"   # human correction: outranks + supersedes the subject's claims
+kypp briefing [--candidates]      # session-start digest, pitfalls first (--candidates: own retries too)
+kypp verify                       # re-check verifier-carrying claims → verified / rejected
+kypp usage [--record]             # provenance: which claims a run saw / which runs saw a claim
 kypp capture <log.jsonl | ->      # capture one session's §0 log into memory
 kypp sweep                        # autocapture: sweep completed sessions (idempotent, cron-friendly)
 kypp consolidate [--semantic D]   # dedup near-duplicate claims (exact + optional semantic)
@@ -77,8 +98,8 @@ kypp batch                        # LLM re-distill a corpus of logs, one represe
 
 ## MCP tools
 
-`observe` · `claim` · `recall` · `expand` · `briefing` · `decide` · `remember_procedure` ·
-`consolidate` · `resolve_conflicts`
+`observe` · `claim` · `recall` · `expand` · `briefing` · `correct` · `decide` ·
+`remember_procedure` · `consolidate` · `resolve_conflicts`
 
 The DX contract is **handles**: `recall`/`briefing` return one compact line per claim —
 `handle [type ✓conf] subject — content → code pointer` — and `expand(handle)` dereferences only
@@ -89,12 +110,16 @@ hook) to load the project's pitfalls and decisions before the agent has a query.
 
 ## Memory model
 
-A **claim** is `{type, subject, content, scope, status, confidence, source_ids, code_refs}`.
+A **claim** is `{type, subject, content, scope, status, confidence, authority, source_ids,
+code_refs, verify?}`.
 Types: `fact | preference | decision | procedure | artifact | hypothesis | pitfall`.
 Scopes: `user | project | agent | global` (a project sees its own claims + global).
 Lifecycle: `candidate → accepted | superseded | rejected` — recall never returns
-superseded/rejected, prefers accepted, and nothing is ever deleted. **Observations** are the raw
-append-only layer underneath (provenance for distilled claims).
+superseded/rejected, prefers accepted, and nothing is ever deleted.
+Authority: `agent < verified < human` — the survivor tie-break; a human correction beats any
+amount of agent corroboration, a `verify`-confirmed fact beats an agent guess. `stale` is an
+advisory flag set at recall when a code-anchored claim's anchors all fail to resolve.
+**Observations** are the raw append-only layer underneath (provenance for distilled claims).
 
 ## Config (env)
 
