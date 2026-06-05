@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS memory_claims (
 );
 CREATE INDEX IF NOT EXISTS claims_project_idx ON memory_claims(project);
 CREATE INDEX IF NOT EXISTS claims_status_idx ON memory_claims(status);
+CREATE TABLE IF NOT EXISTS claim_usages (
+  id TEXT PRIMARY KEY, consumer TEXT NOT NULL,   -- consumer = the run/session shown the claim
+  claim_id TEXT NOT NULL, project TEXT, scope TEXT,
+  surface TEXT NOT NULL,                 -- how it was surfaced: 'recall' | 'briefing' | 'expand'
+  query TEXT,                            -- the recall query for context, NULL for briefing/expand
+  score REAL,                            -- the consumer's verifiable outcome, attributed post-hoc for credit assignment (NULL until then)
+  metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usages_consumer_idx ON claim_usages(consumer);
+CREATE INDEX IF NOT EXISTS usages_claim_idx ON claim_usages(claim_id);
 """
 
 
@@ -239,6 +249,44 @@ class MemoryStore:
         _require(status in STATUSES, f"bad status {status!r}")
         self._write([("UPDATE memory_claims SET status=?, updated_at=? WHERE id=?",
                       (status, _now(), claim_id))])
+
+    # --- usage = the run -> claims-consumed link (memory credit-assignment foundation) ---
+    def record_usage(self, consumer: str, claims, *, surface: str, project: str | None = None,
+                     scope: str | None = None, query: str | None = None) -> int:
+        """Record that `consumer` (a run/session id) was SHOWN these claims — the inverse of a claim's
+        source_ids. The foundation for outcome-driven memory quality: a later pass attributes the
+        consumer's verifiable score back to each row by `consumer`, so a claim whose runs underperform
+        can be down-weighted/rejected (the 'this memory isn't good' signal that importance/agreement
+        heuristics can't give). `claims` may be Claim objects or ids. No-op on an empty consumer or
+        empty set, so a caller can pass an optional session id unconditionally."""
+        ids = [c.id if isinstance(c, Claim) else c for c in claims]
+        if not consumer or not ids:
+            return 0
+        now = _now()
+        self._write([(
+            "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,query,metadata,created_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (_uid(), consumer, cid, project, scope, surface, query, "{}", now)) for cid in ids])
+        return len(ids)
+
+    def usages_for(self, consumer: str) -> list[dict]:
+        """The claims a run/session was shown, oldest first — observability ('what memory did this run
+        see?') and the join key for credit assignment. LEFT JOIN so a usage row survives even after its
+        claim is superseded/removed."""
+        cur = self.db.cursor()
+        rows = cur.execute(
+            "SELECT u.claim_id, u.surface, u.query, u.score, u.created_at, c.subject, c.type, c.status"
+            " FROM claim_usages u LEFT JOIN memory_claims c ON c.id = u.claim_id"
+            " WHERE u.consumer = ? ORDER BY u.created_at", (consumer,)).fetchall()
+        return [dict(zip([d[0] for d in cur.description], r)) for r in rows]
+
+    def usage_of(self, claim_id: str) -> list[dict]:
+        """The runs/sessions a claim was shown to, oldest first — the basis for attributing outcomes."""
+        cur = self.db.cursor()
+        rows = cur.execute(
+            "SELECT consumer, surface, score, created_at FROM claim_usages WHERE claim_id = ?"
+            " ORDER BY created_at", (claim_id,)).fetchall()
+        return [dict(zip([d[0] for d in cur.description], r)) for r in rows]
 
     # --- recall = load/pull -------------------------------------------------
     def recall(self, query: str, project: str | None = None, scope: str | None = None,
@@ -435,6 +483,15 @@ if __name__ == "__main__":
     assert hits and hits[0].type == "pitfall", [h.type for h in hits]
     assert hits[0].source_ids == [o] and hits[0].code_refs[0]["symbol"] == "select_backend", hits[0]
     assert all(h.status == "accepted" for h in hits)
+    # usage provenance: record what a run was shown; read it back both ways (run->claims, claim->runs)
+    assert m.record_usage("run-1", hits, surface="recall", project="pillbox", query="libkrun") == len(hits)
+    seen = m.usages_for("run-1")
+    assert any(u["claim_id"] == hits[0].id and u["subject"] == hits[0].subject
+               and u["surface"] == "recall" for u in seen), seen
+    who = m.usage_of(hits[0].id)
+    assert any(u["consumer"] == "run-1" and u["score"] is None for u in who), who  # score NULL until attributed
+    assert m.record_usage("", hits, surface="recall") == 0, "empty consumer is a no-op"
+    assert m.record_usage("r", [], surface="recall") == 0, "empty claim set is a no-op"
     # concurrent writes: two stores writing the same db at once (the tursodb reason)
     m2 = MemoryStore(db)
     a = m.observe("agent_a", "x", project="pillbox"); b = m2.observe("agent_b", "y", project="pillbox")

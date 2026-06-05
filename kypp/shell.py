@@ -27,6 +27,12 @@ def _project_arg(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
 
 
+def _session_arg(ap: argparse.ArgumentParser) -> None:
+    ap.add_argument("--session", default=os.environ.get("KYPP_SESSION"),
+                    help="record that this run/session was shown the results — usage provenance "
+                         "(run->claims-consumed), the foundation for outcome-driven memory quality")
+
+
 def recall_main():
     ap = argparse.ArgumentParser(
         description="search shared memory — compact lines with handles (`kypp show HANDLE` expands)")
@@ -37,9 +43,13 @@ def recall_main():
     ap.add_argument("--candidates", action="store_true", help="include unaccepted candidates")
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--json", action="store_true", help="full claims as JSON instead of compact lines")
+    _session_arg(ap)
     args = ap.parse_args()
-    claims = store_from_env().recall(" ".join(args.query), project=args.project, types=args.types,
-                                     include_candidates=args.candidates, limit=args.limit)
+    store = store_from_env()
+    query = " ".join(args.query)
+    claims = store.recall(query, project=args.project, types=args.types,
+                          include_candidates=args.candidates, limit=args.limit)
+    store.record_usage(args.session, claims, surface="recall", project=args.project, query=query or None)
     print(json.dumps([asdict(c) for c in claims], indent=2) if args.json else render_claims(claims))
 
 
@@ -85,7 +95,39 @@ def briefing_main():
     ap.add_argument("--candidates", action="store_true",
                     help="also surface this project's un-corroborated candidates (your own recent "
                          "lessons) — the same-project retry digest, not just accepted swarm truth")
+    _session_arg(ap)
     args = ap.parse_args()
+    store = store_from_env()
+    claims = briefing_claims(store, args.project, args.limit, include_candidates=args.candidates)
+    store.record_usage(args.session, claims, surface="briefing", project=args.project)
     empty = "(no memory yet)" if args.candidates else "(no accepted memory yet)"
-    print(render_claims(briefing_claims(store_from_env(), args.project, args.limit,
-                                        include_candidates=args.candidates), empty=empty))
+    print(render_claims(claims, empty=empty))
+
+
+def usage_main():
+    ap = argparse.ArgumentParser(
+        description="inspect memory usage provenance: which claims a run saw, or which runs saw a claim")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--session", help="the claims this run/session was shown")
+    g.add_argument("--claim", help="the runs/sessions a claim was shown to (id or 8-char handle)")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+    store = store_from_env()
+    if args.session:
+        rows = store.usages_for(args.session)
+    else:
+        c = store.get(args.claim)  # resolve handle → full id (errors on ambiguous prefix)
+        rows = store.usage_of(c.id) if c else []
+    if args.json:
+        print(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        print("(no usage recorded)")
+        return
+    for r in rows:
+        score = "—" if r.get("score") is None else f"{r['score']:.3f}"
+        if args.session:  # claim-shaped rows
+            print(f"{r['claim_id'][:8]} [{r.get('type') or '?'} {r.get('status') or '?'}] "
+                  f"{r['surface']} score={score} — {r.get('subject') or '(claim gone)'}")
+        else:  # consumer-shaped rows
+            print(f"{r['consumer']} {r['surface']} score={score} @ {r['created_at']}")

@@ -34,7 +34,7 @@ def _claim_dict(c: Claim) -> dict:
 
 
 def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
-              http: tuple[str, int] | None = None):
+              http: tuple[str, int] | None = None, consumer: str | None = None):
     """Register the engine's tools on a FastMCP server bound to `store`/`project`. Imports the MCP SDK
     lazily so the module stays importable (and testable) without it. `http=(host, port)` serves over
     streamable-http; None → stdio. The tool docstrings/type hints below are the agent-facing contract.
@@ -85,6 +85,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         the SAME subject with higher confidence; consolidation supersedes the loser."""
         claims = store.recall(query, project=project, scope=scope, types=types,
                               include_candidates=include_candidates, limit=limit)
+        store.record_usage(consumer, claims, surface="recall", project=project, query=query or None)
         return [_claim_dict(c) for c in claims] if verbose else render_claims(claims)
 
     @mcp.tool()
@@ -103,7 +104,9 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         """Session-start digest — call ONCE before starting work, no query needed: the project's
         strongest accepted memory, known traps (pitfalls) first, then decisions and procedures.
         Lines carry handles; `expand` any you act on."""
-        return render_claims(briefing_claims(store, project, limit), empty="(no accepted memory yet)")
+        claims = briefing_claims(store, project, limit)
+        store.record_usage(consumer, claims, surface="briefing", project=project)
+        return render_claims(claims, empty="(no accepted memory yet)")
 
     @mcp.tool()
     def decide(subject: str, content: str, source_ids: list[str] | None = None) -> str:
@@ -147,7 +150,8 @@ def main():
     args = ap.parse_args()
 
     http = (args.host, args.port) if args.http else None
-    mcp = build_mcp(store_from_env(), os.environ.get("KYPP_PROJECT", "default"), http=http)
+    mcp = build_mcp(store_from_env(), os.environ.get("KYPP_PROJECT", "default"), http=http,
+                    consumer=os.environ.get("KYPP_SESSION"))
     mcp.run(transport="streamable-http" if args.http else "stdio")  # http = the attach surface
 
 

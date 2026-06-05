@@ -10,6 +10,7 @@ _COMMANDS = {
     "show": "expand a claim handle to the full claim (JSON)",
     "remember": "store a claim: SUBJECT CONTENT (subject = identity key)",
     "briefing": "session-start digest: strongest accepted memory, pitfalls first",
+    "usage": "usage provenance: which claims a run saw / which runs saw a claim",
     "capture": "capture one session's §0 log into memory (alias: wire)",
     "sweep": "autocapture: sweep completed sessions into memory (idempotent)",
     "consolidate": "dedup near-duplicate claims (exact + optional semantic)",
@@ -36,6 +37,8 @@ def main():
         from .shell import remember_main as run
     elif cmd == "briefing":
         from .shell import briefing_main as run
+    elif cmd == "usage":
+        from .shell import usage_main as run
     elif cmd in ("capture", "wire"):
         from .wire import main as run
     elif cmd == "sweep":
