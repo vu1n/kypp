@@ -90,6 +90,11 @@ def capture_log_file(path: str, store: MemoryStore, *, project: str, task: str =
     events = read_log(path)
     if require_complete and not _is_complete(events):
         return None
+    # NOT atomic: capture_events writes observations then claims in separate txns, and the marker is
+    # written only on full success. A crash AFTER some writes but before the marker → a later sweep
+    # re-runs and re-observes (new uuids, no PK collision). Rare in practice — distiller_from_env wraps
+    # the LLM in a heuristic fallback, so the failure-prone path doesn't raise out of distill. If it
+    # becomes real, the fix is deterministic observation ids (session+kind+content hash) → INSERT-idempotent.
     res = capture_events(events, store, project=project, task=task, distiller=distiller)
     open(marker, "w").close()
     return res

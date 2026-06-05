@@ -249,7 +249,12 @@ class LLMDistiller:
             data = json.loads(blob)
         except json.JSONDecodeError as e:
             raise ValueError(f"distiller returned unparseable JSON: {e}; {blob[:200]!r}") from e
-        items = data.get("claims", []) if isinstance(data, dict) else data
+        # Accept a list, {"claims": [...]}, OR a single bare claim object (a common LLM shape — don't
+        # silently drop it to zero claims).
+        if isinstance(data, dict):
+            items = data["claims"] if "claims" in data else [data]
+        else:
+            items = data
         if not isinstance(items, list):
             raise ValueError(f"distiller JSON is not a claim list: {type(items).__name__}")
         drafts: list[ClaimDraft] = []
