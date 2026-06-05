@@ -180,7 +180,11 @@ class RipgrepResolver:
         if len(parts) < 3:
             return None
         loc, line, text = parts
-        return {"path": loc, "line": int(line) if line.isdigit() else None, "preview": text.strip()}
+        # rg prepends "./" on a directory (repo-wide) search but not on a single-file search —
+        # normalize so a grounded vs a moved hit yield the same repo-relative path shape. removeprefix
+        # (not lstrip) so it strips the exact prefix once, never gnaws a leading dot off "./.config".
+        return {"path": loc.removeprefix("./"), "line": int(line) if line.isdigit() else None,
+                "preview": text.strip()}
 
 
 class MemoryStore:
@@ -551,6 +555,10 @@ if __name__ == "__main__":
     if rg.available:
         g = MemoryStore(db, resolver=rg).recall("libkrun rebuild feature codesign", project="pillbox")[0].grounding
         assert g and g[0]["status"] == "grounded" and g[0]["location"]["line"] == 1, g
+        assert not g[0]["location"]["path"].startswith("./"), g  # path-scoped hit: no ./ prefix
+        # a wrong stored path → repo-wide search (rg prepends ./) → 'moved', path normalized to match
+        moved = rg.resolve({"symbol": "select_backend", "path": "wrong/place.rs", "query": "select_backend"})
+        assert moved["status"] == "moved" and not moved["location"]["path"].startswith("./"), moved
         grounded = f"; grounded → {g[0]['location']['path']}:{g[0]['location']['line']}"
 
     # embedder branch (the LIKE→embedder upgrade path the prod code will hit). A toy 1-D embedder; the
