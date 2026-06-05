@@ -23,8 +23,9 @@ def compact_line(c: Claim) -> str:
     ✓ accepted / ? candidate; the pointer is the FIRST resolved grounding (the agent reads the
     current code itself — we never inline file content)."""
     mark = "✓" if c.status == "accepted" else "?"
+    auth = {"human": " 👤", "verified": " ☑"}.get(c.authority, "")  # flag non-agent authority
     body = " ".join(c.content.split())
-    line = f"{c.id[:8]} [{c.type} {mark}{c.confidence:.1f}] {c.subject} — {body[:_CLIP]}"
+    line = f"{c.id[:8]} [{c.type} {mark}{c.confidence:.1f}{auth}] {c.subject} — {body[:_CLIP]}"
     if len(body) > _CLIP:
         line += f"… (expand {c.id[:8]} for full)"
     hit = next((g for g in c.grounding if g.get("location")), None)
@@ -95,6 +96,11 @@ if __name__ == "__main__":
     bc = briefing_claims(store, "p", include_candidates=True)
     assert any(c.status == "candidate" for c in bc), [c.status for c in bc]
     assert render_claims([], empty="(none)") == "(none)"
+
+    # authority glyph: a human-asserted claim is flagged 👤 in the compact line
+    store.claim("fact", "image tag", "use pillbox-runner:l7", scope="project", project="p", authority="human")
+    hline = compact_line(store.recall("image tag", project="p")[0])
+    assert "👤" in hline, hline
 
     # the handle round-trip the compact line promises: expand recovers the full claim
     full = store.get(pid[:8])

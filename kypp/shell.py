@@ -104,6 +104,29 @@ def briefing_main():
     print(render_claims(claims, empty=empty))
 
 
+def correct_main():
+    ap = argparse.ArgumentParser(
+        description="HUMAN correction: assert the right answer for a subject and supersede the rest — "
+                    "outranks any agent claim and any amount of agent corroboration")
+    ap.add_argument("subject", help="the claim's identity key (reuse the wrong claim's subject to replace it)")
+    ap.add_argument("content", help="the correct answer (model-agnostic — it's shared)")
+    ap.add_argument("--type", choices=TYPES, default="fact")
+    ap.add_argument("--scope", choices=SCOPES, default="project")
+    ap.add_argument("--confidence", type=float, default=0.95)
+    ap.add_argument("--semantic", type=float, default=None, metavar="DIST",
+                    help="also supersede differently-worded near-dups within this cosine distance "
+                         "(needs KYPP_EMBED_MODEL)")
+    _project_arg(ap)
+    args = ap.parse_args()
+    from .arbiter import consolidate
+    store = store_from_env()
+    cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
+                      confidence=args.confidence, authority="human")
+    res = consolidate(store, project=args.project, subject=args.subject, semantic=args.semantic)
+    print(f"{cid[:8]} [human {args.type}] {args.subject} — corrected; "
+          f"superseded {res['superseded']} prior claim(s)")
+
+
 def usage_main():
     ap = argparse.ArgumentParser(
         description="inspect memory usage provenance: which claims a run saw, or which runs saw a claim")

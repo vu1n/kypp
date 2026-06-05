@@ -9,6 +9,7 @@ _COMMANDS = {
     "recall": "search shared memory — compact lines with handles",
     "show": "expand a claim handle to the full claim (JSON)",
     "remember": "store a claim: SUBJECT CONTENT (subject = identity key)",
+    "correct": "human correction: assert the right answer for a subject, supersede the rest",
     "briefing": "session-start digest: strongest accepted memory, pitfalls first",
     "usage": "usage provenance: which claims a run saw / which runs saw a claim",
     "capture": "capture one session's §0 log into memory (alias: wire)",
@@ -35,6 +36,8 @@ def main():
         from .shell import show_main as run
     elif cmd == "remember":
         from .shell import remember_main as run
+    elif cmd == "correct":
+        from .shell import correct_main as run
     elif cmd == "briefing":
         from .shell import briefing_main as run
     elif cmd == "usage":

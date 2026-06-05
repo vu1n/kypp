@@ -29,8 +29,9 @@ def _claim_dict(c: Claim) -> dict:
     """Claim → the JSON an agent consumes. Includes resolved code `grounding` (live pointers) and the
     `low_confidence` flag the spec wants surfaced."""
     return {"id": c.id, "type": c.type, "subject": c.subject, "content": c.content, "scope": c.scope,
-            "status": c.status, "confidence": c.confidence, "source_ids": c.source_ids,
-            "code_refs": c.code_refs, "grounding": c.grounding, "low_confidence": c.low_confidence}
+            "status": c.status, "authority": c.authority, "confidence": c.confidence,
+            "source_ids": c.source_ids, "code_refs": c.code_refs, "grounding": c.grounding,
+            "low_confidence": c.low_confidence}
 
 
 def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
@@ -107,6 +108,17 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         claims = briefing_claims(store, project, limit)
         store.record_usage(consumer, claims, surface="briefing", project=project)
         return render_claims(claims, empty="(no accepted memory yet)")
+
+    @mcp.tool()
+    def correct(subject: str, content: str, type: ClaimType = "fact") -> str:
+        """Record a HUMAN correction — the authoritative right answer for a subject. Use when a human
+        tells you a stored memory is WRONG and gives the correct value (e.g. the right config/tag).
+        It outranks any agent claim AND any amount of agent corroboration, lands accepted, and
+        supersedes prior claims on the same subject. Returns the claim id."""
+        cid = store.claim(type, subject, content, scope="project", project=project,
+                          confidence=0.95, authority="human")
+        _consolidate(store, project=project, subject=subject)
+        return cid
 
     @mcp.tool()
     def decide(subject: str, content: str, source_ids: list[str] | None = None) -> str:
@@ -192,8 +204,8 @@ elif __name__ == "__main__":
     hits = [_claim_dict(c) for c in store.recall("libkrun rebuild docker fallback", project="pillbox")]
     top = hits[0]
     assert top["subject"] == "libkrun rebuild", hits
-    assert set(top) == {"id", "type", "subject", "content", "scope", "status", "confidence",
-                        "source_ids", "code_refs", "grounding", "low_confidence"}, set(top)
+    assert set(top) == {"id", "type", "subject", "content", "scope", "status", "authority",
+                        "confidence", "source_ids", "code_refs", "grounding", "low_confidence"}, set(top)
     assert top["status"] == "accepted" and top["source_ids"] == [oid]
     assert top["grounding"] and top["grounding"][0]["status"] == "grounded" \
         and top["grounding"][0]["location"]["line"] == 1, top["grounding"]

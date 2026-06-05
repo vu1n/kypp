@@ -17,11 +17,14 @@ import sys
 from collections import defaultdict
 
 from .store import Claim, MemoryStore, store_from_env
+from .vocab import AUTHORITY_RANK
 
 
 def _rank(c: Claim) -> tuple:
-    """Sort key, higher = stronger survivor: accepted first, then confidence, evidence, recency."""
-    return (c.status == "accepted", c.confidence or 0, len(c.source_ids), c.updated_at)
+    """Sort key, higher = stronger survivor: AUTHORITY first (a human correction outranks any agent
+    claim and any amount of agent corroboration), then accepted, confidence, evidence, recency."""
+    return (AUTHORITY_RANK.get(c.authority, 0), c.status == "accepted", c.confidence or 0,
+            len(c.source_ids), c.updated_at)
 
 
 def _corroboration(members: list[Claim]) -> int:
@@ -204,6 +207,22 @@ elif __name__ == "__main__":
     assert not store.recall("lonely", project="q"), "lone candidate stays hidden from accepted recall"
     print("OK — arbiter corroboration: 2 sessions agreeing → candidate promoted to accepted; "
           "lone candidate stays a candidate")
+
+    # authority: a HUMAN correction outranks agent claims AND agent corroboration on the same subject.
+    # Two agent sessions agree on the WRONG tag; a human asserts the right one → human wins, rest gone.
+    store.claim("fact", "image tag", "use pillbox-runner:branch", scope="project", project="r",
+                confidence=0.9, source_ids=["a1"])
+    store.claim("fact", "image tag", "use pillbox-runner:branch", scope="project", project="r",
+                confidence=0.9, source_ids=["a2"])
+    human = store.claim("fact", "image tag", "use pillbox-runner:l7", scope="project", project="r",
+                        confidence=0.4, authority="human")  # low conf, but human authority dominates
+    res_h = consolidate(store, project="r", subject="image tag")
+    assert res_h["superseded"] == 2 and res_h["promoted"] == 0, res_h  # both agent claims lose; no promote
+    live = store.recall("image tag", project="r")
+    assert [c.id for c in live] == [human] and live[0].content.endswith("l7"), \
+        [(c.id[:8], c.authority, c.content) for c in live]
+    print("OK — arbiter authority: human correction supersedes 2 corroborating agent claims "
+          "(low confidence, but authority dominates)")
 
     # semantic dedup: DIFFERENT subjects, ~identical embeddings → merged (the LLM-distiller case).
     db2 = "/tmp/arbiter-sem-selftest.db"

@@ -37,7 +37,7 @@ from typing import Callable, Protocol
 
 import turso  # pyturso — the tursodb engine (concurrent writes + native vectors)
 
-from .vocab import OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, TYPES  # single-sourced vocabulary (turso-free leaf)
+from .vocab import AUTHORITIES, OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, TYPES  # single-sourced vocabulary (turso-free leaf)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE TABLE IF NOT EXISTS memory_claims (
   id TEXT PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, content TEXT NOT NULL,
   scope TEXT NOT NULL, project TEXT, agent TEXT, status TEXT NOT NULL DEFAULT 'candidate',
+  authority TEXT DEFAULT 'agent',        -- who asserted it (agent|verified|human) — the survivor tie-break
   confidence REAL DEFAULT 0.7, source_ids TEXT DEFAULT '[]',
   code_refs TEXT DEFAULT '[]',          -- [{symbol?, path?, query?, repo?, commit?}] durable anchor, re-resolved at recall
   embedding BLOB,                        -- vector32 of subject+content (when an embedder is wired)
@@ -68,6 +69,12 @@ CREATE INDEX IF NOT EXISTS usages_consumer_idx ON claim_usages(consumer);
 CREATE INDEX IF NOT EXISTS usages_claim_idx ON claim_usages(claim_id);
 """
 
+# Additive column migrations for dbs created before a column existed. turso supports ALTER TABLE ADD
+# COLUMN; re-adding raises a "duplicate column" parse error, which __init__ swallows — so this is the
+# idempotent way to evolve the schema without a version table. Keep each ADD COLUMN backward-compatible
+# (a DEFAULT, never NOT NULL) so old rows stay valid.
+_MIGRATIONS = ["ALTER TABLE memory_claims ADD COLUMN authority TEXT DEFAULT 'agent'"]
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -87,6 +94,7 @@ class Claim:
     status: str
     confidence: float
     source_ids: list[str]
+    authority: str = "agent"  # who asserted it (agent|verified|human) — the survivor tie-break
     code_refs: list[dict] = field(default_factory=list)
     grounding: list[dict] = field(default_factory=list)  # live pointers, populated by recall
     project: str | None = None
@@ -185,6 +193,12 @@ class MemoryStore:
         _require(bool(mode) and mode[0] == "mvcc", f"MVCC not enabled (got {mode})")
         for stmt in filter(str.strip, SCHEMA.split(";")):
             cur.execute(stmt).fetchall()  # force DDL (lazy execute)
+        for stmt in _MIGRATIONS:
+            try:
+                cur.execute(stmt).fetchall()  # idempotent: re-add raises "duplicate column"
+            except turso.DatabaseError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
         self.db.commit()
 
     def _write(self, sqls: list[tuple[str, tuple]]):
@@ -222,23 +236,26 @@ class MemoryStore:
     # --- claim = distill (may point to code) --------------------------------
     def claim(self, type: str, subject: str, content: str, scope: str, project: str | None = None,
               agent: str | None = None, confidence: float = 0.7, source_ids: list[str] | None = None,
-              code_refs: list[dict] | None = None, accept: bool = False) -> str:
+              code_refs: list[dict] | None = None, accept: bool = False,
+              authority: str = "agent") -> str:
         """Write a claim. Status rule (THE one place it lives — callers don't restate it):
-        `accept=True` or type='decision' lands accepted (a decision IS the chosen answer; making it
-        a candidate would hide it from default recall), everything else is a candidate for the
-        arbiter."""
+        `accept=True`, type='decision', or a non-agent `authority` (human/verified) lands accepted (a
+        decision/human-correction/verified-fact IS the chosen answer; making it a candidate would hide
+        it from default recall), everything else is a candidate for the arbiter. `authority` is the
+        survivor tie-break — a human correction outranks any agent claim regardless of confidence."""
         _require(type in TYPES, f"bad type {type!r}")
         _require(scope in SCOPES, f"bad scope {scope!r}")
-        status = "accepted" if (accept or type == "decision") else "candidate"
+        _require(authority in AUTHORITIES, f"bad authority {authority!r}")
+        status = "accepted" if (accept or type == "decision" or authority != "agent") else "candidate"
         cid, now = _uid(), _now()
         vec = self._vec(f"{subject}\n{content}") if self.embed else None
         # vector32() must wrap a literal; embed it inline (values are our own floats, not user input).
         emb_sql = f"vector32('{vec}')" if vec else "NULL"
         self._write([(
-            f"INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,status,confidence,"
-            f"source_ids,code_refs,embedding,created_at,updated_at)"
-            f" VALUES(?,?,?,?,?,?,?,?,?,?,?,{emb_sql},?,?)",
-            (cid, type, subject, content, scope, project, agent, status, confidence,
+            f"INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,status,authority,"
+            f"confidence,source_ids,code_refs,embedding,created_at,updated_at)"
+            f" VALUES(?,?,?,?,?,?,?,?,?,?,?,?,{emb_sql},?,?)",
+            (cid, type, subject, content, scope, project, agent, status, authority, confidence,
              json.dumps(source_ids or []), json.dumps(code_refs or []), now, now))])
         return cid
 
@@ -426,6 +443,7 @@ class MemoryStore:
         return Claim(
             id=r["id"], type=r["type"], subject=r["subject"], content=r["content"], scope=r["scope"],
             status=r["status"], confidence=conf, source_ids=json.loads(r["source_ids"]),
+            authority=r.get("authority") or "agent",
             code_refs=json.loads(r.get("code_refs") or "[]"), project=r["project"], agent=r["agent"],
             updated_at=r.get("updated_at") or "", low_confidence=(conf or 0) < 0.5)
 
@@ -492,6 +510,12 @@ if __name__ == "__main__":
     assert any(u["consumer"] == "run-1" and u["score"] is None for u in who), who  # score NULL until attributed
     assert m.record_usage("", hits, surface="recall") == 0, "empty consumer is a no-op"
     assert m.record_usage("r", [], surface="recall") == 0, "empty claim set is a no-op"
+    # authority: a human correction lands ACCEPTED (not candidate) even without accept=True, and
+    # hydrates back; a low-confidence human claim still outranks a high-confidence agent one (arbiter).
+    hcid = m.claim("fact", "image tag", "use pillbox-runner:l7", scope="project", project="pillbox",
+                   confidence=0.4, authority="human")
+    hc = m.get(hcid)
+    assert hc.authority == "human" and hc.status == "accepted", (hc.authority, hc.status)
     # concurrent writes: two stores writing the same db at once (the tursodb reason)
     m2 = MemoryStore(db)
     a = m.observe("agent_a", "x", project="pillbox"); b = m2.observe("agent_b", "y", project="pillbox")
