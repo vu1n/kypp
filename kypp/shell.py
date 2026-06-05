@@ -140,7 +140,9 @@ def usage_main():
         rows = store.usages_for(args.session)
     else:
         c = store.get(args.claim)  # resolve handle → full id (errors on ambiguous prefix)
-        rows = store.usage_of(c.id) if c else []
+        if c is None:  # distinguish "no such claim" from "claim exists but unused" (matches show_main)
+            raise SystemExit(f"no claim {args.claim!r}")
+        rows = store.usage_of(c.id)
     if args.json:
         print(json.dumps(rows, indent=2))
         return
