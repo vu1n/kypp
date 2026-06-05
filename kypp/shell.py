@@ -18,7 +18,7 @@ import sys
 # updated_at) is the point. _claim_dict is the trimmed agent contract; don't unify the two.
 from dataclasses import asdict
 
-from .store import BadHandle, Claim, store_from_env
+from .store import BadHandle, Claim, MemoryStore, store_from_env
 from .view import briefing_claims, render_claims
 from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, TYPES
 
@@ -27,7 +27,7 @@ def _project_arg(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
 
 
-def _resolve_handle(store, handle: str) -> Claim:
+def _resolve_handle(store: MemoryStore, handle: str) -> Claim:
     """Resolve a claim handle for a CLI command. The store raises BadHandle on a malformed/ambiguous
     handle and returns None on a clean miss — turn both into a friendly SystemExit (exit 1) instead of
     a traceback. A non-handle error (e.g. a corrupt row) is NOT caught, so real bugs still surface."""
