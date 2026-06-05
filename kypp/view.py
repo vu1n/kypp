@@ -42,12 +42,16 @@ def render_claims(claims: list[Claim], empty: str = "(no matching memory)") -> s
     return "\n".join(compact_line(c) for c in claims) or empty
 
 
-def briefing_claims(store: MemoryStore, project: str, limit: int = 12) -> list[Claim]:
-    """The session-start digest selection: strongest ACCEPTED claims, pitfalls/decisions/procedures
-    first. Over-fetches 3× then stable-sorts by type priority so a pile of accepted facts can't
-    crowd out the traps (recall's browse mode orders by confidence/recency only). Grounding is
-    deferred to the survivors — it's a ripgrep subprocess per code_ref, wasted on discards."""
-    claims = store.recall("", project=project, limit=limit * 3, ground=False)
+def briefing_claims(store: MemoryStore, project: str, limit: int = 12,
+                    include_candidates: bool = False) -> list[Claim]:
+    """The session-start digest selection: strongest claims, pitfalls/decisions/procedures first.
+    Over-fetches 3× then stable-sorts by type priority so a pile of facts can't crowd out the traps
+    (recall's browse mode orders by confidence/recency only). Grounding is deferred to the survivors —
+    it's a ripgrep subprocess per code_ref, wasted on discards. include_candidates=True adds this
+    project's un-corroborated candidates (your own recent lessons) — the same-project RETRY surface,
+    vs the default accepted-only cold-start swarm-truth digest."""
+    claims = store.recall("", project=project, limit=limit * 3, ground=False,
+                          include_candidates=include_candidates)
     claims.sort(key=lambda c: _BRIEFING_PRIORITY.get(c.type, 3))
     return store.ground(claims[:limit])
 
@@ -86,6 +90,10 @@ if __name__ == "__main__":
     # briefing: pitfall before decision before fact; candidates excluded (browse = accepted only)
     b = briefing_claims(store, "p")
     assert [c.type for c in b] == ["pitfall", "decision", "fact"], [c.type for c in b]
+    assert all(c.status == "accepted" for c in b), "default briefing is accepted-only"
+    # --candidates surfaces the project's un-corroborated lessons (the retry surface)
+    bc = briefing_claims(store, "p", include_candidates=True)
+    assert any(c.status == "candidate" for c in bc), [c.status for c in bc]
     assert render_claims([], empty="(none)") == "(none)"
 
     # the handle round-trip the compact line promises: expand recovers the full claim

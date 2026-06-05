@@ -24,6 +24,13 @@ def _rank(c: Claim) -> tuple:
     return (c.status == "accepted", c.confidence or 0, len(c.source_ids), c.updated_at)
 
 
+def _corroboration(members: list[Claim]) -> int:
+    """Independent backing for a subject = distinct source observations across its claims. Each distill
+    run files ONE observation, so this counts the SESSIONS that landed the subject — the multiplayer
+    acceptance signal (one agent's claim is a guess; many sessions agreeing make it truth)."""
+    return len({s for m in members for s in m.source_ids})
+
+
 def _plan_groups(groups: list[list[Claim]]) -> list[dict]:
     """For each group of >1, keep the strongest (by _rank) and supersede the rest."""
     plan = []
@@ -57,17 +64,22 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
 
 
 def consolidate(store: MemoryStore, *, project: str | None = None, subject: str | None = None,
-                dry_run: bool = False, semantic: float | None = None) -> dict:
+                dry_run: bool = False, semantic: float | None = None,
+                accept_corroboration: int | None = 2) -> dict:
     """Phase 1: group live claims by exact (subject, scope, project); keep the strongest, supersede the
     rest. Phase 2 (when `semantic` is a cosine max-distance AND claims are embedded): cluster the
     SURVIVORS' different-subject near-duplicates and dedup those too — the LLM-distiller case, where
-    each lesson gets a distinct subject but many mean the same thing. dry_run returns the plan without
-    writing. Returns {groups, superseded, dry_run, plan:[{subject, survivor, superseded:[ids]}]}."""
+    each lesson gets a distinct subject but many mean the same thing. Phase 3 (when
+    `accept_corroboration` is set, default 2): a candidate survivor backed by >= that many independent
+    sessions is PROMOTED to accepted — the swarm-truth gate, so a corroborated lesson surfaces in
+    briefing/default recall without a manual --accept. dry_run returns the plan without writing.
+    Returns {groups, superseded, promoted, dry_run, plan:[{subject, survivor, superseded:[ids]}]}."""
     claims = store.live_claims(project, subject)
     by_subject: dict[tuple, list[Claim]] = defaultdict(list)
     for c in claims:
         by_subject[(c.subject, c.scope, c.project)].append(c)
-    plan = _plan_groups(list(by_subject.values()))
+    groups = list(by_subject.values())
+    plan = _plan_groups(groups)
     superseded = {cid for p in plan for cid in p["superseded"]}
 
     if semantic is not None:
@@ -76,11 +88,24 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
         plan += sem_plan
         superseded |= {cid for p in sem_plan for cid in p["superseded"]}
 
+    # Promote the survivor of each exact-subject group once enough independent sessions corroborate it.
+    # Exact-subject only — semantic (different-subject) merges are too fuzzy to auto-accept on.
+    promoted = []
+    if accept_corroboration:
+        for members in groups:
+            survivor = max(members, key=_rank)
+            if survivor.status == "candidate" and survivor.id not in superseded \
+                    and _corroboration(members) >= accept_corroboration:
+                promoted.append(survivor.id)
+
     if not dry_run:
         for cid in superseded:
             store.set_status(cid, "superseded")
+        for cid in promoted:
+            store.set_status(cid, "accepted")
 
-    return {"groups": len(plan), "superseded": len(superseded), "dry_run": dry_run, "plan": plan}
+    return {"groups": len(plan), "superseded": len(superseded), "promoted": len(promoted),
+            "dry_run": dry_run, "plan": plan}
 
 
 def resolve_conflicts(store: MemoryStore, subject: str, *, project: str | None = None) -> dict:
@@ -105,13 +130,18 @@ def main():
     ap.add_argument("--semantic", type=float, default=None, metavar="DIST",
                     help="also merge different-subject near-dups within this cosine distance — "
                          "calibrate per embedder (~0.25 for nomic-embed-text); needs KYPP_EMBED_MODEL")
+    ap.add_argument("--accept-corroboration", type=int, default=2, metavar="K",
+                    help="promote a candidate survivor backed by >= K independent sessions to accepted "
+                         "(0 = off, leave acceptance manual)")
     args = ap.parse_args()
 
     result = consolidate(store_from_env(), project=args.project, subject=args.subject,
-                         dry_run=args.dry_run, semantic=args.semantic)
+                         dry_run=args.dry_run, semantic=args.semantic,
+                         accept_corroboration=args.accept_corroboration or None)
     verb = "would supersede" if args.dry_run else "superseded"
-    print(f"{result['groups']} duplicate group(s); {verb} {result['superseded']} claim(s) "
-          f"in project {args.project!r}")
+    promo = "would promote" if args.dry_run else "promoted"
+    print(f"{result['groups']} duplicate group(s); {verb} {result['superseded']} claim(s); "
+          f"{promo} {result['promoted']} corroborated candidate(s) in project {args.project!r}")
     for p in result["plan"][:20]:
         print(f"  keep {p['survivor'][:8]} · drop {len(p['superseded'])} — {p['subject']}")
 
@@ -155,6 +185,25 @@ elif __name__ == "__main__":
 
     print(f"OK — arbiter: consolidated 3 dupes → 1 survivor ({strong[:8]}, the accepted claim); "
           f"2 superseded (history kept, recall excludes); singleton untouched; idempotent")
+
+    # acceptance-by-corroboration: two candidate claims, same subject, from DISTINCT sessions →
+    # survivor promoted to accepted (surfaces in default recall); a lone candidate stays a candidate.
+    store.claim("pitfall", "flaky reparent", "saw it once", scope="project", project="q",
+                confidence=0.6, source_ids=["sessA"])
+    store.claim("pitfall", "flaky reparent", "saw it again", scope="project", project="q",
+                confidence=0.6, source_ids=["sessB"])
+    assert consolidate(store, project="q", dry_run=True)["promoted"] == 1, "dry-run should plan the promotion"
+    assert not store.recall("flaky reparent", project="q"), "dry-run must not promote (accepted-only recall)"
+    res_p = consolidate(store, project="q")
+    assert res_p["promoted"] == 1, res_p
+    surv = store.recall("flaky reparent", project="q")  # now visible to accepted-only recall
+    assert len(surv) == 1 and surv[0].status == "accepted", [(c.status, c.id[:8]) for c in surv]
+    store.claim("pitfall", "lonely", "one session only", scope="project", project="q",
+                confidence=0.6, source_ids=["sessC"])
+    assert consolidate(store, project="q")["promoted"] == 0, "a single session must NOT auto-accept"
+    assert not store.recall("lonely", project="q"), "lone candidate stays hidden from accepted recall"
+    print("OK — arbiter corroboration: 2 sessions agreeing → candidate promoted to accepted; "
+          "lone candidate stays a candidate")
 
     # semantic dedup: DIFFERENT subjects, ~identical embeddings → merged (the LLM-distiller case).
     db2 = "/tmp/arbiter-sem-selftest.db"

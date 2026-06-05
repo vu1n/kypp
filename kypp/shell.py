@@ -74,13 +74,18 @@ def remember_main():
         # the footgun this warns about: briefing + default recall are accepted-only, so a naively
         # seeded memory silently never surfaces.
         print("note: candidates are hidden from `kypp briefing` and default recall — "
-              "use --accept, or inspect with `kypp recall --candidates`", file=sys.stderr)
+              "use --accept, surface them with `kypp briefing --candidates` / `kypp recall "
+              "--candidates`, or let corroboration accept them (`kypp consolidate`)", file=sys.stderr)
 
 
 def briefing_main():
     ap = argparse.ArgumentParser(description="session-start digest: strongest accepted memory, pitfalls first")
     _project_arg(ap)
     ap.add_argument("--limit", type=int, default=12)
+    ap.add_argument("--candidates", action="store_true",
+                    help="also surface this project's un-corroborated candidates (your own recent "
+                         "lessons) — the same-project retry digest, not just accepted swarm truth")
     args = ap.parse_args()
-    print(render_claims(briefing_claims(store_from_env(), args.project, args.limit),
-                        empty="(no accepted memory yet)"))
+    empty = "(no memory yet)" if args.candidates else "(no accepted memory yet)"
+    print(render_claims(briefing_claims(store_from_env(), args.project, args.limit,
+                                        include_candidates=args.candidates), empty=empty))

@@ -140,24 +140,18 @@ class HeuristicDistiller:
 
     def distill(self, trace: Trace) -> list[ClaimDraft]:
         drafts: list[ClaimDraft] = []
-        if trace.verdict:
-            failed = trace.verdict.failed_criteria
-            total = len(trace.verdict.criteria)
-            if len(failed) > 3:
-                # Broad failure → ONE distilled pitfall. One-per-criterion here is a raw failure
-                # list (e.g. 19/20 unit tests), not guidance — it pollutes recall. The count is the
-                # signal: many failures = "broadly broken, one lesson"; few = specific edge cases.
-                sample = ", ".join(c.get("name", "?") for c in failed[:3])
-                drafts.append(ClaimDraft(
-                    "pitfall", f"most criteria failed ({len(failed)}/{total})",
-                    _trunc(f"{len(failed)} of {total} '{trace.verdict.grader}' criteria failed "
-                           f"(e.g. {sample}). {trace.verdict.feedback}"), 0.6))
-            else:
-                for c in failed:
-                    name = c.get("name", "?")
-                    drafts.append(ClaimDraft(
-                        "pitfall", f"criterion failed: {name}",
-                        _trunc(c.get("feedback") or f"the rubric criterion {name!r} failed"), 0.6))
+        if trace.verdict and trace.verdict.failed_criteria:
+            # ONE signal-grade pitfall: the COUNT, never the grader's verbatim criterion names or
+            # feedback. Those are grader-internal — hidden test identities, tmp paths — and they stay
+            # in the OBSERVATION layer (wire.observe_events) for the offline reflector. Echoing them
+            # into a shared, run-time-injectable claim leaks the grader and invites Goodhart; real
+            # per-failure LESSONS come from the judgment-capable LLM distiller, not this floor.
+            n, total = len(trace.verdict.failed_criteria), len(trace.verdict.criteria)
+            scheme = _grader_scheme(trace.verdict.grader)
+            drafts.append(ClaimDraft(
+                "pitfall", f"{scheme} criteria failed ({n}/{total})",
+                f"{n} of {total} {scheme} criteria failed; the verbatim grader feedback is recorded "
+                f"in this session's observations", 0.6))
         if trace.run_failed:
             drafts.append(ClaimDraft("pitfall", "run failed", _trunc(trace.run_failed), 0.5))
         for name, n in trace.tool_failures.items():
@@ -336,7 +330,7 @@ def distill_session(events: list[dict], store: MemoryStore, *, project: str, sco
                         metadata={"models": trace.models, "event_count": trace.event_count})
     ids = []
     for d in distiller.distill(trace):
-        content = _model_agnostic(d.content, trace.models, scope)
+        content = _path_agnostic(_model_agnostic(d.content, trace.models, scope), scope)
         ids.append(store.claim(d.type, d.subject, content, scope=scope, project=project,
                                confidence=d.confidence, source_ids=[oid], code_refs=d.code_refs))
     return ids
@@ -371,6 +365,23 @@ def _model_agnostic(content: str, models: list[str], scope: str) -> str:
                 # unrelated word (a short/family id like "o1"/"pi" inside "4o1ms"/"pipeline").
                 content = re.sub(rf"\b{re.escape(m)}\b", "<model>", content)
     return content
+
+
+# Host-ephemeral absolute paths (tmp grader dirs, local checkouts) — environment internals that pin a
+# claim to one machine and leak local layout across the swarm. The leading-/ anchor + segment list
+# avoids clobbering repo-relative anchors (src/foo.rs) that ARE durable code refs.
+_ABS_PATH = re.compile(r"/(?:var|tmp|private|Users|home|root)/[^\s'\"():]+")
+
+
+def _path_agnostic(content: str, scope: str) -> str:
+    """Redact absolute filesystem paths from SHARED claims (mirrors _model_agnostic)."""
+    return _ABS_PATH.sub("<path>", content) if scope in ("project", "global") else content
+
+
+def _grader_scheme(grader: str) -> str:
+    """A grader id stripped to its scheme ('rubric:/abs/rubric.txt' → 'rubric', 'cmd' → 'cmd') — the
+    path arg is a host-ephemeral tmp location, never part of a shareable claim."""
+    return (grader or "").split(":", 1)[0] or "grader"
 
 
 def _trace_summary(t: Trace) -> str:
@@ -422,26 +433,34 @@ if __name__ == "__main__":
         {"sessionId": "sess1", "payload": {"type": "run_failed", "reason": "agent exited 1", "exitCode": 1}},
     ]
 
+    # leak hygiene: shared scope redacts host paths + the grader scheme drops its path arg
+    assert _path_agnostic("see /var/folders/x/grader/rubric.txt and /tmp/y", "project") == "see <path> and <path>"
+    assert _path_agnostic("/Users/a/keep-for-agent-scope", "agent").startswith("/Users")  # non-shared kept
+    assert _path_agnostic("anchor src/sandbox/mod.rs stays", "project") == "anchor src/sandbox/mod.rs stays"  # rel ref kept
+    assert _grader_scheme("rubric:/var/folders/x/grader/rubric.txt") == "rubric"
+    assert _grader_scheme("cmd") == "cmd" and _grader_scheme("") == "grader"
+
     store = MemoryStore(db)
     ids = distill_session(events, store, project="pillbox", task="add libkrun feature flag")
-    claims = store.recall("build libkrun feature failed", project="pillbox", include_candidates=True)
+    claims = store.recall("criteria failed build libkrun", project="pillbox", include_candidates=True)
     kinds = {c.subject for c in claims}
 
     assert ids, "distilled no claims"
-    assert any("criterion failed: builds" == c.subject for c in claims), kinds
+    assert any(c.subject == "rubric criteria failed (1/2)" for c in claims), kinds
     assert any(c.subject == "Bash repeatedly failed" for c in claims), kinds
     assert any(c.subject == "run failed" for c in claims), kinds
-    # all pitfalls are candidates (arbiter accepts later), sourced, model-agnostic
+    # all pitfalls are candidates (arbiter accepts later) + sourced
     assert all(c.status == "candidate" for c in claims), [(c.subject, c.status) for c in claims]
     assert all(c.source_ids for c in claims), "claims must carry provenance"
-    builds = next(c for c in claims if c.subject == "criterion failed: builds")
-    assert model not in builds.content and "<model>" in builds.content, builds.content
+    # the rubric pitfall is SIGNAL-ONLY: no criterion name, no verbatim grader feedback, no model id
+    rub = next(c for c in claims if c.subject == "rubric criteria failed (1/2)")
+    assert "builds" not in rub.content and model not in rub.content, rub.content
     # the repeated-Edit pitfall is code-anchored from the erroring tool's file_path input
     edit_pf = next(c for c in claims if c.subject == "Edit repeatedly failed")
     assert edit_pf.code_refs and edit_pf.code_refs[0]["path"] == "src/sandbox/mod.rs", edit_pf.code_refs
 
     print(f"OK — distilled {len(ids)} pitfall candidate(s) from a {len(events)}-event §0 trace: "
-          f"{sorted(kinds)}; failure-mined + model-agnostic + sourced")
+          f"{sorted(kinds)}; signal-only rubric pitfall (no grader leak) + code-anchored + sourced")
 
     # --- LLM distiller (stub backend — deterministic, no live model) ---
     canned = """Sure, here are the claims:

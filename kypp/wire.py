@@ -22,7 +22,15 @@ import os
 import sys
 
 from ._pillbox import find_session_log, project_for_log
-from .distill import Distiller, build_trace, distill_session, distiller_from_env, parse_jsonl, read_log
+from .distill import (
+    Distiller,
+    _grader_scheme,
+    build_trace,
+    distill_session,
+    distiller_from_env,
+    parse_jsonl,
+    read_log,
+)
 from .store import MemoryStore, store_from_env
 
 _FB = 400  # outcome-feedback cap in an observation (the raw record, not the full grader dump)
@@ -41,7 +49,7 @@ def observe_events(events: list[dict], store: MemoryStore, *, project: str, scop
     if t.verdict:
         v = t.verdict
         failed = [c.get("name", "?") for c in v.failed_criteria]
-        content = f"graded {'PASS' if v.passed else 'FAIL'} score={v.score} ({v.grader})"
+        content = f"graded {'PASS' if v.passed else 'FAIL'} score={v.score} ({_grader_scheme(v.grader)})"
         if failed:
             content += f"; failed: {', '.join(failed[:5])}" + (" …" if len(failed) > 5 else "")
         if v.feedback:
