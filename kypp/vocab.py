@@ -1,9 +1,19 @@
 """Shared vocabulary for the swarm-memory engine — the closed sets store.py and distill.py both
 validate against. A turso-free leaf (imports nothing heavy) so distill/mcp can pull it without the
 store's engine dep; single-sourced here so the two can't drift — a drift between them is a SILENT
-correctness bug (a type valid in one but rejected by the other)."""
+correctness bug (a type valid in one but rejected by the other).
 
-SCOPES = ("user", "project", "agent", "global")
-TYPES = ("fact", "preference", "decision", "procedure", "artifact", "hypothesis", "pitfall")
-STATUSES = ("candidate", "accepted", "superseded", "rejected")  # claim lifecycle (spec status field)
+The Literal types are the source; the tuples are derived. MCP tool signatures annotate with the
+Literals so the closed set lands in the tool's JSON schema (the client model can't guess an invalid
+value — the schema rejects it before the store's runtime check ever fires)."""
+from typing import Literal, get_args
+
+Scope = Literal["user", "project", "agent", "global"]
+ClaimType = Literal["fact", "preference", "decision", "procedure", "artifact", "hypothesis", "pitfall"]
+Status = Literal["candidate", "accepted", "superseded", "rejected"]  # claim lifecycle (spec status field)
+
+SCOPES: tuple[str, ...] = get_args(Scope)
+TYPES: tuple[str, ...] = get_args(ClaimType)
+STATUSES: tuple[str, ...] = get_args(Status)
+
 OLLAMA_DEFAULT_HOST = "http://127.0.0.1:11434"  # shared default: ollama_embed (store) + ollama_complete (distill)

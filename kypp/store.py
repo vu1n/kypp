@@ -243,7 +243,11 @@ class MemoryStore:
     # --- recall = load/pull -------------------------------------------------
     def recall(self, query: str, project: str | None = None, scope: str | None = None,
                types: list[str] | None = None, include_candidates: bool = False,
-               limit: int = 10) -> list[Claim]:
+               limit: int = 10, ground: bool = True) -> list[Claim]:
+        """Governed retrieval. query='' is BROWSE mode — no text filter, strongest claims first
+        (the briefing view); a non-empty query ranks semantically when an embedder is wired, else
+        by LIKE keyword. ground=False skips code-anchor resolution (a ripgrep subprocess per ref) —
+        for callers that over-fetch then discard; call .ground() on the survivors."""
         where, params = self._base_where(project)
         if not include_candidates:
             where.append("status = 'accepted'")
@@ -252,7 +256,8 @@ class MemoryStore:
         if types:
             where.append("type IN (%s)" % ",".join("?" * len(types))); params.extend(types)
         cur = self.db.cursor()
-        qv = self._vec(query) if self.embed else None
+        # browse mode skips the embedder: distance-to-an-empty-string is noise, not ranking.
+        qv = self._vec(query) if (self.embed and query.strip()) else None
         if qv:
             # semantic recall: cosine distance to the query embedding (linear scan — fine at bootstrap).
             # Claims with NO embedding (written before an embedder was wired) still return — the CASE
@@ -272,15 +277,23 @@ class MemoryStore:
             rows = cur.execute(
                 "SELECT * FROM memory_claims WHERE " + " AND ".join(where)
                 + (f" AND ({like})" if terms else "")
-                + " ORDER BY (status='accepted') DESC, confidence DESC LIMIT ?",
+                + " ORDER BY (status='accepted') DESC, confidence DESC, updated_at DESC LIMIT ?",
                 params + lp + [limit]).fetchall()
         claims = self._hydrate(cur, rows)
-        resolver = self.resolver
-        if resolver is not None and resolver.available:  # CodeResolver declares `available` — no default
-            for c in claims:
-                if c.code_refs:
-                    c.grounding = [resolver.resolve(ref) for ref in c.code_refs]
-        return claims
+        return self.ground(claims) if ground else claims
+
+    def get(self, claim_id: str) -> Claim | None:
+        """Dereference a claim id or unique prefix — recall/briefing hand out 8-char HANDLES; this is
+        how an agent expands one to the full claim (grounding resolved). Returns regardless of status
+        (a handle may point into history). None when unknown; an ambiguous prefix raises rather than
+        silently picking one."""
+        _require(bool(re.fullmatch(r"[0-9a-f]{4,32}", claim_id)), f"bad claim handle {claim_id!r}")
+        cur = self.db.cursor()
+        rows = cur.execute("SELECT * FROM memory_claims WHERE id LIKE ? LIMIT 2",
+                           (claim_id + "%",)).fetchall()
+        _require(len(rows) < 2, f"ambiguous claim handle {claim_id!r}")
+        claims = self.ground(self._hydrate(cur, rows))
+        return claims[0] if claims else None
 
     def live_claims(self, project: str | None = None, subject: str | None = None) -> list[Claim]:
         """Claims eligible for arbitration — everything not superseded/rejected (candidate-INCLUSIVE,
@@ -321,6 +334,16 @@ class MemoryStore:
         """Rows → Claim objects via the cursor's column names — the one row-hydration path."""
         cols = [d[0] for d in cur.description]
         return [self._claim(dict(zip(cols, r))) for r in rows]
+
+    def ground(self, claims: list[Claim]) -> list[Claim]:
+        """Resolve each claim's code anchors to live pointers — the one grounding pass (recall + get
+        apply it automatically; recall(ground=False) callers apply it to their survivors). No-op
+        without an available resolver (CodeResolver declares `available` — no default)."""
+        if self.resolver is not None and self.resolver.available:
+            for c in claims:
+                if c.code_refs:
+                    c.grounding = [self.resolver.resolve(ref) for ref in c.code_refs]
+        return claims
 
     @staticmethod
     def _base_where(project: str | None, alias: str = "") -> tuple[list[str], list]:

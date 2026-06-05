@@ -5,7 +5,11 @@ mains/imports stay lazy so e.g. `serve` doesn't import the capture stack (or vic
 import sys
 
 _COMMANDS = {
-    "serve": "the MCP server (observe/claim/recall/decide/remember_procedure/consolidate/resolve_conflicts)",
+    "serve": "the MCP server (observe/claim/recall/expand/briefing/decide/remember_procedure/…)",
+    "recall": "search shared memory — compact lines with handles",
+    "show": "expand a claim handle to the full claim (JSON)",
+    "remember": "store a claim: SUBJECT CONTENT (subject = identity key)",
+    "briefing": "session-start digest: strongest accepted memory, pitfalls first",
     "capture": "capture one session's §0 log into memory (alias: wire)",
     "sweep": "autocapture: sweep completed sessions into memory (idempotent)",
     "consolidate": "dedup near-duplicate claims (exact + optional semantic)",
@@ -24,6 +28,14 @@ def main():
     sys.argv = [f"kypp {cmd}", *sys.argv[2:]]
     if cmd == "serve":
         from .mcp_server import main as run
+    elif cmd == "recall":
+        from .shell import recall_main as run
+    elif cmd == "show":
+        from .shell import show_main as run
+    elif cmd == "remember":
+        from .shell import remember_main as run
+    elif cmd == "briefing":
+        from .shell import briefing_main as run
     elif cmd in ("capture", "wire"):
         from .wire import main as run
     elif cmd == "sweep":

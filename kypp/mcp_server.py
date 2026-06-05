@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""mcp_server.py — the swarm-memory engine as a single MCP server (observe / claim / recall + the
-spec's decide / remember_procedure conveniences).
+"""mcp_server.py — the swarm-memory engine as a single MCP server (observe / claim / recall /
+expand / briefing + the spec's decide / remember_procedure conveniences).
 
 The ONE optional MCP an agent attaches (per swarm-memory-mcp-server-spec): a thin semantic layer over
 the store — the product is memory governance, not the transport. The server is bound to one project
@@ -8,9 +8,10 @@ and one db file; many agents/pillboxes run their own server against the SAME db 
 writes). Code grounding is wired by default via RipgrepResolver, so recall returns live code pointers
 with zero setup; an embedder (vector recall) and a canopy/AST resolver drop in behind store's seams.
 
-The tools are thin closures over the store — transport + `_claim_dict` serialization, nothing more.
-`build_mcp` imports the MCP SDK lazily, so this module imports and self-tests without the SDK; only
-serving needs it.
+The tools are thin closures over the store — transport + serialization (compact handle lines via
+view.py by default; `_claim_dict` JSON behind verbose/expand), nothing more. Tool signatures use
+vocab's Literal types so the closed sets land in the tool JSON schema. `build_mcp` imports the MCP
+SDK lazily, so this module imports and self-tests without the SDK; only serving needs it.
 """
 from __future__ import annotations
 
@@ -20,6 +21,8 @@ import os
 from .arbiter import consolidate as _consolidate
 from .arbiter import resolve_conflicts as _resolve_conflicts
 from .store import Claim, MemoryStore, RipgrepResolver, store_from_env
+from .view import briefing_claims, render_claims
+from .vocab import ClaimType, Scope
 
 
 def _claim_dict(c: Claim) -> dict:
@@ -30,40 +33,75 @@ def _claim_dict(c: Claim) -> dict:
             "code_refs": c.code_refs, "grounding": c.grounding, "low_confidence": c.low_confidence}
 
 
-def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp"):
+def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
+              http: tuple[str, int] | None = None):
     """Register the engine's tools on a FastMCP server bound to `store`/`project`. Imports the MCP SDK
-    lazily so the module stays importable (and testable) without it. The tool docstrings/type hints
-    below are the agent-facing contract; each body is a thin call into the store."""
+    lazily so the module stays importable (and testable) without it. `http=(host, port)` serves over
+    streamable-http; None → stdio. The tool docstrings/type hints below are the agent-facing contract.
+
+    HTTP binding + transport security MUST be set at construction — FastMCP freezes the DNS-rebinding
+    allowed-hosts then, so a post-hoc settings mutation can't expose a non-localhost host. We disable
+    rebinding protection: kypp is a trusted local-network infra service attached to by host IP/hostname
+    (e.g. a sandboxed agent via host.docker.internal), NOT a browser-facing endpoint; the bind address
+    (--host, default 127.0.0.1) is the real access control."""
     from mcp.server.fastmcp import FastMCP
 
-    mcp = FastMCP(name)
+    if http:
+        from mcp.server.transport_security import TransportSecuritySettings
+        host, port = http
+        mcp = FastMCP(name, host=host, port=port,
+                      transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
+    else:
+        mcp = FastMCP(name)
 
     @mcp.tool()
-    def observe(content: str, actor: str = "agent", source: str = "", scope: str = "project") -> str:
-        """Record a raw observation — an append-only signal (a finding, an error seen, a choice made in
-        passing). Returns the observation id; pass it as a claim's source_id to attribute provenance."""
+    def observe(content: str, actor: str = "agent", source: str = "", scope: Scope = "project") -> str:
+        """Record a raw observation — an append-only signal you're not yet sure is durable (a finding,
+        an error seen, a choice made in passing). Optional: `claim` works without it. Returns the
+        observation id; pass it as a claim's source_id to attribute provenance."""
         return store.observe(actor=actor, content=content, scope=scope, project=project, source=source or None)
 
     @mcp.tool()
-    def claim(subject: str, content: str, type: str = "fact", confidence: float = 0.7,
-              scope: str = "project", source_ids: list[str] | None = None,
+    def claim(subject: str, content: str, type: ClaimType = "fact", confidence: float = 0.7,
+              scope: Scope = "project", source_ids: list[str] | None = None,
               code_refs: list[dict] | None = None) -> str:
-        """Record a durable memory CANDIDATE (type: fact|preference|decision|procedure|artifact|
-        hypothesis|pitfall). Memory is shared across the swarm — keep content MODEL-AGNOSTIC (no model
-        names; the store does not strip them on this path). Anchor to code via code_refs
+        """Record a durable memory. `subject` (short noun phrase) is the claim's IDENTITY: write under
+        an EXISTING subject to update/correct it (consolidation keeps the strongest version); a new
+        subject creates a new memory. Memory is shared across the swarm — keep content MODEL-AGNOSTIC
+        (no model names; the store does not strip them on this path). Anchor to code via code_refs
         [{symbol,path,query}] when it concerns specific code. Returns the claim id."""
         return store.claim(type, subject, content, scope=scope, project=project,
                            confidence=confidence, source_ids=source_ids, code_refs=code_refs)
 
     @mcp.tool()
-    def recall(query: str, scope: str = "", types: list[str] | None = None,
-               include_candidates: bool = False, limit: int = 10) -> list[dict]:
-        """Recall relevant memory for a query (semantic if an embedder is wired, else keyword). Prefers
-        accepted over candidate, project over global, never returns rejected. Each result carries live
-        code `grounding` (resolved against the current tree) and a `low_confidence` flag."""
-        return [_claim_dict(c) for c in store.recall(query, project=project, scope=scope or None,
-                                                     types=types, include_candidates=include_candidates,
-                                                     limit=limit)]
+    def recall(query: str, scope: Scope | None = None, types: list[ClaimType] | None = None,
+               include_candidates: bool = False, limit: int = 10,
+               verbose: bool = False) -> str | list[dict]:
+        """Search shared memory (semantic if an embedder is wired, else keyword). Returns one compact
+        line per hit — `handle [type ✓conf] subject — content → code pointer`; pass a handle to
+        `expand` for the full claim (verbose=true returns full JSON directly). Empty query browses the
+        strongest claims. Prefers accepted (✓) over candidate (?), project over global, never returns
+        rejected. If a recalled claim is WRONG, don't just ignore it — `claim` the correction under
+        the SAME subject with higher confidence; consolidation supersedes the loser."""
+        claims = store.recall(query, project=project, scope=scope, types=types,
+                              include_candidates=include_candidates, limit=limit)
+        return [_claim_dict(c) for c in claims] if verbose else render_claims(claims)
+
+    @mcp.tool()
+    def expand(handle: str) -> dict:
+        """Dereference a recall/briefing handle (claim id or its 8-char prefix) to the full claim:
+        unclipped content, provenance (source_ids), code_refs + live grounding."""
+        c = store.get(handle)
+        if c is None:
+            raise ValueError(f"unknown claim handle {handle!r}")
+        return _claim_dict(c)
+
+    @mcp.tool()
+    def briefing(limit: int = 12) -> str:
+        """Session-start digest — call ONCE before starting work, no query needed: the project's
+        strongest accepted memory, known traps (pitfalls) first, then decisions and procedures.
+        Lines carry handles; `expand` any you act on."""
+        return render_claims(briefing_claims(store, project, limit), empty="(no accepted memory yet)")
 
     @mcp.tool()
     def decide(subject: str, content: str, source_ids: list[str] | None = None) -> str:
@@ -106,12 +144,9 @@ def main():
     ap.add_argument("--port", type=int, default=7077)
     args = ap.parse_args()
 
-    mcp = build_mcp(store_from_env(), os.environ.get("KYPP_PROJECT", "default"))
-    if args.http:
-        mcp.settings.host, mcp.settings.port = args.host, args.port
-        mcp.run(transport="streamable-http")  # the attach surface: one shared server, many clients
-    else:
-        mcp.run()  # stdio — the client spawns this as a subprocess
+    http = (args.host, args.port) if args.http else None
+    mcp = build_mcp(store_from_env(), os.environ.get("KYPP_PROJECT", "default"), http=http)
+    mcp.run(transport="streamable-http" if args.http else "stdio")  # http = the attach surface
 
 
 if __name__ == "__main__" and os.environ.get("KYPP_MCP_SERVE"):
@@ -135,9 +170,11 @@ elif __name__ == "__main__":
     store = MemoryStore(db, resolver=RipgrepResolver(root=repo))
 
     oid = store.observe(actor="agent", content="agent hit a silent docker fallback", scope="project", project="pillbox")
+    # confidence 0.9: recall breaks accepted-status ties by confidence then RECENCY — the pitfall is
+    # seeded first, so without the higher confidence the newer procedure would outrank it.
     store.claim("pitfall", "libkrun rebuild",
                 "rebuild with --features libkrun + re-codesign or it falls back to docker",
-                scope="project", project="pillbox", source_ids=[oid],
+                scope="project", project="pillbox", source_ids=[oid], confidence=0.9,
                 code_refs=[{"symbol": "select_backend", "path": "src/sandbox/mod.rs"}], accept=True)
     # the presets the decide / remember_procedure tools apply: type=decision auto-accepts; procedure
     # is accepted via accept=True. Assert both land accepted (the tool closures rely on this).
@@ -158,6 +195,14 @@ elif __name__ == "__main__":
     assert any(h["type"] == "decision" and h["status"] == "accepted" for h in decided), decided
     proc = [_claim_dict(c) for c in store.recall("rebuild libkrun procedure", project="pillbox", types=["procedure"])]
     assert any(h["type"] == "procedure" and h["status"] == "accepted" for h in proc), proc
+
+    # the recall/briefing→expand handle loop the tools wrap: compact lines carry the 8-char handle,
+    # expand (store.get) recovers the full claim
+    compact = render_claims(store.recall("libkrun rebuild docker fallback", project="pillbox"))
+    assert top["id"][:8] in compact and "→ src/sandbox/mod.rs:1" in compact, compact
+    assert _claim_dict(store.get(top["id"][:8])) == top
+    digest = render_claims(briefing_claims(store, "pillbox"), empty="(no accepted memory yet)")
+    assert digest.splitlines()[0].split()[1] == "[pitfall", digest  # traps lead the digest
 
     note = ""
     try:

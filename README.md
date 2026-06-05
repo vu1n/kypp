@@ -18,13 +18,28 @@ uv run kypp --help          # from this dir — uv builds + installs from pyproj
 ## Commands
 
 ```sh
-kypp serve [--http --port 7077]   # the MCP server (observe/claim/recall/decide/remember_procedure/
-                                  #   consolidate/resolve_conflicts) — stdio by default, --http to attach
+kypp serve [--http --port 7077]   # the MCP server — stdio by default, --http to attach
+kypp recall "libkrun docker"      # search memory → compact lines with handles
+kypp show a1b2c3d4                # expand a handle → the full claim (JSON)
+kypp remember "subject" "lesson"  # store a claim (subject = identity key; reuse to supersede)
+kypp briefing                     # session-start digest: strongest accepted memory, pitfalls first
 kypp capture <log.jsonl | ->      # capture one session's §0 log into memory
 kypp sweep                        # autocapture: sweep completed sessions (idempotent, cron-friendly)
 kypp consolidate [--semantic D]   # dedup near-duplicate claims (exact + optional semantic)
 kypp batch                        # LLM re-distill a corpus of logs, one representative per task
 ```
+
+## MCP tools
+
+`observe` · `claim` · `recall` · `expand` · `briefing` · `decide` · `remember_procedure` ·
+`consolidate` · `resolve_conflicts`
+
+The DX contract is **handles**: `recall`/`briefing` return one compact line per claim —
+`handle [type ✓conf] subject — content → code pointer` — and `expand(handle)` dereferences only
+what the agent acts on, so depth is paid per-use, not per-search. Code grounding works the same
+way: claims carry durable anchors, recall resolves them to live `path:line` pointers (never file
+content). `briefing` is the push side — call it once at session start (or wire it into a host
+hook) to load the project's pitfalls and decisions before the agent has a query.
 
 ## Config (env)
 
