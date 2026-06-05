@@ -1,7 +1,7 @@
 # kypp
 
 A swarm-memory engine for coding agents — **observe → distill → recall → consolidate** over a shared,
-code-grounded store, exposed as one MCP server.
+code-grounded store, exposed as one MCP server *and* a plain Bash CLI.
 
 Agents capture what happened (a session's §0 event trace), distill durable **claims** (facts,
 decisions, procedures, pitfalls — model-agnostic, grounded to code locations), recall them
@@ -11,9 +11,55 @@ memory becomes the team's accumulated lore rather than one agent's scratchpad.
 ## Install
 
 ```sh
-uv run kypp --help          # from this dir — uv builds + installs from pyproject
-# or: uv pip install -e .   → `kypp` on PATH
+uv tool install .           # → `kypp` on PATH (what agents shell out to)
+# or from this dir: uv run kypp --help
 ```
+
+## For agents
+
+You are a coding agent with access to kypp, the team's shared memory. Everything below works over
+two equivalent surfaces — pick whichever you have:
+
+- **Bash** (zero setup beyond `kypp` on PATH): `kypp briefing | recall | show | remember`
+- **MCP** (richer; structured): attach via stdio — `claude mcp add kypp -- kypp serve` — or to a
+  shared HTTP server: `kypp serve --http --port 7077`, then point your client at
+  `http://localhost:7077` (from a sandbox: `host.docker.internal`). Set `KYPP_PROJECT` and
+  `KYPP_REPO_ROOT` where the server runs — it binds one project and grounds against one repo.
+
+### The protocol
+
+1. **Session start — load the lore.** Call `briefing` (MCP) or `kypp briefing --project <name>`
+   once before working. It returns the project's strongest accepted memory, known traps (pitfalls)
+   first. No query needed; skipping it means re-discovering pitfalls the team already paid for.
+2. **Before non-trivial work — search.** `recall("<what you're about to touch>")`. Results are one
+   line per claim: `handle [type ✓conf] subject — content → path:line`. The 8-char **handle** is a
+   pointer — `expand(handle)` / `kypp show <handle>` dereferences the full claim (unclipped content,
+   provenance, live code grounding). Only expand what you act on; the line is usually enough.
+   `✓` = accepted, `?` = candidate; the `path:line` pointer is resolved against the *current* tree —
+   read the code yourself, memory never inlines file content.
+3. **When you learn something durable — write it.** `claim`/`remember` a distilled lesson, not a
+   transcript. The rules that make it useful to the next agent:
+   - **`subject` is the claim's identity.** Reuse an existing subject to update/correct it
+     (consolidation keeps the strongest version); a new subject creates a new memory. Short noun
+     phrase, not a sentence.
+   - **Keep content model-agnostic.** Memory is shared across models; "claude couldn't X" degrades
+     transfer — write "X fails when…".
+   - **Anchor to code** via `code_refs [{symbol, path, query}]` when the lesson concerns specific
+     code. Anchors re-resolve at recall, so they survive refactors.
+   - **Candidate vs accepted:** plain claims land as *candidates* — visible to `recall
+     include_candidates=true`, **invisible to `briefing` and default recall**. For settled team
+     truths use `decide` / `remember_procedure` (MCP) or `kypp remember --accept`.
+4. **Wrong memory — correct it, don't ignore it.** Write the correction under the **same subject**
+   with higher confidence; `consolidate` supersedes the loser. Nothing is ever deleted; superseded
+   claims stay as history (handles still `expand` — check `status` before trusting one from old
+   context).
+
+### Capture (host side, after runs)
+
+The write side runs without any agent cooperation: `kypp sweep` captures every completed §0 session
+log (idempotent, cron-friendly), deriving each session's project from its pillbox path; `kypp
+capture <log.jsonl>` does one. With `KYPP_DISTILL_MODEL` set, captured traces are distilled into
+claims by a local LLM (heuristic failure-mining is the fallback floor).
 
 ## Commands
 
@@ -21,7 +67,7 @@ uv run kypp --help          # from this dir — uv builds + installs from pyproj
 kypp serve [--http --port 7077]   # the MCP server — stdio by default, --http to attach
 kypp recall "libkrun docker"      # search memory → compact lines with handles
 kypp show a1b2c3d4                # expand a handle → the full claim (JSON)
-kypp remember "subject" "lesson"  # store a claim (subject = identity key; reuse to supersede)
+kypp remember "subject" "lesson"  # store a claim (subject = identity key; --accept for team truth)
 kypp briefing                     # session-start digest: strongest accepted memory, pitfalls first
 kypp capture <log.jsonl | ->      # capture one session's §0 log into memory
 kypp sweep                        # autocapture: sweep completed sessions (idempotent, cron-friendly)
@@ -41,6 +87,15 @@ way: claims carry durable anchors, recall resolves them to live `path:line` poin
 content). `briefing` is the push side — call it once at session start (or wire it into a host
 hook) to load the project's pitfalls and decisions before the agent has a query.
 
+## Memory model
+
+A **claim** is `{type, subject, content, scope, status, confidence, source_ids, code_refs}`.
+Types: `fact | preference | decision | procedure | artifact | hypothesis | pitfall`.
+Scopes: `user | project | agent | global` (a project sees its own claims + global).
+Lifecycle: `candidate → accepted | superseded | rejected` — recall never returns
+superseded/rejected, prefers accepted, and nothing is ever deleted. **Observations** are the raw
+append-only layer underneath (provenance for distilled claims).
+
 ## Config (env)
 
 | var | meaning |
@@ -58,13 +113,14 @@ kypp is **independent** — any MCP client *attaches* to it; it spawns nothing a
 runtime. With pillbox, for example:
 
 ```sh
-kypp serve --http --port 7077 &
-pillbox run --mcp kypp=http://localhost:7077 -- "…"   # the agent recalls/claims mid-task
-kypp sweep                                            # capture the completed session(s)
+kypp briefing --project myproj    # host-side: inject the digest into the agent's prompt
+pillbox run --mcp kypp=http://localhost:7077 -- "…"   # optional: mid-task recall/claim via MCP
+kypp sweep                        # capture the completed session(s), per-path projects
 ```
 
-kypp *consumes* §0 session logs (default glob `~/.pillbox/*/sessions/*/log.jsonl`, configurable via
-`--logs`) but has no build/runtime dependency on pillbox.
+kypp *consumes* §0 session logs (default source: `~/.pillbox/global/sessions/` +
+`~/.pillbox/projects/*/sessions/`, override via `--logs`) but has no build/runtime dependency on
+pillbox.
 
 Storage: [tursodb](https://docs.turso.tech/) (embedded — concurrent writes + native vector search).
 Code grounding: ripgrep over the live repo (an AST/BM25 index can drop in behind the resolver seam).
