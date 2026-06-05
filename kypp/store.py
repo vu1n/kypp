@@ -37,7 +37,7 @@ from typing import Callable, Protocol
 
 import turso  # pyturso — the tursodb engine (concurrent writes + native vectors)
 
-from .vocab import SCOPES, STATUSES, TYPES  # single-sourced vocabulary (turso-free leaf)
+from .vocab import OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, TYPES  # single-sourced vocabulary (turso-free leaf)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
@@ -213,6 +213,10 @@ class MemoryStore:
     def claim(self, type: str, subject: str, content: str, scope: str, project: str | None = None,
               agent: str | None = None, confidence: float = 0.7, source_ids: list[str] | None = None,
               code_refs: list[dict] | None = None, accept: bool = False) -> str:
+        """Write a claim. Status rule (THE one place it lives — callers don't restate it):
+        `accept=True` or type='decision' lands accepted (a decision IS the chosen answer; making it
+        a candidate would hide it from default recall), everything else is a candidate for the
+        arbiter."""
         _require(type in TYPES, f"bad type {type!r}")
         _require(scope in SCOPES, f"bad scope {scope!r}")
         status = "accepted" if (accept or type == "decision") else "candidate"
@@ -263,17 +267,14 @@ class MemoryStore:
         else:
             # keyword recall (LIKE) — no embedder wired (or the query produced no embedding).
             terms = re.findall(r"[A-Za-z0-9_]+", query)
-            like = " OR ".join(["(subject LIKE ? OR content LIKE ?)"] * len(terms)) or "1"
-            lp = []
-            for t in terms:
-                lp += [f"%{t}%", f"%{t}%"]
+            like = " OR ".join(["(subject LIKE ? OR content LIKE ?)"] * len(terms))
+            lp = [f"%{t}%" for t in terms for _ in range(2)]  # one pair per term: subject, content
             rows = cur.execute(
                 "SELECT * FROM memory_claims WHERE " + " AND ".join(where)
                 + (f" AND ({like})" if terms else "")
                 + " ORDER BY (status='accepted') DESC, confidence DESC LIMIT ?",
                 params + lp + [limit]).fetchall()
-        cols = [d[0] for d in cur.description]
-        claims = [self._claim(dict(zip(cols, r))) for r in rows]
+        claims = self._hydrate(cur, rows)
         resolver = self.resolver
         if resolver is not None and resolver.available:  # CodeResolver declares `available` — no default
             for c in claims:
@@ -290,8 +291,7 @@ class MemoryStore:
             where.append("subject = ?"); params.append(subject)
         cur = self.db.cursor()
         rows = cur.execute("SELECT * FROM memory_claims WHERE " + " AND ".join(where), params).fetchall()
-        cols = [d[0] for d in cur.description]
-        return [self._claim(dict(zip(cols, r))) for r in rows]
+        return self._hydrate(cur, rows)
 
     def similar_pairs(self, project: str | None = None, *, max_distance: float = 0.15) -> list[tuple[str, str]]:
         """Pairs of live, DIFFERENT-subject claims (same scope+project) within `max_distance` cosine —
@@ -299,28 +299,39 @@ class MemoryStore:
         same lesson). Empty when claims aren't embedded; exact-subject dups are handled by grouping, not
         here. Closest first. `max_distance` is embedder-dependent — calibrate it (~0.25 for
         nomic-embed-text; the default is illustrative, not universal)."""
+        # Same governance predicate as recall/live_claims, single-sourced via _base_where (the `a`
+        # side carries project/scope visibility; the join couples `b`'s project to `a`, so `b` only
+        # needs the status filter — _base_where(None, "b")).
+        wa, params = self._base_where(project, "a")
+        wb, _ = self._base_where(None, "b")
         cur = self.db.cursor()
         rows = cur.execute(
             "SELECT a.id, b.id FROM memory_claims a JOIN memory_claims b"
             "  ON a.id < b.id AND a.scope = b.scope AND a.subject <> b.subject"
             "  AND (a.project = b.project OR (a.project IS NULL AND b.project IS NULL))"
             " WHERE a.embedding IS NOT NULL AND b.embedding IS NOT NULL"
-            "  AND a.status NOT IN ('superseded','rejected') AND b.status NOT IN ('superseded','rejected')"
-            "  AND (a.project = ? OR a.scope = 'global')"
+            "  AND " + " AND ".join(wa + wb) +
             "  AND vector_distance_cos(a.embedding, b.embedding) < ?"
             " ORDER BY vector_distance_cos(a.embedding, b.embedding)",
-            (project, max_distance)).fetchall()
+            params + [max_distance]).fetchall()
         return [(r[0], r[1]) for r in rows]
 
     # --- helpers ------------------------------------------------------------
+    def _hydrate(self, cur, rows) -> list[Claim]:
+        """Rows → Claim objects via the cursor's column names — the one row-hydration path."""
+        cols = [d[0] for d in cur.description]
+        return [self._claim(dict(zip(cols, r))) for r in rows]
+
     @staticmethod
-    def _base_where(project: str | None) -> tuple[list[str], list]:
-        """The governance predicate shared by recall + live_claims: never surface superseded/rejected,
-        and a project sees its own claims + global. Single-sourced so the two readers can't drift."""
-        where = ["status NOT IN ('rejected','superseded')"]
+    def _base_where(project: str | None, alias: str = "") -> tuple[list[str], list]:
+        """The governance predicate shared by recall / live_claims / similar_pairs: never surface
+        superseded/rejected, and a project sees its own claims + global. `alias` prefixes the columns
+        for a self-join (e.g. "a"). Single-sourced so the readers can't drift."""
+        p = f"{alias}." if alias else ""
+        where = [f"{p}status NOT IN ('rejected','superseded')"]
         params: list = []
         if project:
-            where.append("(project = ? OR scope = 'global')")
+            where.append(f"({p}project = ? OR {p}scope = 'global')")
             params.append(project)
         return where, params
 
@@ -353,7 +364,7 @@ def _require(cond: bool, msg: str):
         raise ValueError(msg)
 
 
-def ollama_embed(model: str, host: str = "http://127.0.0.1:11434", *, timeout: float = 60):
+def ollama_embed(model: str, host: str = OLLAMA_DEFAULT_HOST, *, timeout: float = 60):
     """A BYO `embed` over a local ollama server (the store's vector-recall seam) — e.g.
     MemoryStore(db, embed=ollama_embed('nomic-embed-text')). Returns the embedding vector for a text.
     NOTE: all claims in one store must share an embedder — vector_distance_cos errors on a dimension
@@ -377,7 +388,7 @@ def store_from_env(embed: Callable[[str], list[float]] | None = None) -> MemoryS
     db = os.environ.get("KYPP_MEMORY_DB", os.path.expanduser("~/.kypp/memory.db"))
     os.makedirs(os.path.dirname(db), exist_ok=True)
     if embed is None and os.environ.get("KYPP_EMBED_MODEL"):
-        host = os.environ.get("KYPP_OLLAMA_HOST", "http://127.0.0.1:11434")
+        host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
         embed = ollama_embed(os.environ["KYPP_EMBED_MODEL"], host)
     return MemoryStore(db, embed=embed, resolver=RipgrepResolver(root=os.environ.get("KYPP_REPO_ROOT", ".")))
 

@@ -18,18 +18,18 @@ import glob
 import os
 import sys
 
-from .distill import distiller_from_env
-from .store import store_from_env
+from ._pillbox import session_logs
+from .distill import Distiller, distiller_from_env
+from .store import MemoryStore, store_from_env
 from .wire import capture_log_file
 
-DEFAULT_LOGS = "~/.pillbox/*/sessions/*/log.jsonl"
 
-
-def sweep(store, *, project: str, log_glob: str = DEFAULT_LOGS, distiller=None) -> dict:
-    """Capture every completed, uncaptured session under `log_glob`. Returns {captured, skipped,
-    observations, claims} — skipped counts in-flight + already-captured logs."""
+def sweep(store: MemoryStore, *, project: str, log_glob: str | None = None,
+          distiller: Distiller | None = None) -> dict:
+    """Capture every completed, uncaptured session in the default pillbox source (or `log_glob`).
+    Returns {captured, skipped, observations, claims} — skipped counts in-flight + already-captured."""
     captured = skipped = obs = claims = 0
-    for path in glob.glob(os.path.expanduser(log_glob)):
+    for path in session_logs(log_glob):
         res = capture_log_file(path, store, project=project, distiller=distiller, require_complete=True)
         if res is None:
             skipped += 1
@@ -43,7 +43,7 @@ def sweep(store, *, project: str, log_glob: str = DEFAULT_LOGS, distiller=None) 
 def main():
     ap = argparse.ArgumentParser(description="sweep completed sessions into swarm memory (idempotent)")
     ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
-    ap.add_argument("--logs", default=DEFAULT_LOGS, help="glob of §0 log.jsonl files")
+    ap.add_argument("--logs", default=None, help="override the §0 log source (glob); default = pillbox global + projects")
     ap.add_argument("--no-distill", action="store_true", help="record outcome observations only, skip claims")
     args = ap.parse_args()
 

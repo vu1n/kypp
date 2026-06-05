@@ -19,10 +19,10 @@ import os
 
 from .arbiter import consolidate as _consolidate
 from .arbiter import resolve_conflicts as _resolve_conflicts
-from .store import MemoryStore, RipgrepResolver, store_from_env
+from .store import Claim, MemoryStore, RipgrepResolver, store_from_env
 
 
-def _claim_dict(c) -> dict:
+def _claim_dict(c: Claim) -> dict:
     """Claim → the JSON an agent consumes. Includes resolved code `grounding` (live pointers) and the
     `low_confidence` flag the spec wants surfaced."""
     return {"id": c.id, "type": c.type, "subject": c.subject, "content": c.content, "scope": c.scope,
@@ -30,7 +30,7 @@ def _claim_dict(c) -> dict:
             "code_refs": c.code_refs, "grounding": c.grounding, "low_confidence": c.low_confidence}
 
 
-def build_mcp(store, project: str, *, name: str = "kypp"):
+def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp"):
     """Register the engine's tools on a FastMCP server bound to `store`/`project`. Imports the MCP SDK
     lazily so the module stays importable (and testable) without it. The tool docstrings/type hints
     below are the agent-facing contract; each body is a thin call into the store."""

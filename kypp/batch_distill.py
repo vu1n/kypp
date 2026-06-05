@@ -11,18 +11,18 @@ without the model set this degrades to a heuristic re-distill, which is pointles
 from __future__ import annotations
 
 import argparse
-import glob
 import hashlib
 import os
 import sys
 import time
 
+from ._pillbox import session_logs
 from .arbiter import consolidate
-from .distill import build_trace, distill_session, distiller_from_env, read_log
+from .distill import Trace, build_trace, distill_session, distiller_from_env, read_log
 from .store import store_from_env
 
 
-def task_signature(trace) -> str:
+def task_signature(trace: Trace) -> str:
     """Task identity = its rubric's criteria-name set (task-specific). No rubric → its own group."""
     if trace.verdict and trace.verdict.criteria:
         names = "\n".join(sorted(c.get("name", "") for c in trace.verdict.criteria))
@@ -30,15 +30,16 @@ def task_signature(trace) -> str:
     return "solo:" + trace.session_id
 
 
-def plan_corpus(log_glob: str) -> tuple[list[tuple[str, str, float | None]], int]:
+def plan_corpus(log_glob: str | None = None) -> tuple[list[tuple[str, str, float | None]], int]:
     """Pass 1 (cheap — parse, keep only sig/score/path, discard events): group sessions by task and
     pick one representative each (closest to a partial score). Returns (reps, total_session_count),
-    reps = [(sig, path, score)] most-learnable first."""
+    reps = [(sig, path, score)] most-learnable first. Source = default pillbox logs, or `log_glob`."""
     groups: dict[str, list[tuple[float | None, str]]] = {}
-    for lp in glob.glob(log_glob):
+    for lp in session_logs(log_glob):
         try:
             t = build_trace(read_log(lp))
-        except Exception:
+        except Exception as e:  # a corrupt log shouldn't kill the corpus pass — but record it, don't hide it
+            print(f"plan: skipping unreadable log {lp} ({type(e).__name__})", file=sys.stderr)
             continue
         if not t.event_count:
             continue
@@ -55,7 +56,7 @@ def plan_corpus(log_glob: str) -> tuple[list[tuple[str, str, float | None]], int
 
 def main():
     ap = argparse.ArgumentParser(description="LLM re-distill of a §0 corpus, one rep per task")
-    ap.add_argument("--logs", default=os.path.expanduser("~/.pillbox/*/sessions/*/log.jsonl"))
+    ap.add_argument("--logs", default=None, help="override the §0 log source (glob); default = pillbox global + projects")
     ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "eval-polyglot"))
     ap.add_argument("--limit", type=int, default=0, help="cap representatives distilled (0 = all)")
     ap.add_argument("--plan", action="store_true", help="report the task grouping; distill nothing")

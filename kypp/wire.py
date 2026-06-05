@@ -21,13 +21,14 @@ import json
 import os
 import sys
 
-from .distill import build_trace, distill_session, distiller_from_env, read_log
+from ._pillbox import find_session_log
+from .distill import Distiller, build_trace, distill_session, distiller_from_env, parse_jsonl, read_log
 from .store import MemoryStore, store_from_env
 
 _FB = 400  # outcome-feedback cap in an observation (the raw record, not the full grader dump)
 
 
-def observe_events(events: list[dict], store, *, project: str, scope: str = "project",
+def observe_events(events: list[dict], store: MemoryStore, *, project: str, scope: str = "project",
                    actor: str = "session") -> list[str]:
     """Record a session's verifiable OUTCOME signals as observations: the grade (`scored`), a run
     failure, and the tool-failure tally. Bounded (≤3 per session) and high-signal — the raw record
@@ -60,16 +61,6 @@ def observe_events(events: list[dict], store, *, project: str, scope: str = "pro
     return oids
 
 
-def resolve_session_log(sid: str) -> str | None:
-    """Find a session's log.jsonl under ~/.pillbox by id (accepts a prefix). Sessions live at
-    <pillbox-state>/sessions/<id>/log.jsonl across global + project pillboxes."""
-    for pat in (f"~/.pillbox/*/sessions/{sid}*/log.jsonl", f"~/.pillbox/projects/*/sessions/{sid}*/log.jsonl"):
-        hits = sorted(glob.glob(os.path.expanduser(pat)))
-        if hits:
-            return hits[0]
-    return None
-
-
 # Terminal §0 payloads — a session is "complete" (safe to capture) once one appears. Autocapture
 # gates on this so it never distills an in-flight trace (no verdict yet).
 _TERMINAL = {"scored", "run_finished", "run_failed"}
@@ -79,7 +70,8 @@ def _is_complete(events: list[dict]) -> bool:
     return any((e.get("payload") or {}).get("type") in _TERMINAL for e in events)
 
 
-def capture_events(events: list[dict], store, *, project: str, task: str = "", distiller=None) -> dict:
+def capture_events(events: list[dict], store: MemoryStore, *, project: str, task: str = "",
+                   distiller: Distiller | None = None) -> dict:
     """The capture core (shared by the CLI, autocapture, and any future pillbox hook): record outcome
     observations + optionally distill claims. Returns {observations, claims}."""
     oids = observe_events(events, store, project=project)
@@ -87,8 +79,8 @@ def capture_events(events: list[dict], store, *, project: str, task: str = "", d
     return {"observations": len(oids), "claims": len(cids)}
 
 
-def capture_log_file(path: str, store, *, project: str, task: str = "", distiller=None,
-                     require_complete: bool = False) -> dict | None:
+def capture_log_file(path: str, store: MemoryStore, *, project: str, task: str = "",
+                     distiller: Distiller | None = None, require_complete: bool = False) -> dict | None:
     """Capture one session log, idempotent via a .kypp-observed marker (matches `session ingest`).
     Returns None — leaving the log unmarked for a later pass — if already captured, or if
     require_complete and the session is still in-flight (no terminal event yet)."""
@@ -116,10 +108,10 @@ def main():
     distiller = distiller_from_env() if args.distill else None
 
     if args.source == "-":  # streaming source has no path/marker — capture inline
-        events = [json.loads(line) for line in sys.stdin if line.strip()]
+        events = parse_jsonl(sys.stdin)
         res = capture_events(events, store, project=args.project, task=args.task, distiller=distiller)
     else:
-        logpath = args.source or (resolve_session_log(args.session) if args.session else None)
+        logpath = args.source or (find_session_log(args.session) if args.session else None)
         if not logpath:
             ap.error("need a log path, - for stdin, or --session ID")
         res = capture_log_file(logpath, store, project=args.project, task=args.task, distiller=distiller)
@@ -137,8 +129,6 @@ if __name__ == "__main__" and len(sys.argv) > 1:
     main()
 elif __name__ == "__main__":
     # self-test: observe_events over a synthetic §0 trace (no real session needed).
-    import shutil
-
     db = "/tmp/wire-selftest.db"
     for f in glob.glob(db + "*"):
         try: os.remove(f)

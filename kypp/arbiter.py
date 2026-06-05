@@ -56,7 +56,7 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
     return [c for c in clusters.values() if len(c) > 1]
 
 
-def consolidate(store, *, project: str | None = None, subject: str | None = None,
+def consolidate(store: MemoryStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None) -> dict:
     """Phase 1: group live claims by exact (subject, scope, project); keep the strongest, supersede the
     rest. Phase 2 (when `semantic` is a cosine max-distance AND claims are embedded): cluster the
@@ -83,7 +83,7 @@ def consolidate(store, *, project: str | None = None, subject: str | None = None
     return {"groups": len(plan), "superseded": len(superseded), "dry_run": dry_run, "plan": plan}
 
 
-def resolve_conflicts(store, subject: str, *, project: str | None = None) -> dict:
+def resolve_conflicts(store: MemoryStore, subject: str, *, project: str | None = None) -> dict:
     """Read-only: a subject's live claims grouped by status, with the recommended survivor. Apply via
     consolidate."""
     members = store.live_claims(project, subject)
@@ -129,12 +129,12 @@ elif __name__ == "__main__":
     store = MemoryStore(db)
 
     # three claims, same subject — varying strength (accepted > high-conf > low-conf+more-sources)
-    weak = store.claim("pitfall", "build fails", "weak", scope="project", project="p", confidence=0.3)
-    mid = store.claim("pitfall", "build fails", "mid, more evidence", scope="project", project="p",
-                      confidence=0.5, source_ids=["o1", "o2"])
+    store.claim("pitfall", "build fails", "weak", scope="project", project="p", confidence=0.3)
+    store.claim("pitfall", "build fails", "mid, more evidence", scope="project", project="p",
+                confidence=0.5, source_ids=["o1", "o2"])
     strong = store.claim("pitfall", "build fails", "accepted truth", scope="project", project="p",
                          confidence=0.4, accept=True)
-    other = store.claim("fact", "unrelated", "kept", scope="project", project="p", accept=True)
+    store.claim("fact", "unrelated", "kept", scope="project", project="p", accept=True)
 
     # dry-run writes nothing
     dry = consolidate(store, project="p", dry_run=True)
@@ -152,7 +152,6 @@ elif __name__ == "__main__":
     assert any(c.subject == "unrelated" for c in store.recall("unrelated", project="p")), "singleton untouched"
     # idempotent: a second pass finds nothing to do
     assert consolidate(store, project="p")["superseded"] == 0, "should be idempotent"
-    assert weak and mid and other  # (silence unused-var lint; ids exercised via recall)
 
     print(f"OK — arbiter: consolidated 3 dupes → 1 survivor ({strong[:8]}, the accepted claim); "
           f"2 superseded (history kept, recall excludes); singleton untouched; idempotent")

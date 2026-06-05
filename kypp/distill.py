@@ -24,9 +24,12 @@ import re
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from .vocab import TYPES  # single-sourced vocabulary (turso-free leaf), shared with store.py
+from .vocab import OLLAMA_DEFAULT_HOST, TYPES  # single-sourced vocabulary (turso-free leaf)
+
+if TYPE_CHECKING:
+    from .store import MemoryStore  # type-only: distill stays a turso-free leaf at runtime
 
 _MAX = 800  # claim/observation content cap — claims are distilled, not transcripts
 
@@ -85,10 +88,15 @@ class ClaimDraft:
     code_refs: list[dict] = field(default_factory=list)
 
 
+def parse_jsonl(lines) -> list[dict]:
+    """§0 events from any iterable of JSONL lines (file, stdin) — the one parser of the wire format."""
+    return [json.loads(line) for line in lines if line.strip()]
+
+
 def read_log(path: str) -> list[dict]:
     """Load a §0 log.jsonl (one Event JSON per line) into event dicts."""
     with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
+        return parse_jsonl(f)
 
 
 def build_trace(events: list[dict], task: str = "") -> Trace:
@@ -262,7 +270,7 @@ class LLMDistiller:
         return drafts
 
 
-def ollama_complete(model: str, host: str = "http://127.0.0.1:11434", *,
+def ollama_complete(model: str, host: str = OLLAMA_DEFAULT_HOST, *,
                     temperature: float = 0.0, timeout: float = 300):
     """A BYO `complete` over a local ollama server (the libkrun local-model forward target). Use:
     `LLMDistiller(ollama_complete('qwen3'))`. temperature 0 for reproducible distillation. timeout is
@@ -305,12 +313,12 @@ def distiller_from_env() -> Distiller:
     model = os.environ.get("KYPP_DISTILL_MODEL")
     if not model:
         return HeuristicDistiller()
-    host = os.environ.get("KYPP_OLLAMA_HOST", "http://127.0.0.1:11434")
+    host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
     timeout = float(os.environ.get("KYPP_OLLAMA_TIMEOUT", "300"))
     return FallbackDistiller(LLMDistiller(ollama_complete(model, host, timeout=timeout)), HeuristicDistiller())
 
 
-def distill_session(events: list[dict], store, *, project: str, scope: str = "project",
+def distill_session(events: list[dict], store: MemoryStore, *, project: str, scope: str = "project",
                     task: str = "", distiller: Distiller | None = None, actor: str = "distill") -> list[str]:
     """Compact a session's §0 events, mine claims, write them with provenance. The trace is recorded
     as one observation (the claims' source); the producing model goes to provenance metadata, and
