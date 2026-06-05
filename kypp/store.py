@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS memory_claims (
   authority TEXT DEFAULT 'agent',        -- who asserted it (agent|verified|human) — the survivor tie-break
   confidence REAL DEFAULT 0.7, source_ids TEXT DEFAULT '[]',
   code_refs TEXT DEFAULT '[]',          -- [{symbol?, path?, query?, repo?, commit?}] durable anchor, re-resolved at recall
+  verify TEXT,                           -- deterministic freshness check (shell command, exit 0 = still true) that `kypp verify` runs
   embedding BLOB,                        -- vector32 of subject+content (when an embedder is wired)
   valid_from TEXT, valid_to TEXT, metadata TEXT DEFAULT '{}',
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -73,7 +74,10 @@ CREATE INDEX IF NOT EXISTS usages_claim_idx ON claim_usages(claim_id);
 # COLUMN; re-adding raises a "duplicate column" parse error, which __init__ swallows — so this is the
 # idempotent way to evolve the schema without a version table. Keep each ADD COLUMN backward-compatible
 # (a DEFAULT, never NOT NULL) so old rows stay valid.
-_MIGRATIONS = ["ALTER TABLE memory_claims ADD COLUMN authority TEXT DEFAULT 'agent'"]
+_MIGRATIONS = [
+    "ALTER TABLE memory_claims ADD COLUMN authority TEXT DEFAULT 'agent'",
+    "ALTER TABLE memory_claims ADD COLUMN verify TEXT",
+]
 
 
 def _now() -> str:
@@ -102,6 +106,7 @@ class Claim:
     confidence: float
     source_ids: list[str]
     authority: str = "agent"  # who asserted it (agent|verified|human) — the survivor tie-break
+    verify: str | None = None  # a deterministic freshness check (shell command) `kypp verify` runs
     code_refs: list[dict] = field(default_factory=list)
     grounding: list[dict] = field(default_factory=list)  # live pointers, populated by recall
     project: str | None = None
@@ -248,12 +253,15 @@ class MemoryStore:
     def claim(self, type: str, subject: str, content: str, scope: str, project: str | None = None,
               agent: str | None = None, confidence: float = 0.7, source_ids: list[str] | None = None,
               code_refs: list[dict] | None = None, accept: bool = False,
-              authority: str = "agent") -> str:
+              authority: str = "agent", verify: str | None = None) -> str:
         """Write a claim. Status rule (THE one place it lives — callers don't restate it):
         `accept=True`, type='decision', or a non-agent `authority` (human/verified) lands accepted (a
         decision/human-correction/verified-fact IS the chosen answer; making it a candidate would hide
         it from default recall), everything else is a candidate for the arbiter. `authority` is the
-        survivor tie-break — a human correction outranks any agent claim regardless of confidence."""
+        survivor tie-break — a human correction outranks any agent claim regardless of confidence.
+        `verify` is a deterministic freshness check (shell command, exit 0 = still true) that
+        `kypp verify` runs to mark the claim verified/stale — the variance-free scoring channel for
+        black/white facts."""
         _require(type in TYPES, f"bad type {type!r}")
         _require(scope in SCOPES, f"bad scope {scope!r}")
         _require(authority in AUTHORITIES, f"bad authority {authority!r}")
@@ -264,10 +272,10 @@ class MemoryStore:
         emb_sql = f"vector32('{vec}')" if vec else "NULL"
         self._write([(
             f"INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,status,authority,"
-            f"confidence,source_ids,code_refs,embedding,created_at,updated_at)"
-            f" VALUES(?,?,?,?,?,?,?,?,?,?,?,?,{emb_sql},?,?)",
+            f"confidence,source_ids,code_refs,verify,embedding,created_at,updated_at)"
+            f" VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,{emb_sql},?,?)",
             (cid, type, subject, content, scope, project, agent, status, authority, confidence,
-             json.dumps(source_ids or []), json.dumps(code_refs or []), now, now))])
+             json.dumps(source_ids or []), json.dumps(code_refs or []), verify, now, now))])
         return cid
 
     # --- set_status = the arbiter's write (supersede / accept / reject) -----
@@ -277,6 +285,30 @@ class MemoryStore:
         _require(status in STATUSES, f"bad status {status!r}")
         self._write([("UPDATE memory_claims SET status=?, updated_at=? WHERE id=?",
                       (status, _now(), claim_id))])
+
+    # --- verify = the deterministic freshness channel (config/fact memory scores itself) ----
+    def claims_with_verifier(self, project: str | None = None, subject: str | None = None) -> list[Claim]:
+        """Every claim carrying a `verify` command — REGARDLESS of status, so `kypp verify` is
+        bidirectional: a claim it rejected last run revives if its check passes again. Not status-gated
+        like recall/live_claims; this is the verifier's own view (it owns these claims' freshness)."""
+        where, params = self._base_where(project, live_only=False)  # include rejected → revival is bidirectional
+        where.append("verify IS NOT NULL")
+        if subject:
+            where.append("subject = ?"); params.append(subject)
+        cur = self.db.cursor()
+        rows = cur.execute("SELECT * FROM memory_claims WHERE " + " AND ".join(where), params).fetchall()
+        return self._hydrate(cur, rows)
+
+    def mark_verified(self, claim_id: str, passed: bool) -> None:
+        """Record a deterministic check's verdict: pass → accepted + `verified` authority (so the
+        confirmed fact outranks any agent guess); fail → rejected (the claim is currently FALSE, drop
+        it from recall — a later passing check revives it). The verifier's only write."""
+        if passed:
+            self._write([("UPDATE memory_claims SET status='accepted', authority='verified', updated_at=? WHERE id=?",
+                          (_now(), claim_id))])
+        else:
+            self._write([("UPDATE memory_claims SET status='rejected', updated_at=? WHERE id=?",
+                          (_now(), claim_id))])
 
     # --- usage = the run -> claims-consumed link (memory credit-assignment foundation) ---
     def record_usage(self, consumer: str, claims, *, surface: str, project: str | None = None,
@@ -427,12 +459,13 @@ class MemoryStore:
         return claims
 
     @staticmethod
-    def _base_where(project: str | None, alias: str = "") -> tuple[list[str], list]:
+    def _base_where(project: str | None, alias: str = "", live_only: bool = True) -> tuple[list[str], list]:
         """The governance predicate shared by recall / live_claims / similar_pairs: never surface
-        superseded/rejected, and a project sees its own claims + global. `alias` prefixes the columns
+        superseded/rejected (unless live_only=False — the verifier owns dead claims' freshness and must
+        see them to revive), and a project sees its own claims + global. `alias` prefixes the columns
         for a self-join (e.g. "a"). Single-sourced so the readers can't drift."""
         p = f"{alias}." if alias else ""
-        where = [f"{p}status NOT IN ('rejected','superseded')"]
+        where = [f"{p}status NOT IN ('rejected','superseded')"] if live_only else []
         params: list = []
         if project:
             where.append(f"({p}project = ? OR {p}scope = 'global')")
@@ -459,7 +492,7 @@ class MemoryStore:
         return Claim(
             id=r["id"], type=r["type"], subject=r["subject"], content=r["content"], scope=r["scope"],
             status=r["status"], confidence=conf, source_ids=json.loads(r["source_ids"]),
-            authority=r.get("authority") or "agent",
+            authority=r.get("authority") or "agent", verify=r.get("verify"),
             code_refs=json.loads(r.get("code_refs") or "[]"), project=r["project"], agent=r["agent"],
             updated_at=r.get("updated_at") or "", low_confidence=(conf or 0) < 0.5)
 
@@ -539,6 +572,10 @@ if __name__ == "__main__":
             m.get(bad); raise AssertionError(f"expected BadHandle for {bad!r}")
         except BadHandle:
             pass
+    # verify column round-trips + is queryable via claims_with_verifier (the freshness channel's view)
+    vid = m.claim("fact", "verifiable cfg", "x", scope="project", project="pillbox", verify="true")
+    assert m.get(vid).verify == "true", m.get(vid).verify
+    assert any(c.id == vid for c in m.claims_with_verifier("pillbox")), "verifier claim queryable"
     # concurrent writes: two stores writing the same db at once (the tursodb reason)
     m2 = MemoryStore(db)
     a = m.observe("agent_a", "x", project="pillbox"); b = m2.observe("agent_b", "y", project="pillbox")

@@ -82,11 +82,13 @@ def remember_main():
     ap.add_argument("--scope", choices=SCOPES, default="project")
     ap.add_argument("--confidence", type=float, default=0.7)
     ap.add_argument("--accept", action="store_true", help="land accepted, not candidate")
+    ap.add_argument("--verify", help="a deterministic freshness check (shell command, exit 0 = still "
+                                     "true) that `kypp verify` runs to mark this claim verified/stale")
     _project_arg(ap)
     args = ap.parse_args()
     store = store_from_env()
-    cid = store.claim(args.type, args.subject, args.content, scope=args.scope,
-                      project=args.project, confidence=args.confidence, accept=args.accept)
+    cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
+                      confidence=args.confidence, accept=args.accept, verify=args.verify)
     # read the status back rather than re-spelling the store's rule (decision auto-accepts).
     status = store.get(cid).status
     print(f"{cid[:8]} [{status} {args.type}] {args.subject}")
@@ -126,12 +128,14 @@ def correct_main():
     ap.add_argument("--semantic", type=float, default=None, metavar="DIST",
                     help="also supersede differently-worded near-dups within this cosine distance "
                          "(needs KYPP_EMBED_MODEL)")
+    ap.add_argument("--verify", help="attach a deterministic freshness check (shell command) so "
+                                     "`kypp verify` can re-confirm/expire this correction later")
     _project_arg(ap)
     args = ap.parse_args()
     from .arbiter import consolidate
     store = store_from_env()
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
-                      confidence=args.confidence, authority="human")
+                      confidence=args.confidence, authority="human", verify=args.verify)
     res = consolidate(store, project=args.project, subject=args.subject, semantic=args.semantic)
     print(f"{cid[:8]} [human {args.type}] {args.subject} — corrected; "
           f"superseded {res['superseded']} prior claim(s)")
