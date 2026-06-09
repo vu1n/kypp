@@ -10,6 +10,7 @@ _COMMANDS = {
     "show": "expand a claim handle to the full claim (JSON)",
     "remember": "store a claim: SUBJECT CONTENT (subject = identity key)",
     "correct": "human correction: assert the right answer for a subject, supersede the rest",
+    "reject": "demote a claim by handle out of recall/briefing (outcome-driven; not deletion)",
     "verify": "re-check verifier-carrying config/fact claims → mark verified/stale",
     "briefing": "session-start digest: strongest accepted memory, pitfalls first",
     "usage": "usage provenance: which claims a run saw / which runs saw a claim",
@@ -39,6 +40,8 @@ def main():
         from .shell import remember_main as run
     elif cmd == "correct":
         from .shell import correct_main as run
+    elif cmd == "reject":
+        from .shell import reject_main as run
     elif cmd == "verify":
         from .verify import main as run
     elif cmd == "briefing":

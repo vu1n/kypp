@@ -311,6 +311,24 @@ class MemoryStore:
             self._write([("UPDATE memory_claims SET status='rejected', updated_at=? WHERE id=?",
                           (_now(), claim_id))])
 
+    def reject(self, claim_id: str, reason: str | None = None) -> None:
+        """Outcome-driven demote: set a claim to `rejected` so recall/briefing drop it, optionally
+        recording WHY in `metadata.rejected_reason` (audit). Distinct from supersede (a stronger claim
+        on the SAME subject won) and from `correct` (asserts a new value for a subject) — reject is
+        "this specific claim is bad," keyed by handle. Not deletion: the row stays (history preserved),
+        and a verifier-carrying claim a later `verify` pass can still revive."""
+        if reason is None:
+            self.set_status(claim_id, "rejected")
+            return
+        cur = self.db.cursor()
+        row = cur.execute("SELECT metadata FROM memory_claims WHERE id = ?", (claim_id,)).fetchone()
+        meta = json.loads(row[0]) if row and row[0] else {}
+        meta["rejected_reason"] = reason
+        # status + reason in ONE write (don't split into set_status()+a metadata update — that could
+        # half-apply, leaving a rejected claim with no recorded reason).
+        self._write([("UPDATE memory_claims SET status='rejected', metadata=?, updated_at=? WHERE id=?",
+                      (json.dumps(meta), _now(), claim_id))])
+
     # --- usage = the run -> claims-consumed link (memory credit-assignment foundation) ---
     def record_usage(self, consumer: str, claims, *, surface: str, project: str | None = None,
                      scope: str | None = None, query: str | None = None) -> int:
@@ -581,6 +599,15 @@ if __name__ == "__main__":
     vid = m.claim("fact", "verifiable cfg", "x", scope="project", project="pillbox", verify="true")
     assert m.get(vid).verify == "true", m.get(vid).verify
     assert any(c.id == vid for c in m.claims_with_verifier("pillbox")), "verifier claim queryable"
+    # reject: outcome-driven demote BY HANDLE → drops out of recall, row preserved, reason in metadata
+    rj = m.claim("pitfall", "bad lesson", "a lesson that correlated with failed runs",
+                 scope="project", project="pillbox", accept=True)
+    assert any(h.id == rj for h in m.recall("bad lesson correlated failed", project="pillbox")), "pre-reject recallable"
+    m.reject(rj, reason="correlated with 3 failed runs")
+    assert m.get(rj).status == "rejected", m.get(rj).status
+    assert not any(h.id == rj for h in m.recall("bad lesson correlated failed", project="pillbox")), "post-reject gone from recall"
+    _rjmeta = m.db.cursor().execute("SELECT metadata FROM memory_claims WHERE id=?", (rj,)).fetchone()[0]
+    assert "correlated with 3 failed runs" in _rjmeta, _rjmeta
     # concurrent writes: two stores writing the same db at once (the tursodb reason)
     m2 = MemoryStore(db)
     a = m.observe("agent_a", "x", project="pillbox"); b = m2.observe("agent_b", "y", project="pillbox")

@@ -141,6 +141,22 @@ def correct_main():
           f"superseded {res['superseded']} prior claim(s)")
 
 
+def reject_main():
+    ap = argparse.ArgumentParser(
+        description="reject a claim BY HANDLE — demote it to status=rejected so it drops out of "
+                    "recall/briefing. The outcome-driven demote (e.g. a claim `kypp usage` attribution "
+                    "tied to failures); distinct from `correct` (subject-keyed, asserts a replacement) "
+                    "and supersede (a stronger same-subject claim won). Not deletion — the row stays; a "
+                    "verifier-carrying claim can revive via `kypp verify`.")
+    ap.add_argument("handle", help="claim id or 8-char prefix (from `kypp recall` / `kypp briefing`)")
+    ap.add_argument("--reason", help="why it's being rejected — recorded in the claim's metadata for audit")
+    args = ap.parse_args()
+    store = store_from_env()
+    c = _resolve_handle(store, args.handle)
+    store.reject(c.id, reason=args.reason)
+    print(f"{c.id[:8]} [rejected {c.type}] {c.subject}" + (f" — {args.reason}" if args.reason else ""))
+
+
 def usage_main():
     ap = argparse.ArgumentParser(
         description="memory usage provenance: RECORD that a run was shown claims (--record), or READ "
