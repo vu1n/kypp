@@ -28,6 +28,16 @@ def project_for_log(path: str) -> str | None:
     return (m.group(1) or m.group(2)) if m else None
 
 
+def project_for_cwd(path: str = ".") -> str:
+    """Encode a working directory into the SAME project key `project_for_log` parses OUT of a pillbox
+    log path — the filesystem-path-as-key scheme (`/Users/me/code/foo` → `-Users-me-code-foo`: pure
+    `/`→`-`, dots preserved, e.g. real key `-Users-vuln-.pillbox-evalstore`). This is what lets the MCP
+    server (live recall/claim) and `sweep` (capture from logs) file under ONE bucket per repo instead of
+    split-braining. Encode + parse single-sourced here so they can't drift — a mismatch silently splits
+    a repo's memory across two project namespaces."""
+    return os.path.abspath(os.path.expanduser(path)).replace("/", "-")
+
+
 def session_logs(override: str | None = None) -> list[str]:
     """All §0 session logs from the default pillbox source (global + projects), or from `override`
     (a single glob the caller supplies via --logs)."""
@@ -51,4 +61,12 @@ if __name__ == "__main__":
         == "-Users-me-code-foo"
     assert project_for_log("~/.pillbox/projects/k/sessions/s/log.jsonl") == "k"  # unexpanded input ok
     assert project_for_log("/tmp/custom/sessions/abc/log.jsonl") is None, "foreign layout → None"
-    print("OK — _pillbox: project derived from global + project log paths; None for foreign layouts")
+    # encode/parse round-trip: a cwd-derived key parses back out of its own pillbox log path (so the
+    # MCP server's derived project == the key sweep files captured claims under — one bucket per repo).
+    key = project_for_cwd("/Users/me/code/foo")
+    assert key == "-Users-me-code-foo", key
+    assert project_for_log(os.path.expanduser(f"~/.pillbox/projects/{key}/sessions/s/log.jsonl")) == key
+    # dots survive the encode (pillbox keeps them — '-Users-vuln-.pillbox-evalstore' is a real on-disk key)
+    assert project_for_cwd("/Users/vuln/.pillbox/evalstore") == "-Users-vuln-.pillbox-evalstore"
+    print("OK — _pillbox: project derived from global + project log paths; None for foreign layouts; "
+          "cwd→key encode round-trips with the log-path parse")

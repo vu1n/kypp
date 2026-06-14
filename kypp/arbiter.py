@@ -16,7 +16,7 @@ import os
 import sys
 from collections import defaultdict
 
-from .store import Claim, MemoryStore, store_from_env
+from .store import Claim, MemoryStore, project_from_env, store_from_env
 from .vocab import AUTHORITY_RANK
 
 
@@ -140,7 +140,7 @@ def main():
     import argparse
 
     ap = argparse.ArgumentParser(description="consolidate near-duplicate claims in the memory store")
-    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
+    ap.add_argument("--project", default=project_from_env())  # same derived per-repo key serve/recall use
     ap.add_argument("--subject", help="limit to one subject (default: whole project)")
     ap.add_argument("--dry-run", action="store_true", help="show the plan, write nothing")
     ap.add_argument("--semantic", type=float, default=None, metavar="DIST",

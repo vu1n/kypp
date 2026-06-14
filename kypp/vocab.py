@@ -8,7 +8,7 @@ Literals so the closed set lands in the tool's JSON schema (the client model can
 value — the schema rejects it before the store's runtime check ever fires)."""
 from typing import Literal, get_args
 
-Scope = Literal["user", "project", "agent", "global"]
+Scope = Literal["project", "global"]  # reach: this repo, or cross-project. Authorship is a separate axis (the agent/user provenance columns), NOT a scope.
 ClaimType = Literal["fact", "preference", "decision", "procedure", "artifact", "hypothesis", "pitfall"]
 Status = Literal["candidate", "accepted", "superseded", "rejected"]  # claim lifecycle (spec status field)
 # WHO asserted a claim — the highest-signal, variance-free scoring channel: a human correction

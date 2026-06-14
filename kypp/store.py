@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 CREATE TABLE IF NOT EXISTS memory_claims (
   id TEXT PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, content TEXT NOT NULL,
-  scope TEXT NOT NULL, project TEXT, agent TEXT, status TEXT NOT NULL DEFAULT 'candidate',
+  scope TEXT NOT NULL, project TEXT,
+  agent TEXT, user TEXT,                 -- authorship provenance (agent/model + human, stamped on EVERY claim) and the match key for the private agent/user scopes
+  status TEXT NOT NULL DEFAULT 'candidate',
   authority TEXT DEFAULT 'agent',        -- who asserted it (agent|verified|human) — the survivor tie-break
   confidence REAL DEFAULT 0.7, source_ids TEXT DEFAULT '[]',
   code_refs TEXT DEFAULT '[]',          -- [{symbol?, path?, query?, repo?, commit?}] durable anchor, re-resolved at recall
@@ -77,6 +79,7 @@ CREATE INDEX IF NOT EXISTS usages_claim_idx ON claim_usages(claim_id);
 _MIGRATIONS = [
     "ALTER TABLE memory_claims ADD COLUMN authority TEXT DEFAULT 'agent'",
     "ALTER TABLE memory_claims ADD COLUMN verify TEXT",
+    "ALTER TABLE memory_claims ADD COLUMN user TEXT",  # authorship provenance (the agent column predates it)
 ]
 
 
@@ -110,7 +113,8 @@ class Claim:
     code_refs: list[dict] = field(default_factory=list)
     grounding: list[dict] = field(default_factory=list)  # live pointers, populated by recall
     project: str | None = None
-    agent: str | None = None
+    agent: str | None = None  # authoring agent/model (e.g. 'claude-code') — match key for the `agent` scope
+    user: str | None = None   # authoring human (e.g. OS login) — match key for the `user` scope
     updated_at: str = ""  # recency — the arbiter ranks on it; recall orders by it
     low_confidence: bool = False
     stale: bool = False  # advisory (set at grounding): code-anchored, but EVERY anchor unresolved — the code it's about is gone
@@ -252,7 +256,8 @@ class MemoryStore:
 
     # --- claim = distill (may point to code) --------------------------------
     def claim(self, type: str, subject: str, content: str, scope: str, project: str | None = None,
-              agent: str | None = None, confidence: float = 0.7, source_ids: list[str] | None = None,
+              agent: str | None = None, user: str | None = None, confidence: float = 0.7,
+              source_ids: list[str] | None = None,
               code_refs: list[dict] | None = None, accept: bool = False,
               authority: str = "agent", verify: str | None = None) -> str:
         """Write a claim. Status rule (THE one place it lives — callers don't restate it):
@@ -272,10 +277,10 @@ class MemoryStore:
         # vector32() must wrap a literal; embed it inline (values are our own floats, not user input).
         emb_sql = f"vector32('{vec}')" if vec else "NULL"
         self._write([(
-            f"INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,status,authority,"
+            f"INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,user,status,authority,"
             f"confidence,source_ids,code_refs,verify,embedding,created_at,updated_at)"
-            f" VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,{emb_sql},?,?)",
-            (cid, type, subject, content, scope, project, agent, status, authority, confidence,
+            f" VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,{emb_sql},?,?)",
+            (cid, type, subject, content, scope, project, agent, user, status, authority, confidence,
              json.dumps(source_ids or []), json.dumps(code_refs or []), verify, now, now))])
         return cid
 
@@ -376,7 +381,8 @@ class MemoryStore:
         """Governed retrieval. query='' is BROWSE mode — no text filter, strongest claims first
         (the briefing view); a non-empty query ranks semantically when an embedder is wired, else
         by LIKE keyword. ground=False skips code-anchor resolution (a ripgrep subprocess per ref) —
-        for callers that over-fetch then discard; call .ground() on the survivors."""
+        for callers that over-fetch then discard; call .ground() on the survivors. Memory is shared:
+        recall is author-blind (the agent/user provenance is surfaced on each claim, not a filter)."""
         where, params = self._base_where(project)
         if not include_candidates:
             where.append("status = 'accepted'")
@@ -396,7 +402,9 @@ class MemoryStore:
                      f"ELSE vector_distance_cos(embedding, vector32('{qv}')) END")
             rows = cur.execute(
                 f"SELECT *, ({order}) AS _d FROM memory_claims WHERE " + " AND ".join(where)
-                + " ORDER BY _d IS NULL, _d, (status='accepted') DESC, confidence DESC LIMIT ?",
+                # relevance dominates; among ties prefer accepted, then PROJECT over global (local truth
+                # overrides the general tier — (scope='global') is 0 for project-scoped, 1 for global), then confidence.
+                + " ORDER BY _d IS NULL, _d, (status='accepted') DESC, (scope='global') ASC, confidence DESC LIMIT ?",
                 params + [limit]).fetchall()
         else:
             # keyword recall (LIKE) — no embedder wired (or the query produced no embedding).
@@ -406,7 +414,8 @@ class MemoryStore:
             rows = cur.execute(
                 "SELECT * FROM memory_claims WHERE " + " AND ".join(where)
                 + (f" AND ({like})" if terms else "")
-                + " ORDER BY (status='accepted') DESC, confidence DESC, updated_at DESC LIMIT ?",
+                # accepted first, then PROJECT over global (local overrides the general tier), then confidence/recency.
+                + " ORDER BY (status='accepted') DESC, (scope='global') ASC, confidence DESC, updated_at DESC LIMIT ?",
                 params + lp + [limit]).fetchall()
         claims = self._hydrate(cur, rows)
         return self.ground(claims) if ground else claims
@@ -517,7 +526,7 @@ class MemoryStore:
             status=r["status"], confidence=conf, source_ids=json.loads(r["source_ids"]),
             authority=r.get("authority") or "agent", verify=r.get("verify"),
             code_refs=json.loads(r.get("code_refs") or "[]"), project=r["project"], agent=r["agent"],
-            updated_at=r.get("updated_at") or "", low_confidence=(conf or 0) < 0.5)
+            user=r.get("user"), updated_at=r.get("updated_at") or "", low_confidence=(conf or 0) < 0.5)
 
 
 def _require(cond: bool, msg: str):
@@ -552,6 +561,28 @@ def store_from_env(embed: Callable[[str], list[float]] | None = None) -> MemoryS
         host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
         embed = ollama_embed(os.environ["KYPP_EMBED_MODEL"], host)
     return MemoryStore(db, embed=embed, resolver=RipgrepResolver(root=os.environ.get("KYPP_REPO_ROOT", ".")))
+
+
+def project_from_env() -> str:
+    """The project binding for the env-driven surfaces (MCP server + Bash CLI). Explicit KYPP_PROJECT
+    wins; otherwise derive a stable per-repo key from KYPP_REPO_ROOT (default cwd) via the pillbox
+    path-key scheme, so live recall/claim share ONE bucket with `sweep`'s captured claims instead of
+    every repo collapsing into 'default' (the mis-filing foot-gun). For the derived key to MATCH
+    sweep's, run the server with KYPP_REPO_ROOT = the repo the agent works in (the cwd pillbox keys on).
+    `sweep`/`capture` are unaffected — they always derive each session's project from its log path."""
+    from ._pillbox import project_for_cwd
+    return os.environ.get("KYPP_PROJECT") or project_for_cwd(os.environ.get("KYPP_REPO_ROOT", "."))
+
+
+def identity_from_env() -> tuple[str | None, str | None]:
+    """(user, agent) authorship for the env-driven surfaces — stamped on EVERY claim as provenance (so
+    future per-author scoring and 'my memories' filters have history) and used as the match key for the
+    private `user`/`agent` scopes at recall. KYPP_USER defaults to the OS login so authorship is
+    captured zero-config; KYPP_AGENT (the model/harness label, e.g. 'claude-code') has no default —
+    set it to populate the per-agent tier (model-quirk memory)."""
+    user = os.environ.get("KYPP_USER") or os.environ.get("USER") or None
+    agent = os.environ.get("KYPP_AGENT") or None
+    return user, agent
 
 
 if __name__ == "__main__":
@@ -657,12 +688,49 @@ if __name__ == "__main__":
         pass
     MemoryStore(db, embed=lambda _t: []).claim("fact", "empty emb", "z", scope="project", project="pillbox")
 
+    # project-over-global tiebreak: same query + accepted status + confidence → the PROJECT-scoped claim
+    # outranks the GLOBAL one (local truth overrides the general tier). 'zoomzoom' (a unique token)
+    # isolates this pair from every other seeded claim so the only ranking signal left is scope.
+    m.claim("fact", "tier global", "zoomzoom marker at the global tier",
+            scope="global", project=None, confidence=0.7, accept=True)
+    m.claim("fact", "tier local", "zoomzoom marker for this project",
+            scope="project", project="pillbox", confidence=0.7, accept=True)
+    ranked = m.recall("zoomzoom", project="pillbox")
+    assert [c.scope for c in ranked] == ["project", "global"], [(c.scope, c.confidence) for c in ranked]
+
+    # --- authorship provenance: agent/user record WHO/WHAT created a claim (not a scope, not a filter).
+    # Stamped on the claim, hydrated back, surfaced via the handle round-trip; recall stays author-blind
+    # (memory is shared — provenance tells you who wrote it, it doesn't hide anything).
+    pa = m.claim("fact", "prov a", "qnote from claude", scope="project", project="pillbox",
+                 agent="claude-code", user="vuln", accept=True)
+    m.claim("fact", "prov b", "qnote from codex", scope="project", project="pillbox",
+            agent="codex", user="alice", accept=True)
+    assert (m.get(pa).agent, m.get(pa).user) == ("claude-code", "vuln"), m.get(pa)
+    # author-blind: a recall returns both authors' claims (nothing is walled off by who wrote it)
+    assert {c.subject for c in m.recall("qnote", project="pillbox")} == {"prov a", "prov b"}
+
     # store_from_env wires the embedder from KYPP_EMBED_MODEL (semantic recall) when set, else None
     os.environ["KYPP_MEMORY_DB"], os.environ["KYPP_EMBED_MODEL"] = db, "fake-embed"
     assert store_from_env().embed is not None, "KYPP_EMBED_MODEL should wire an embedder"
     os.environ.pop("KYPP_EMBED_MODEL")
     assert store_from_env().embed is None, "no model → keyword recall"
     os.environ.pop("KYPP_MEMORY_DB")
+
+    # project_from_env: explicit KYPP_PROJECT wins; else derive the per-repo key from KYPP_REPO_ROOT.
+    os.environ.pop("KYPP_PROJECT", None); os.environ.pop("KYPP_REPO_ROOT", None)
+    os.environ["KYPP_PROJECT"] = "explicit-proj"
+    assert project_from_env() == "explicit-proj", project_from_env()
+    del os.environ["KYPP_PROJECT"]
+    os.environ["KYPP_REPO_ROOT"] = "/Users/me/code/foo"
+    assert project_from_env() == "-Users-me-code-foo", project_from_env()
+    os.environ.pop("KYPP_REPO_ROOT")
+
+    # identity_from_env: KYPP_USER (else OS login) + KYPP_AGENT, both overridable
+    os.environ["KYPP_USER"], os.environ["KYPP_AGENT"] = "alice", "claude-code"
+    assert identity_from_env() == ("alice", "claude-code"), identity_from_env()
+    os.environ.pop("KYPP_USER"); os.environ.pop("KYPP_AGENT")
+    os.environ["USER"] = "bob"  # KYPP_USER unset → OS login fallback; KYPP_AGENT unset → None
+    assert identity_from_env() == ("bob", None), identity_from_env()
 
     print(f"OK — tursodb store: recalled [{hits[0].type}] {hits[0].subject} → "
           f"code {hits[0].code_refs[0]['path']}:{hits[0].code_refs[0]['symbol']}; "

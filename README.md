@@ -23,8 +23,11 @@ two equivalent surfaces — pick whichever you have:
 - **Bash** (zero setup beyond `kypp` on PATH): `kypp briefing | recall | show | remember`
 - **MCP** (richer; structured): attach via stdio — `claude mcp add kypp -- kypp serve` — or to a
   shared HTTP server: `kypp serve --http --port 7077`, then point your client at
-  `http://localhost:7077` (from a sandbox: `host.docker.internal`). Set `KYPP_PROJECT` and
-  `KYPP_REPO_ROOT` where the server runs — it binds one project and grounds against one repo.
+  `http://localhost:7077` (from a sandbox: `host.docker.internal`). Set `KYPP_REPO_ROOT` to the repo
+  where the server runs — it binds one project and grounds against one repo. The project key is
+  **derived from that repo path** (so live recall/claim share a bucket with `sweep`'s captured
+  claims); set `KYPP_PROJECT` only to override it. On connect the server hands the agent the protocol
+  below as MCP instructions, so an attached client knows the workflow without reading this README.
 
 ### The protocol
 
@@ -111,9 +114,11 @@ hook) to load the project's pitfalls and decisions before the agent has a query.
 ## Memory model
 
 A **claim** is `{type, subject, content, scope, status, confidence, authority, source_ids,
-code_refs, verify?}`.
+code_refs, agent?, user?, verify?}` (`agent`/`user` = authorship provenance, stamped on every claim).
 Types: `fact | preference | decision | procedure | artifact | hypothesis | pitfall`.
-Scopes: `user | project | agent | global` (a project sees its own claims + global).
+Scopes: `project` (this repo) · `global` (cross-project, all see it). Memory is shared and recall is
+author-blind; the `agent`/`user` columns are authorship **provenance** (who/what wrote it), surfaced on
+`expand` — not a visibility tier.
 Lifecycle: `candidate → accepted | superseded | rejected` — recall never returns
 superseded/rejected, prefers accepted, and nothing is ever deleted.
 Authority: `agent < verified < human` — the survivor tie-break; a human correction beats any
@@ -126,8 +131,10 @@ advisory flag set at recall when a code-anchored claim's anchors all fail to res
 | var | meaning |
 |---|---|
 | `KYPP_MEMORY_DB` | store path (default `~/.kypp/memory.db`) |
-| `KYPP_PROJECT` | project binding (default `default`); `sweep`/`capture` instead derive each session's project from its pillbox log path (`global/` vs `projects/<key>/`) when unset |
-| `KYPP_REPO_ROOT` | repo the ripgrep code-resolver grounds against (default `.`) |
+| `KYPP_PROJECT` | project binding; unset → **derived from `KYPP_REPO_ROOT`** (its path as a `/`→`-` key, matching what `sweep` files under) so serve + CLI + capture share one bucket per repo; `sweep`/`capture` instead derive each session's project from its pillbox log path (`global/` vs `projects/<key>/`) |
+| `KYPP_REPO_ROOT` | repo the ripgrep code-resolver grounds against, and the source of the derived `KYPP_PROJECT` key (default `.`) |
+| `KYPP_USER` | authoring human, stamped on every claim as provenance (default: OS login) |
+| `KYPP_AGENT` | authoring agent/model label (e.g. `claude-code`), stamped on every claim as provenance (unset → none) |
 | `KYPP_EMBED_MODEL` | ollama model → semantic vector recall (unset → keyword) |
 | `KYPP_DISTILL_MODEL` | ollama model → LLM distillation (unset → heuristic floor) |
 | `KYPP_OLLAMA_HOST` | ollama base URL (default `http://127.0.0.1:11434`) |

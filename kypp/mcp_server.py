@@ -20,9 +20,42 @@ import os
 
 from .arbiter import consolidate as _consolidate
 from .arbiter import resolve_conflicts as _resolve_conflicts
-from .store import Claim, MemoryStore, RipgrepResolver, store_from_env
+from .store import Claim, MemoryStore, RipgrepResolver, identity_from_env, project_from_env, store_from_env
 from .view import briefing_claims, render_claims
 from .vocab import HUMAN_CORRECTION_CONFIDENCE, ClaimType, Scope
+
+# Server-level instructions — surfaced to the agent in the MCP `initialize` response (clients inject
+# them at connect time). The tool docstrings carry the per-tool contract; THIS carries the protocol
+# that no single tool docstring can: the workflow order, and when to reach for which tool. Sourced
+# from the README "For agents" protocol — keep the two in sync (a drift here misleads every agent).
+INSTRUCTIONS = """\
+kypp is shared, code-grounded memory for a swarm of coding agents — durable claims governed by
+status (candidate→accepted), authority (human > verified > agent), and provenance. Use it so the
+next agent doesn't re-pay for lessons this one learned. The protocol:
+
+1. SESSION START — call `briefing` ONCE before working (no query). It returns this project's
+   strongest accepted memory, known traps (pitfalls) first. Skipping it means re-discovering paid-for
+   pitfalls.
+2. BEFORE non-trivial work — `recall("<what you're about to touch>")`. Each hit is one line with an
+   8-char handle; `expand(handle)` dereferences the full claim (provenance + live code pointer). Marks:
+   ✓ accepted / ? candidate; 👤 human-corrected and ☑ verified outrank agent claims — trust them over
+   your own inference. Read the `path:line` against the current tree; memory never inlines code.
+3. WHEN YOU LEARN SOMETHING DURABLE — `claim` a distilled lesson (not a transcript). `subject` is the
+   claim's IDENTITY: reuse an existing subject to update/correct it, a new subject makes a new memory.
+   Keep content MODEL-AGNOSTIC (shared across models — write "X fails when…", not "claude couldn't X").
+   Anchor to code via code_refs [{symbol,path,query}] when it concerns specific code. Plain claims land
+   as CANDIDATES (invisible to briefing/default recall); for settled team truths use `decide` /
+   `remember_procedure`.
+4. WRONG MEMORY — don't ignore it. A human gave the right answer → `correct(subject, content)` (human
+   authority, supersedes the rest). You believe it's wrong → re-`claim` under the SAME subject with
+   higher confidence; `consolidate` supersedes the loser. Nothing is deleted; superseded claims remain
+   as history.
+
+SCOPE — `project` (default) is this repo; `global` is cross-project truth every project sees. Memory is
+SHARED and viewable across the swarm; every claim is auto-stamped with its author (the agent/model +
+human) as provenance, surfaced on `expand` so you can see who/what wrote it — provenance is a label,
+not a wall, so keep content model-agnostic regardless.
+"""
 
 
 def _claim_dict(c: Claim) -> dict:
@@ -31,11 +64,12 @@ def _claim_dict(c: Claim) -> dict:
     return {"id": c.id, "type": c.type, "subject": c.subject, "content": c.content, "scope": c.scope,
             "status": c.status, "authority": c.authority, "confidence": c.confidence,
             "source_ids": c.source_ids, "code_refs": c.code_refs, "grounding": c.grounding,
-            "low_confidence": c.low_confidence, "stale": c.stale}
+            "low_confidence": c.low_confidence, "stale": c.stale, "agent": c.agent, "user": c.user}
 
 
 def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
-              http: tuple[str, int] | None = None, consumer: str | None = None):
+              http: tuple[str, int] | None = None, consumer: str | None = None,
+              user: str | None = None, agent: str | None = None):
     """Register the engine's tools on a FastMCP server bound to `store`/`project`. Imports the MCP SDK
     lazily so the module stays importable (and testable) without it. `http=(host, port)` serves over
     streamable-http; None → stdio. The tool docstrings/type hints below are the agent-facing contract.
@@ -50,10 +84,10 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
     if http:
         from mcp.server.transport_security import TransportSecuritySettings
         host, port = http
-        mcp = FastMCP(name, host=host, port=port,
+        mcp = FastMCP(name, INSTRUCTIONS, host=host, port=port,
                       transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
     else:
-        mcp = FastMCP(name)
+        mcp = FastMCP(name, INSTRUCTIONS)
 
     @mcp.tool()
     def observe(content: str, actor: str = "agent", source: str = "", scope: Scope = "project") -> str:
@@ -69,10 +103,13 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         """Record a durable memory. `subject` (short noun phrase) is the claim's IDENTITY: write under
         an EXISTING subject to update/correct it (consolidation keeps the strongest version); a new
         subject creates a new memory. Memory is shared across the swarm — keep content MODEL-AGNOSTIC
-        (no model names; the store does not strip them on this path). Anchor to code via code_refs
-        [{symbol,path,query}] when it concerns specific code. Returns the claim id."""
+        (no model names; the store does not strip them on this path). `scope`: project (default) or
+        global (cross-project truth). The author (agent/model + human) is recorded automatically as
+        provenance. Anchor to code via code_refs [{symbol,path,query}] when it concerns specific code.
+        Returns the claim id."""
         return store.claim(type, subject, content, scope=scope, project=project,
-                           confidence=confidence, source_ids=source_ids, code_refs=code_refs)
+                           confidence=confidence, source_ids=source_ids, code_refs=code_refs,
+                           user=user, agent=agent)
 
     @mcp.tool()
     def recall(query: str, scope: Scope | None = None, types: list[ClaimType] | None = None,
@@ -82,8 +119,9 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         line per hit — `handle [type ✓conf] subject — content → code pointer`; pass a handle to
         `expand` for the full claim (verbose=true returns full JSON directly). Empty query browses the
         strongest claims. Prefers accepted (✓) over candidate (?), project over global, never returns
-        rejected. If a recalled claim is WRONG, don't just ignore it — `claim` the correction under
-        the SAME subject with higher confidence; consolidation supersedes the loser."""
+        rejected. Memory is shared — recall is author-blind; `expand` a claim to see who wrote it. If a
+        recalled claim is WRONG, don't just ignore it — `claim` the correction under the SAME subject
+        with higher confidence; consolidation supersedes the loser."""
         claims = store.recall(query, project=project, scope=scope, types=types,
                               include_candidates=include_candidates, limit=limit)
         store.record_usage(consumer, claims, surface="recall", project=project, query=query or None)
@@ -116,7 +154,8 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         It outranks any agent claim AND any amount of agent corroboration, lands accepted, and
         supersedes prior claims on the same subject. Returns the claim id."""
         cid = store.claim(type, subject, content, scope="project", project=project,
-                          confidence=HUMAN_CORRECTION_CONFIDENCE, authority="human")
+                          confidence=HUMAN_CORRECTION_CONFIDENCE, authority="human",
+                          user=user, agent=agent)
         _consolidate(store, project=project, subject=subject)
         return cid
 
@@ -125,13 +164,14 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         """Record an ACCEPTED decision (durable, not a candidate) — the team's chosen answer for a
         subject. Returns the claim id."""
         # type=decision auto-accepts in the store (the rule lives there, not restated here).
-        return store.claim("decision", subject, content, scope="project", project=project, source_ids=source_ids)
+        return store.claim("decision", subject, content, scope="project", project=project,
+                           source_ids=source_ids, user=user, agent=agent)
 
     @mcp.tool()
     def remember_procedure(subject: str, content: str, source_ids: list[str] | None = None) -> str:
         """Record an ACCEPTED procedure — a reusable how-to. Returns the claim id."""
         return store.claim("procedure", subject, content, scope="project", project=project,
-                           source_ids=source_ids, accept=True)
+                           source_ids=source_ids, accept=True, user=user, agent=agent)
 
     @mcp.tool()
     def consolidate(subject: str = "", dry_run: bool = False, semantic: float = 0.0) -> dict:
@@ -164,8 +204,9 @@ def main():
     args = ap.parse_args()
 
     http = (args.host, args.port) if args.http else None
-    mcp = build_mcp(store_from_env(), os.environ.get("KYPP_PROJECT", "default"), http=http,
-                    consumer=os.environ.get("KYPP_SESSION"))
+    user, agent = identity_from_env()
+    mcp = build_mcp(store_from_env(), project_from_env(), http=http,
+                    consumer=os.environ.get("KYPP_SESSION"), user=user, agent=agent)
     mcp.run(transport="streamable-http" if args.http else "stdio")  # http = the attach surface
 
 
@@ -208,7 +249,7 @@ elif __name__ == "__main__":
     assert top["subject"] == "libkrun rebuild", hits
     assert set(top) == {"id", "type", "subject", "content", "scope", "status", "authority",
                         "confidence", "source_ids", "code_refs", "grounding", "low_confidence",
-                        "stale"}, set(top)
+                        "stale", "agent", "user"}, set(top)
     assert top["status"] == "accepted" and top["source_ids"] == [oid]
     assert top["grounding"] and top["grounding"][0]["status"] == "grounded" \
         and top["grounding"][0]["location"]["line"] == 1, top["grounding"]
@@ -228,9 +269,10 @@ elif __name__ == "__main__":
     note = ""
     try:
         srv = build_mcp(store, "pillbox")
+        assert srv.instructions and "briefing" in srv.instructions, "server must ship the protocol instructions"
         tm = getattr(srv, "_tool_manager", None)
         names = sorted(getattr(tm, "_tools", {})) if tm else []
-        note = f"; mcp server built (tools: {names or 'registered'})"
+        note = f"; mcp server built (tools: {names or 'registered'}, instructions shipped)"
     except ImportError:
         note = "; mcp SDK not installed — server build skipped (store + _claim_dict verified)"
 

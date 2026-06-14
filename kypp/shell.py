@@ -18,13 +18,23 @@ import sys
 # updated_at) is the point. _claim_dict is the trimmed agent contract; don't unify the two.
 from dataclasses import asdict
 
-from .store import BadHandle, Claim, MemoryStore, store_from_env
+from .store import BadHandle, Claim, MemoryStore, identity_from_env, project_from_env, store_from_env
 from .view import briefing_claims, render_claims
 from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, SURFACES, TYPES
 
 
 def _project_arg(ap: argparse.ArgumentParser) -> None:
-    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
+    # default single-sourced with the MCP server: explicit KYPP_PROJECT, else the per-repo key derived
+    # from KYPP_REPO_ROOT — so `kypp recall` and the attached MCP read the SAME project bucket.
+    ap.add_argument("--project", default=project_from_env())
+
+
+def _identity_args(ap: argparse.ArgumentParser) -> None:
+    # authorship provenance for WRITES, defaulting from env (KYPP_USER → OS login; KYPP_AGENT) — records
+    # who/what created the claim. Reads are author-blind (memory is shared), so only the write CLIs use this.
+    user, agent = identity_from_env()
+    ap.add_argument("--user", default=user)
+    ap.add_argument("--agent", default=agent)
 
 
 def _resolve_handle(store: MemoryStore, handle: str) -> Claim:
@@ -85,10 +95,12 @@ def remember_main():
     ap.add_argument("--verify", help="a deterministic freshness check (shell command, exit 0 = still "
                                      "true) that `kypp verify` runs to mark this claim verified/stale")
     _project_arg(ap)
+    _identity_args(ap)
     args = ap.parse_args()
     store = store_from_env()
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
-                      confidence=args.confidence, accept=args.accept, verify=args.verify)
+                      confidence=args.confidence, accept=args.accept, verify=args.verify,
+                      user=args.user, agent=args.agent)
     # read the status back rather than re-spelling the store's rule (decision auto-accepts).
     status = store.get(cid).status
     print(f"{cid[:8]} [{status} {args.type}] {args.subject}")
@@ -131,11 +143,13 @@ def correct_main():
     ap.add_argument("--verify", help="attach a deterministic freshness check (shell command) so "
                                      "`kypp verify` can re-confirm/expire this correction later")
     _project_arg(ap)
+    _identity_args(ap)
     args = ap.parse_args()
     from .arbiter import consolidate
     store = store_from_env()
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
-                      confidence=args.confidence, authority="human", verify=args.verify)
+                      confidence=args.confidence, authority="human", verify=args.verify,
+                      user=args.user, agent=args.agent)
     res = consolidate(store, project=args.project, subject=args.subject, semantic=args.semantic)
     print(f"{cid[:8]} [human {args.type}] {args.subject} — corrected; "
           f"superseded {res['superseded']} prior claim(s)")
@@ -187,7 +201,7 @@ def usage_main():
                 print(f"kypp: skipping unknown claim {h!r}", file=sys.stderr); continue
             ids.append(c.id)
         n = store.record_usage(args.session, ids, surface=args.surface,
-                               project=os.environ.get("KYPP_PROJECT"))
+                               project=project_from_env())  # tag usage with the same derived key as the claims
         print(f"recorded {n} usage(s) for session {args.session!r}")
         return
 
