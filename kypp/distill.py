@@ -302,6 +302,38 @@ def ollama_complete(model: str, host: str = OLLAMA_DEFAULT_HOST, *,
     return complete
 
 
+def claude_complete(model: str | None = None, *, timeout: float = 300):
+    """A BYO `complete` over the local `claude -p` CLI — a capable distiller backend when no API or
+    ollama model is wired (`claude` on PATH + authed). Output may carry prose around the JSON; the
+    LLMDistiller's fenced-block parse handles it."""
+    import subprocess
+    base = ["claude", "-p"] + (["--model", model] if model else [])
+
+    def complete(prompt: str) -> str:
+        p = subprocess.run([*base, prompt], capture_output=True, text=True, timeout=timeout)
+        if p.returncode != 0:
+            raise RuntimeError(f"claude -p exit {p.returncode}: {p.stderr.strip()[:200]}")
+        return p.stdout
+
+    return complete
+
+
+def codex_complete(model: str | None = None, *, timeout: float = 300):
+    """A BYO `complete` over the local `codex exec` CLI (`codex` on PATH + authed). Model via codex's
+    `-c model=…` config override. Best-effort: codex exec is chattier than claude -p, but the parse
+    seam extracts the fenced JSON regardless."""
+    import subprocess
+    base = ["codex", "exec"] + (["-c", f'model="{model}"'] if model else [])
+
+    def complete(prompt: str) -> str:
+        p = subprocess.run([*base, prompt], capture_output=True, text=True, timeout=timeout)
+        if p.returncode != 0:
+            raise RuntimeError(f"codex exec exit {p.returncode}: {p.stderr.strip()[:200]}")
+        return p.stdout
+
+    return complete
+
+
 class FallbackDistiller:
     """Compose distillers: try `primary` (e.g. the LLM), fall back to `fallback` (e.g. heuristic) when
     it raises — so a flaky or absent model never drops a session to zero claims (the heuristic is the
@@ -319,16 +351,29 @@ class FallbackDistiller:
             return self.fallback.distill(trace)
 
 
+def _complete_from_model(spec: str):
+    """Resolve a KYPP_DISTILL_MODEL spec to a BYO complete(prompt)->str. Scheme on the leading token:
+    `claude[:model]` → claude -p; `codex[:model]` → codex exec; `ollama:model` or a bare model name →
+    the local ollama server (back-compat). One env var picks the distiller brain (→ Kimi later)."""
+    backend, _, rest = spec.partition(":")
+    if backend == "claude":
+        return claude_complete(rest or None)
+    if backend == "codex":
+        return codex_complete(rest or None)
+    model = rest if backend == "ollama" else spec
+    host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
+    timeout = float(os.environ.get("KYPP_OLLAMA_TIMEOUT", "300"))
+    return ollama_complete(model, host, timeout=timeout)
+
+
 def distiller_from_env() -> Distiller:
-    """The configured distiller for the capture loop. KYPP_DISTILL_MODEL set → the LLM (ollama) with
-    a heuristic fallback; unset → heuristic only. KYPP_OLLAMA_HOST overrides the server. The seam-
-    config analog of store.store_from_env."""
+    """The configured distiller for the capture loop. KYPP_DISTILL_MODEL set → an LLM distiller (claude
+    / codex / ollama per the spec scheme) wrapped in a heuristic fallback; unset → heuristic only. The
+    seam-config analog of store.store_from_env."""
     model = os.environ.get("KYPP_DISTILL_MODEL")
     if not model:
         return HeuristicDistiller()
-    host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
-    timeout = float(os.environ.get("KYPP_OLLAMA_TIMEOUT", "300"))
-    return FallbackDistiller(LLMDistiller(ollama_complete(model, host, timeout=timeout)), HeuristicDistiller())
+    return FallbackDistiller(LLMDistiller(_complete_from_model(model)), HeuristicDistiller())
 
 
 def distill_session(events: list[dict], store: MemoryStore, *, project: str, scope: str = "project",
@@ -527,6 +572,8 @@ done."""
     assert isinstance(distiller_from_env(), HeuristicDistiller)
     os.environ["KYPP_DISTILL_MODEL"] = "fake-model"
     assert isinstance(distiller_from_env(), FallbackDistiller)
+    # backend routing: every scheme resolves to a callable complete (no shell-out until invoked)
+    assert all(callable(_complete_from_model(s)) for s in ("claude", "claude:sonnet", "codex", "ollama:q", "bare"))
     os.environ.pop("KYPP_DISTILL_MODEL", None)
     assert [d.subject for d in drafts] == ["book discount pricing", "greedy grouping overcharges",
                                            "weird type"], [d.subject for d in drafts]  # blank-subject dropped
