@@ -71,6 +71,10 @@ class Trace:
     run_failed: str | None
     verdict: Verdict | None
     event_count: int
+    turns: list[dict] = field(default_factory=list)  # NL conversation [{role,text}]: the decision/
+    # procedure/intent signal §0's action skeleton can't carry — present for dogfood transcripts
+    # (Claude/Codex), empty for graded pillbox sessions; rendered to the LLM distiller, ignored by the
+    # heuristic floor (which mines only verifiable failures).
 
     @property
     def tool_failures(self) -> Counter:
@@ -103,7 +107,7 @@ def build_trace(events: list[dict], task: str = "") -> Trace:
     """Compact §0 events into a failure-weighted Trace. Defensive: external JSON, read only what we
     need, tolerate missing fields. `task` is the prompt the session was given (the orchestrator knows
     it; the §0 log doesn't carry it reliably)."""
-    sid, models, actions = "", [], []
+    sid, models, actions, turns = "", [], [], []
     run_failed: str | None = None
     verdict: Verdict | None = None
     for ev in events:
@@ -117,12 +121,16 @@ def build_trace(events: list[dict], task: str = "") -> Trace:
             m = p.get("model", "")
             if m and m not in models:
                 models.append(m)
+        elif t in ("user_message", "assistant_message"):
+            txt = (p.get("text") or "").strip()
+            if txt:  # the NL turns dogfood transcripts carry and graded eval sessions don't
+                turns.append({"role": "user" if t == "user_message" else "assistant", "text": txt})
         elif t == "run_failed":
             run_failed = p.get("reason", "") or f"exit {p.get('exitCode')}"
         elif t == "scored":
             verdict = Verdict(p.get("grader", ""), bool(p.get("passed")), float(p.get("score") or 0.0),
                               p.get("feedback", ""), p.get("criteria") or [])
-    return Trace(sid, task, models, actions, run_failed, verdict, len(events))
+    return Trace(sid, task, models, actions, run_failed, verdict, len(events), turns=turns)
 
 
 class Distiller(Protocol):
@@ -212,6 +220,12 @@ class LLMDistiller:
                 lines.append(f"  FAILED {c.get('name', '?')}: {_clip(c.get('feedback') or '', 200)}")
         if trace.run_failed:
             lines.append(f"run failed: {trace.run_failed}")
+        if trace.turns:  # dogfood transcripts: the decisions/intent/corrections live here, not in actions
+            lines.append("## Conversation")
+            for turn in trace.turns[:40]:
+                lines.append(f"[{turn.get('role', '?')}] {_clip(turn.get('text', ''), 400)}")
+            if len(trace.turns) > 40:
+                lines.append(f"… {len(trace.turns) - 40} more turns")
         lines.append("## Actions")
         for i, a in enumerate(trace.actions[:60], 1):
             path = ""
