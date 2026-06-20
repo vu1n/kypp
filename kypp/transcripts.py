@@ -19,6 +19,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 
 from .distill import parse_jsonl
 
@@ -50,7 +51,8 @@ def claude_events(path: str) -> tuple[list[dict], dict]:
     """One Claude Code session transcript → (§0 events, meta). Emits, in document order: message_end
     (per distinct model), user_message / assistant_message (NL turns), and tool_call — each correlated
     with the user tool_result that reports its outcome (which arrives in a later turn)."""
-    rows = parse_jsonl(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as f:
+        rows = parse_jsonl(f)
     sid = next((r.get("sessionId", "") for r in rows if r.get("sessionId")), "")
     cwd = next((r.get("cwd", "") for r in rows if r.get("cwd")), "")
     # First pass: tool outcomes (a tool_result lives in the user turn AFTER its tool_use).
@@ -119,7 +121,8 @@ def codex_events(path: str) -> tuple[list[dict], dict]:
     """One Codex rollout → (§0 events, meta). Codex streams the same content under both `event_msg`
     and `response_item`; we key actions by call_id (so the duplicate stream collapses) and take NL
     turns from user_message / agent_message. Best-effort: Codex carries no explicit tool status."""
-    rows = parse_jsonl(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as f:
+        rows = parse_jsonl(f)
     sid = os.path.basename(path)
     cwd, models = "", []
     calls: dict = {}     # call_id -> {name, input}
@@ -130,7 +133,9 @@ def codex_events(path: str) -> tuple[list[dict], dict]:
         pt = p.get("type")
         if r.get("type") == "session_meta" or pt == "session_meta":
             cwd = cwd or p.get("cwd") or r.get("cwd") or ""
-            mp = p.get("model_provider") or p.get("model")
+            # the model id only — NOT model_provider ('openai'): a provider token would get scrubbed
+            # out of shared claim content by the model-agnostic redaction (distill.redact_for_scope).
+            mp = p.get("model")
             if mp and mp not in models:
                 models.append(mp)
         elif pt == "function_call":
@@ -138,7 +143,8 @@ def codex_events(path: str) -> tuple[list[dict], dict]:
                 args = json.loads(p.get("arguments") or "{}")
             except (ValueError, TypeError):
                 args = {"arguments": p.get("arguments")}
-            calls.setdefault(p.get("call_id"), {"name": p.get("name", ""), "input": args})
+            cid = p.get("call_id") or f"#{len(calls)}"  # distinct id-less calls must not collapse to one
+            calls.setdefault(cid, {"name": p.get("name", ""), "input": args})
         elif pt == "function_call_output":
             outputs.setdefault(p.get("call_id"), str(p.get("output", "")))
         elif pt == "user_message":
@@ -158,7 +164,7 @@ def codex_events(path: str) -> tuple[list[dict], dict]:
     for cid, c in calls.items():
         out = outputs.get(cid, "")
         events.append({"sessionId": sid, "payload": {
-            "type": "tool_call", "name": c["name"], "status": "completed" if cid in outputs else "unspecified",
+            "type": "tool_call", "name": c["name"], "status": "unspecified",  # codex carries no pass/fail
             "title": "", "input": c["input"], "output": out[:_OUT]}})
     first_user = next((t for role, t in turns if role == "user"), "")
     meta = {"session_id": sid, "cwd": cwd, "models": models, "task": first_user[:400],
@@ -190,10 +196,19 @@ def _codex_roots() -> tuple[str, ...]:
     return tuple(os.path.expanduser(r) for r in roots)
 
 
-def claude_sessions(repo_key: str) -> list[str]:
-    """Claude Code transcripts for a repo — ~/.claude/projects/<cwd-key>/*.jsonl (the dir name IS the
-    cwd-key, so these are already this-repo by construction)."""
-    return sorted(glob.glob(os.path.join(_claude_root(), repo_key, "*.jsonl")))
+def _claude_dir_key(repo: str) -> str:
+    """Claude Code's project-dir encoding of an abspath: every non-alphanumeric char → '-' (so '/' AND
+    '.' both map, and runs are NOT collapsed — '/.claude' → '--claude'). Deliberately NOT _pillbox's
+    project_for_cwd, which preserves dots: a dotted path (e.g. a `.claude/worktrees` checkout, or any
+    `foo.bar` dir) lands in a DIFFERENT on-disk dir than the kypp project bucket, so DISCOVERY must use
+    Claude's own encoder or it silently globs a nonexistent dir and finds zero sessions."""
+    return re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(os.path.expanduser(repo)))
+
+
+def claude_sessions(repo: str) -> list[str]:
+    """Claude Code transcripts for a repo — ~/.claude/projects/<claude-dir-key>/*.jsonl. The dir name
+    is Claude's encoding of the repo path, so these are already this-repo by construction."""
+    return sorted(glob.glob(os.path.join(_claude_root(), _claude_dir_key(repo), "*.jsonl")))
 
 
 def codex_sessions() -> list[str]:
@@ -256,6 +271,10 @@ if __name__ == "__main__":
     assert bash["status"] == "error" and "missing feature" in bash["output"], bash
     edit = next(e["payload"] for e in events if e["payload"].get("name") == "Edit")
     assert edit["status"] == "unspecified", edit  # no tool_result for tu2
+
+    # Claude's dir encoder maps every non-alnum → '-' (dots too), unlike project_for_cwd — the
+    # silent-zero-sessions bug on dotted paths. Lock it.
+    assert _claude_dir_key("/U/code/a.b/.claude/wt") == "-U-code-a-b--claude-wt", _claude_dir_key("/U/code/a.b/.claude/wt")
 
     # Codex: session_meta (cwd), a user_message, a function_call + its output, an agent_message.
     codex_rows = [

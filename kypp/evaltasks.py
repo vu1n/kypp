@@ -24,14 +24,14 @@ import os
 import re
 import sys
 
-from ._pillbox import project_for_cwd
 from .transcripts import claude_sessions, codex_sessions, is_eval_contaminated, transcript_events
 
 _EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-# verifiable-check commands — a passing one is a ready-made grader for the task it concluded.
+# Genuine TEST runners — a passing one is a ready-made grader. Deliberately NOT cargo build / lint /
+# typecheck: those pass for compiling-but-wrong code, so they're not evidence the behavior is correct.
 _TEST_RE = re.compile(
-    r"\b(pytest|cargo (test|build)|go test|jest|vitest|mocha|make (test|check)|grade\.sh"
-    r"|(npm|pnpm|yarn|bun) (run )?(test|lint|typecheck)|tox|rspec)\b")
+    r"\b(pytest|cargo test|go test|jest|vitest|mocha|make test|grade\.sh"
+    r"|(npm|pnpm|yarn|bun) (run )?test|tox|rspec)\b")
 
 
 def mine_session(events: list[dict], meta: dict) -> dict | None:
@@ -71,7 +71,7 @@ def mine_repo(repo: str, *, with_codex: bool = False, auto_only: bool = False, l
     """All task candidates from a repo's transcripts (Claude + optional Codex), eval-contaminated
     sessions excluded so we don't mine the imported benchmarks back out."""
     repo = os.path.abspath(os.path.expanduser(repo))
-    paths = claude_sessions(project_for_cwd(repo))
+    paths = claude_sessions(repo)
     if with_codex:
         paths += codex_sessions()
     candidates: list[dict] = []

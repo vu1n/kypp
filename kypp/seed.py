@@ -34,9 +34,8 @@ def seed_repo(store: MemoryStore, repo: str, *, project: str | None = None,
     Idempotent via `.kypp-seeded` markers (skip `redistill` to ignore them). Codex sessions aren't
     organized by repo, so they're filtered to those whose recorded cwd IS this repo. Returns tallies."""
     repo = os.path.abspath(os.path.expanduser(repo))
-    key = project_for_cwd(repo)
-    proj = project or key
-    paths = claude_sessions(key)
+    proj = project or project_for_cwd(repo)
+    paths = claude_sessions(repo)  # discovery uses Claude's dir encoder, not the kypp project key
     if with_codex:
         paths += codex_sessions()
     captured = skipped = obs = claims = 0
@@ -53,13 +52,12 @@ def seed_repo(store: MemoryStore, repo: str, *, project: str | None = None,
         if meta.get("source") == "codex" and os.path.abspath(meta.get("cwd") or "/") != repo:
             continue  # a codex session from a different repo — not ours, don't mark
         if not include_eval and is_eval_contaminated(meta):
-            skipped += 1
-            open(marker, "w").close()  # mark, so we don't re-examine a known-contaminated session
+            skipped += 1  # NOT marked — a future contamination-filter refinement must reconsider it
             continue
         if not events:
             skipped += 1
             continue
-        res = capture_events(events, store, project=proj, task=meta["task"], distiller=distiller)
+        res = capture_events(events, store, project=proj, task=meta.get("task", ""), distiller=distiller)
         open(marker, "w").close()
         captured += 1
         obs += res["observations"]
