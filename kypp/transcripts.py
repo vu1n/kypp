@@ -5,7 +5,9 @@ The dogfood corpus (~/.claude/projects, ~/.codex/sessions) is orders of magnitud
 §0 logs, but in a different shape. This module is the bridge: one native transcript → the same §0 event
 stream that wire.capture_events and the distiller already consume — now including the user_message /
 assistant_message turns the conversational-turns channel carries. It is the shared FRONT-END for
-`kypp seed` (→ claims) and the eval-task miner (→ frozen tasks); the back-end is unchanged.
+`kypp seed` (→ claims) and the eval-task miner (→ frozen tasks): it owns translation, per-repo session
+discovery, AND the eval-contamination policy, so both back-ends stay thin and can't drift on which
+sessions count. The distiller back-end is unchanged.
 
 Source-decoupled like wire.py: the translators return (events, meta) and never touch the store. Meta
 carries cwd (for project derivation + eval-contamination filtering) and the producing model(s).
@@ -14,8 +16,11 @@ Defensive throughout — these are large, external, occasionally-malformed JSONL
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
+
+from .distill import parse_jsonl
 
 _OUT = 2000  # per-action output cap carried into a §0 tool_call (the distiller re-clips anyway)
 
@@ -45,7 +50,7 @@ def claude_events(path: str) -> tuple[list[dict], dict]:
     """One Claude Code session transcript → (§0 events, meta). Emits, in document order: message_end
     (per distinct model), user_message / assistant_message (NL turns), and tool_call — each correlated
     with the user tool_result that reports its outcome (which arrives in a later turn)."""
-    rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+    rows = parse_jsonl(open(path, encoding="utf-8"))
     sid = next((r.get("sessionId", "") for r in rows if r.get("sessionId")), "")
     cwd = next((r.get("cwd", "") for r in rows if r.get("cwd")), "")
     # First pass: tool outcomes (a tool_result lives in the user turn AFTER its tool_use).
@@ -91,12 +96,15 @@ def claude_events(path: str) -> tuple[list[dict], dict]:
                             "output": (res.get("output") or "")[:_OUT]}})
         elif kind == "user" and not r.get("isSidechain"):
             content = msg.get("content")
-            # human text only — skip pure tool_result turns (no text block / not a bare string)
-            is_text = isinstance(content, str) or (
-                isinstance(content, list) and any(
-                    isinstance(b, dict) and b.get("type") == "text" for b in content))
-            txt = (content if isinstance(content, str) else _claude_text(content)).strip()
-            if is_text and txt:
+            # the human-authored text ONLY — not the tool_result blocks that share the user turn
+            if isinstance(content, str):
+                txt = content.strip()
+            elif isinstance(content, list):
+                txt = "\n".join(b.get("text", "") for b in content
+                                if isinstance(b, dict) and b.get("type") == "text").strip()
+            else:
+                txt = ""
+            if txt:
                 n_user += 1
                 first_user = first_user or txt
                 events.append({"sessionId": sid, "payload": {"type": "user_message", "text": txt}})
@@ -111,7 +119,7 @@ def codex_events(path: str) -> tuple[list[dict], dict]:
     """One Codex rollout → (§0 events, meta). Codex streams the same content under both `event_msg`
     and `response_item`; we key actions by call_id (so the duplicate stream collapses) and take NL
     turns from user_message / agent_message. Best-effort: Codex carries no explicit tool status."""
-    rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+    rows = parse_jsonl(open(path, encoding="utf-8"))
     sid = os.path.basename(path)
     cwd, models = "", []
     calls: dict = {}     # call_id -> {name, input}
@@ -168,6 +176,48 @@ def transcript_events(path: str) -> tuple[list[dict], dict]:
     if "/.codex/" in path or base.startswith("rollout-"):
         return codex_events(path)
     return claude_events(path)
+
+
+# --- repo discovery + corpus policy (shared by `kypp seed` and the eval-task miner) ------------
+
+def _claude_root() -> str:
+    return os.path.expanduser(os.environ.get("KYPP_CLAUDE_ROOT", "~/.claude/projects"))
+
+
+def _codex_roots() -> tuple[str, ...]:
+    env = os.environ.get("KYPP_CODEX_ROOTS")
+    roots = env.split(":") if env else ("~/.codex/sessions", "~/.codex/archived_sessions")
+    return tuple(os.path.expanduser(r) for r in roots)
+
+
+def claude_sessions(repo_key: str) -> list[str]:
+    """Claude Code transcripts for a repo — ~/.claude/projects/<cwd-key>/*.jsonl (the dir name IS the
+    cwd-key, so these are already this-repo by construction)."""
+    return sorted(glob.glob(os.path.join(_claude_root(), repo_key, "*.jsonl")))
+
+
+def codex_sessions() -> list[str]:
+    """All Codex rollouts — not organized by repo, so consumers filter by each session's recorded cwd."""
+    return sorted(p for root in _codex_roots()
+                  for p in glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True))
+
+
+# A session whose WORK was a frozen benchmark task (Exercism / SWE-bench / toolz / sensitivity) must
+# not seed memory we later evaluate on (leak), and must not be mined back out as a "new" task. cwd +
+# first-prompt markers; conservative — better to skip a real session than to contaminate the benchmark.
+_EVAL_CWD = ("swebench", "exercism", "/eval/tasks", "toolz-tasks", "sensitivity-tasks", "/eval/memory/tasks")
+_EVAL_TASK = ("# instructions", "exercism", "swebench", "segment 1 of", "segment 2 of", "run grade.sh")
+
+
+def is_eval_contaminated(meta: dict) -> bool:
+    """True if a session looks like frozen-benchmark work (cwd under an eval task tree, or a first
+    prompt with the benchmark's pedagogical markers) — excluded from BOTH seeding and task-mining so
+    memory and the benchmark stay disjoint (the seed-or-donate-never-both discipline)."""
+    cwd = (meta.get("cwd") or "").lower()
+    if any(m in cwd for m in _EVAL_CWD):
+        return True
+    task = (meta.get("task") or "").lower()
+    return any(m in task for m in _EVAL_TASK)
 
 
 if __name__ == "__main__":

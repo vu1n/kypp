@@ -23,45 +23,8 @@ import sys
 from ._pillbox import project_for_cwd
 from .distill import Distiller, distiller_from_env
 from .store import MemoryStore, store_from_env
-from .transcripts import transcript_events
+from .transcripts import claude_sessions, codex_sessions, is_eval_contaminated, transcript_events
 from .wire import capture_events
-
-
-def _claude_root() -> str:
-    return os.path.expanduser(os.environ.get("KYPP_CLAUDE_ROOT", "~/.claude/projects"))
-
-
-def _codex_roots() -> tuple[str, ...]:
-    env = os.environ.get("KYPP_CODEX_ROOTS")
-    roots = env.split(":") if env else ("~/.codex/sessions", "~/.codex/archived_sessions")
-    return tuple(os.path.expanduser(r) for r in roots)
-
-
-# A session whose WORK was a frozen benchmark task (Exercism / SWE-bench / toolz / sensitivity) must
-# not seed memory we later evaluate on (leak). cwd + first-prompt markers; conservative — better to
-# skip a real session than to contaminate the benchmark.
-_EVAL_CWD = ("swebench", "exercism", "/eval/tasks", "toolz-tasks", "sensitivity-tasks", "/eval/memory/tasks")
-_EVAL_TASK = ("# instructions", "exercism", "swebench", "segment 1 of", "segment 2 of", "run grade.sh")
-
-
-def is_eval_contaminated(meta: dict) -> bool:
-    """True if a session looks like frozen-benchmark work (cwd under an eval task tree, or a first
-    prompt with the benchmark's pedagogical markers). Skipped from seeding to keep memory and the
-    benchmark disjoint."""
-    cwd = (meta.get("cwd") or "").lower()
-    if any(m in cwd for m in _EVAL_CWD):
-        return True
-    task = (meta.get("task") or "").lower()
-    return any(m in task for m in _EVAL_TASK)
-
-
-def _claude_sessions(repo_key: str) -> list[str]:
-    return sorted(glob.glob(os.path.join(_claude_root(), repo_key, "*.jsonl")))
-
-
-def _codex_sessions() -> list[str]:
-    return sorted(p for root in _codex_roots()
-                  for p in glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True))
 
 
 def seed_repo(store: MemoryStore, repo: str, *, project: str | None = None,
@@ -71,10 +34,11 @@ def seed_repo(store: MemoryStore, repo: str, *, project: str | None = None,
     Idempotent via `.kypp-seeded` markers (skip `redistill` to ignore them). Codex sessions aren't
     organized by repo, so they're filtered to those whose recorded cwd IS this repo. Returns tallies."""
     repo = os.path.abspath(os.path.expanduser(repo))
-    proj = project or project_for_cwd(repo)
-    paths = _claude_sessions(project_for_cwd(repo))
+    key = project_for_cwd(repo)
+    proj = project or key
+    paths = claude_sessions(key)
     if with_codex:
-        paths += _codex_sessions()
+        paths += codex_sessions()
     captured = skipped = obs = claims = 0
     for path in paths:
         marker = path + ".kypp-seeded"

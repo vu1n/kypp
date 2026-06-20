@@ -302,36 +302,30 @@ def ollama_complete(model: str, host: str = OLLAMA_DEFAULT_HOST, *,
     return complete
 
 
-def claude_complete(model: str | None = None, *, timeout: float = 300):
-    """A BYO `complete` over the local `claude -p` CLI — a capable distiller backend when no API or
-    ollama model is wired (`claude` on PATH + authed). Output may carry prose around the JSON; the
-    LLMDistiller's fenced-block parse handles it."""
+def _cli_complete(base: list[str], label: str, timeout: float):
+    """A BYO `complete` over a local agent CLI that takes the prompt as its final arg and prints the
+    completion to stdout (`claude -p`, `codex exec`). The CLI must be on PATH + authed."""
     import subprocess
-    base = ["claude", "-p"] + (["--model", model] if model else [])
 
     def complete(prompt: str) -> str:
         p = subprocess.run([*base, prompt], capture_output=True, text=True, timeout=timeout)
         if p.returncode != 0:
-            raise RuntimeError(f"claude -p exit {p.returncode}: {p.stderr.strip()[:200]}")
+            raise RuntimeError(f"{label} exit {p.returncode}: {p.stderr.strip()[:200]}")
         return p.stdout
 
     return complete
+
+
+def claude_complete(model: str | None = None, *, timeout: float = 300):
+    """`claude -p` as the distiller backend — capable when no API/ollama model is wired. Output may
+    carry prose around the JSON; the LLMDistiller's fenced-block parse handles it."""
+    return _cli_complete(["claude", "-p"] + (["--model", model] if model else []), "claude -p", timeout)
 
 
 def codex_complete(model: str | None = None, *, timeout: float = 300):
-    """A BYO `complete` over the local `codex exec` CLI (`codex` on PATH + authed). Model via codex's
-    `-c model=…` config override. Best-effort: codex exec is chattier than claude -p, but the parse
-    seam extracts the fenced JSON regardless."""
-    import subprocess
-    base = ["codex", "exec"] + (["-c", f'model="{model}"'] if model else [])
-
-    def complete(prompt: str) -> str:
-        p = subprocess.run([*base, prompt], capture_output=True, text=True, timeout=timeout)
-        if p.returncode != 0:
-            raise RuntimeError(f"codex exec exit {p.returncode}: {p.stderr.strip()[:200]}")
-        return p.stdout
-
-    return complete
+    """`codex exec` as the distiller backend (model via codex's `-c model=…`). Chattier than claude -p,
+    but the parse seam extracts the fenced JSON regardless."""
+    return _cli_complete(["codex", "exec"] + (["-c", f'model="{model}"'] if model else []), "codex exec", timeout)
 
 
 class FallbackDistiller:
