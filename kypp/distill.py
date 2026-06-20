@@ -182,7 +182,9 @@ LLM_DISTILL_PROMPT = (
     "their fixes. Content must be MODEL-AGNOSTIC (no model names) — it is shared across models and "
     "model-entangled memory degrades transfer. Ground claims to code via code_refs "
     "[{symbol,path,query}] when they concern specific code. Skip one-off chatter and anything with "
-    "no clear, reusable subject."
+    "no clear, reusable subject. Also skip TRANSIENT ENVIRONMENT artifacts — a missing interpreter/tool "
+    "in the sandbox, a runner/harness quirk, anything tied to THIS run's machine rather than the code or "
+    "task; those don't transfer across sessions."
 )
 
 _SCHEMA = (
