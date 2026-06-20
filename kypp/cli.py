@@ -17,6 +17,7 @@ _COMMANDS = {
     "capture": "capture one session's §0 log into memory (alias: wire)",
     "sweep": "autocapture: sweep completed sessions into memory (idempotent)",
     "seed": "bootstrap a repo's memory from its Claude Code / Codex transcript history",
+    "mine-tasks": "mine real eval-task candidates from a repo's transcripts (→ gate.py)",
     "consolidate": "dedup near-duplicate claims (exact + optional semantic)",
     "batch": "LLM re-distill a corpus of §0 logs, one representative per task",
 }
@@ -55,6 +56,8 @@ def main():
         from .autocapture import main as run
     elif cmd == "seed":
         from .seed import main as run
+    elif cmd == "mine-tasks":
+        from .evaltasks import main as run
     elif cmd == "consolidate":
         from .arbiter import main as run
     elif cmd == "batch":
