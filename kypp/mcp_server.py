@@ -46,8 +46,9 @@ next agent doesn't re-pay for lessons this one learned. The protocol:
    Anchor to code via code_refs [{symbol,path,query}] when it concerns specific code. Plain claims land
    as CANDIDATES (invisible to briefing/default recall); for settled team truths use `decide` /
    `remember_procedure`.
-4. WRONG MEMORY — don't ignore it. A human gave the right answer → `correct(subject, content)` (human
-   authority, supersedes the rest). You believe it's wrong → re-`claim` under the SAME subject with
+4. WRONG MEMORY — don't ignore it. A human gave the right answer → `correct(subject, content)` (lands
+   accepted at top confidence, supersedes weaker agent claims; human authority comes only from the
+   operator's `kypp correct`). You believe it's wrong → re-`claim` under the SAME subject with
    higher confidence; `consolidate` supersedes the loser. Nothing is deleted; superseded claims remain
    as history.
 
@@ -149,12 +150,14 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
 
     @mcp.tool()
     def correct(subject: str, content: str, type: ClaimType = "fact") -> str:
-        """Record a HUMAN correction — the authoritative right answer for a subject. Use when a human
-        tells you a stored memory is WRONG and gives the correct value (e.g. the right config/tag).
-        It outranks any agent claim AND any amount of agent corroboration, lands accepted, and
-        supersedes prior claims on the same subject. Returns the claim id."""
+        """Record a correction a human gave you — the right answer for a subject a stored memory got
+        WRONG (e.g. the right config/tag). It lands accepted at top confidence and supersedes prior
+        AGENT claims on the subject, but it carries agent authority: only the operator's
+        `kypp correct` writes human authority, so it never outranks a verified or human claim.
+        Returns the claim id."""
+        # Context: doc://kypp/human-authority-operator-only@0001#operator-only-human — MCP never writes authority=human
         cid = store.claim(type, subject, content, scope="project", project=project,
-                          confidence=HUMAN_CORRECTION_CONFIDENCE, authority="human",
+                          confidence=HUMAN_CORRECTION_CONFIDENCE, accept=True,
                           user=user, agent=agent)
         _consolidate(store, project=project, subject=subject)
         return cid
@@ -272,6 +275,13 @@ elif __name__ == "__main__":
         assert srv.instructions and "briefing" in srv.instructions, "server must ship the protocol instructions"
         tm = getattr(srv, "_tool_manager", None)
         names = sorted(getattr(tm, "_tools", {})) if tm else []
+        # MCP correct never mints human authority: an operator's human claim survives it
+        store.claim("fact", "image tag", "use runner:l7", scope="project", project="pillbox",
+                    authority="human")
+        tm._tools["correct"].fn("image tag", "use runner:l6")
+        live = [c for c in store.recall("image tag runner", project="pillbox") if c.subject == "image tag"]
+        assert live and live[0].authority == "human" and live[0].content == "use runner:l7", live
+        assert all(c.authority != "human" or c.content == "use runner:l7" for c in live), live
         note = f"; mcp server built (tools: {names or 'registered'}, instructions shipped)"
     except ImportError:
         note = "; mcp SDK not installed — server build skipped (store + _claim_dict verified)"

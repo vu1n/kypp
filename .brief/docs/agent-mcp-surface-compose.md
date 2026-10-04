@@ -61,7 +61,7 @@ correct(subject, content, type="fact") -> str
 | `compose` | the right, **bounded**, grounded context for a task | `briefing` + `recall` |
 | `claim`   | save one durable lesson | `claim` + `decide` + `remember_procedure` |
 | `expand`  | dereference a handle → full claim | `expand` |
-| `correct` | human override (authoritative) | `correct` |
+| `correct` | record a human-given fix (accepted, agent authority; see human-authority-operator-only) | `correct` |
 
 Moved off the agent surface: `observe` → wire/distill pipeline; `decide`/`remember_procedure` →
 `claim`'s `type`/`accept`; `consolidate`/`resolve_conflicts` → CLI/cron.
@@ -102,7 +102,7 @@ observations are the capture pipeline's job.
 1. Before non-trivial work → compose("<what you're about to touch>"). Empty task = the session digest.
 2. Learn something durable → claim(subject, content). accept=true / type=decision for settled truths.
 3. Acting on a handle → expand(handle) for the full claim + live code pointer.
-4. A human says a memory is wrong → correct(subject, content). It outranks everything.
+4. A human says a memory is wrong → correct(subject, content). It beats agent claims; only `kypp correct` writes human authority.
 ```
 
 vs the current 4-step protocol, which must disambiguate `briefing`-vs-`recall` and

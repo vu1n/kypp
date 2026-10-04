@@ -65,8 +65,8 @@ to one project, derived from `KYPP_REPO_ROOT`.
 
 ### Gotchas
 - `serve --http` has no authentication. Keep it on localhost.
-- The MCP `correct` tool writes `authority=human` on whatever the calling agent says, so
-  human authority over MCP rests on the agent following the instructions.
+- The MCP `correct` tool lands at agent authority, not human. Only the operator's `kypp correct`
+  writes human authority (`doc://kypp/human-authority-operator-only@latest#operator-only-human`).
 
 <!-- brief:anchor capture -->
 ## Capture and sweep

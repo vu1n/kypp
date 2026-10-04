@@ -6,6 +6,8 @@ authority-order:
   latest: 1
 corroboration-gate:
   latest: 1
+human-authority-operator-only:
+  latest: 1
 kypp-independent:
   latest: 1
 no-grader-leak:
