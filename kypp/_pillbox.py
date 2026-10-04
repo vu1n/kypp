@@ -1,3 +1,4 @@
+# Context: doc://kypp/kypp-independent@0001#independent — the only module that knows pillbox's on-disk layout; kypp never depends on pillbox.
 """Default §0-log source: pillbox session logs.
 
 kypp consumes the §0 event format; pillbox is the default producer. Its logs live under

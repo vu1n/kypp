@@ -24,6 +24,7 @@ import sys
 from .store import MemoryStore, store_from_env
 
 
+# Context: doc://kypp/verify-operator-only@0001#operator-only-verify — verify commands are operator-attached shell; agents never mint them.
 def run_check(command: str, *, cwd: str, timeout: float = 30) -> tuple[bool, str]:
     """Run one freshness check via `sh -c`; exit 0 = pass (claim still true). Returns (passed, output)
     with a combined stdout+stderr tail for the report. A timeout or spawn failure is a FAIL (can't

@@ -149,6 +149,7 @@ class HeuristicDistiller:
     def distill(self, trace: Trace) -> list[ClaimDraft]:
         drafts: list[ClaimDraft] = []
         if trace.verdict and trace.verdict.failed_criteria:
+            # Context: doc://kypp/no-grader-leak@0001#signal-only-rubric — never put grader criterion names or feedback in a claim.
             # ONE signal-grade pitfall: the COUNT, never the grader's verbatim criterion names or
             # feedback. Those are grader-internal — hidden test identities, tmp paths — and they stay
             # in the OBSERVATION layer (wire.observe_events) for the offline reflector. Echoing them
@@ -410,6 +411,7 @@ def _refs_from(inp: dict | None) -> list[dict]:
     return [{"path": path}] if isinstance(path, str) and path else []
 
 
+# Context: doc://kypp/shared-claims-agnostic@0001#agnostic-shared-claims — strip model names and host paths from shared claims.
 def _model_agnostic(content: str, models: list[str], scope: str) -> str:
     """Strip the producing model's identity from SHARED claims — model-entangled memory degrades
     cross-model transfer (MemCollab). Agent/user-scoped memory keeps it (single-model by definition)."""

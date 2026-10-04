@@ -51,6 +51,7 @@ def seed_repo(store: MemoryStore, repo: str, *, project: str | None = None,
             continue
         if meta.get("source") == "codex" and os.path.abspath(meta.get("cwd") or "/") != repo:
             continue  # a codex session from a different repo — not ours, don't mark
+        # Context: doc://kypp/seed-or-donate@0001#seed-or-donate-never-both — eval-contaminated sessions never seed memory.
         if not include_eval and is_eval_contaminated(meta):
             skipped += 1  # NOT marked — a future contamination-filter refinement must reconsider it
             continue
