@@ -1,5 +1,7 @@
 additive-migrations:
   latest: 1
+agent-mcp-surface-compose:
+  latest: 1
 append-only-history:
   latest: 1
 authority-order:
@@ -9,6 +11,8 @@ corroboration-gate:
 human-authority-operator-only:
   latest: 1
 kypp-independent:
+  latest: 1
+memory-scope-decay:
   latest: 1
 no-grader-leak:
   latest: 1

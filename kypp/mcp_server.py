@@ -68,6 +68,7 @@ def _claim_dict(c: Claim) -> dict:
             "low_confidence": c.low_confidence, "stale": c.stale, "agent": c.agent, "user": c.user}
 
 
+# Context: doc://kypp/agent-mcp-surface-compose@0001#compose-surface — target agent surface is compose/claim/expand/correct; the 10 verbs below predate it
 def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
               http: tuple[str, int] | None = None, consumer: str | None = None,
               user: str | None = None, agent: str | None = None):

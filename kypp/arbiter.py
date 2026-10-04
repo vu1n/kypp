@@ -74,6 +74,7 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
     return [c for c in clusters.values() if len(c) > 1]
 
 
+# Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
 def consolidate(store: MemoryStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None,
                 accept_corroboration: int | None = 2) -> dict:
