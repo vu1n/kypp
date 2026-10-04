@@ -2,3 +2,4 @@ independent conforms: pyturso version bump only; runtime deps remain pyturso + m
 operator-only-human conforms: MCP correct now writes agent authority; only shell.correct_main writes authority=human
 pointers-not-content conforms: correct still returns only a claim id; no tool returns file bodies
 operator-only-verify conforms: correct gains no verify argument; no MCP tool accepts one
+compose-surface conforms: only a Context ref and the correct-authority change; the verb trim itself is not built yet and nothing here moves away from it
