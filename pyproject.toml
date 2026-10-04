@@ -8,6 +8,10 @@ dependencies = [
     "mcp",      # the MCP SDK (only the `serve` command needs it; imported lazily)
 ]
 
+[project.optional-dependencies]
+# System One write gate (optional): any TypeSafe-API endpoint, e.g. Jev via OpenRouter.
+s1 = ["typesafe-sdk>=0.7"]
+
 [project.scripts]
 kypp = "kypp.cli:main"
 

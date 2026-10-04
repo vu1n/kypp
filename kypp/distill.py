@@ -26,6 +26,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+from . import s1
 from .vocab import OLLAMA_DEFAULT_HOST, TYPES  # single-sourced vocabulary (turso-free leaf)
 
 if TYPE_CHECKING:
@@ -348,6 +349,30 @@ class FallbackDistiller:
             return self.fallback.distill(trace)
 
 
+class GatedDistiller:
+    """Drop drafts a System One model is confident aren't worth remembering. With no model (no key,
+    no SDK, a failed call) every draft passes, so the gate only ever removes candidates and never
+    blocks a session. Dropped drafts are recorded to stderr with their score."""
+
+    def __init__(self, inner: Distiller, *, via=None, drop_below: float = 0.1):
+        self.inner, self.via, self.drop_below = inner, via, drop_below
+
+    def distill(self, trace: Trace) -> list[ClaimDraft]:
+        drafts = self.inner.distill(trace)
+        if self.via is None:
+            return drafts
+        kept = []
+        for d in drafts:
+            # Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — a cheap model gates writes; no model keeps today's behavior
+            p = s1.noul({"task": trace.task, "type": d.type, "subject": d.subject, "lesson": d.content},
+                        s1.keep_question(), via=self.via)
+            if p is not None and p < self.drop_below:
+                print(f"distill: s1 gate dropped {d.subject!r} (p_keep={p:.3f})", file=sys.stderr)
+                continue
+            kept.append(d)
+        return kept
+
+
 def _complete_from_model(spec: str):
     """Resolve a KYPP_DISTILL_MODEL spec to a BYO complete(prompt)->str. Scheme on the leading token:
     `claude[:model]` → claude -p; `codex[:model]` → codex exec; `ollama:model` or a bare model name →
@@ -365,12 +390,14 @@ def _complete_from_model(spec: str):
 
 def distiller_from_env() -> Distiller:
     """The configured distiller for the capture loop. KYPP_DISTILL_MODEL set → an LLM distiller (claude
-    / codex / ollama per the spec scheme) wrapped in a heuristic fallback; unset → heuristic only. The
-    seam-config analog of store.store_from_env."""
+    / codex / ollama per the spec scheme) wrapped in a heuristic fallback; unset → heuristic only.
+    A configured System One model (see kypp.s1) adds the write gate on top. The seam-config analog
+    of store.store_from_env."""
     model = os.environ.get("KYPP_DISTILL_MODEL")
-    if not model:
-        return HeuristicDistiller()
-    return FallbackDistiller(LLMDistiller(_complete_from_model(model)), HeuristicDistiller())
+    inner = (FallbackDistiller(LLMDistiller(_complete_from_model(model)), HeuristicDistiller())
+             if model else HeuristicDistiller())
+    via = s1.client()
+    return GatedDistiller(inner, via=via) if via else inner
 
 
 def distill_session(events: list[dict], store: MemoryStore, *, project: str, scope: str = "project",
@@ -573,6 +600,26 @@ done."""
     # backend routing: every scheme resolves to a callable complete (no shell-out until invoked)
     assert all(callable(_complete_from_model(s)) for s in ("claude", "claude:sonnet", "codex", "ollama:q", "bare"))
     os.environ.pop("KYPP_DISTILL_MODEL", None)
+
+    # GatedDistiller: a confident "not worth keeping" drops a draft; anything else keeps it.
+    from types import SimpleNamespace as NS
+
+    class _FakeS1:
+        def __init__(self, by_subject): self.by_subject, self.calls = by_subject, 0
+        def system_one(self, state, questions):
+            self.calls += 1
+            v = self.by_subject[state["subject"]]
+            if isinstance(v, Exception): raise v
+            return NS(answers={"q": NS(type="noul", noul=v)}, model="fake")
+    fake = _FakeS1({"book discount pricing": 0.92, "greedy grouping overcharges": 0.03,
+                    "weird type": float("nan")})
+    gated = [d.subject for d in GatedDistiller(dl, via=fake).distill(build_trace(events, task="t"))]
+    assert gated == ["book discount pricing", "weird type"], gated  # 0.03 dropped; NaN = no opinion
+    boom = _FakeS1({k: RuntimeError("down") for k in fake.by_subject})
+    assert len(GatedDistiller(dl, via=boom).distill(build_trace(events, task="t"))) == 3, "failed call keeps all"
+    assert len(GatedDistiller(dl, via=None).distill(build_trace(events, task="t"))) == 3, "no model keeps all"
+    assert s1.client({"TYPESAFE_API_KEY": "k", "KYPP_S1": "off"}) is None and s1.client({}) is None
+    assert isinstance(distiller_from_env(), HeuristicDistiller), "no key → no gate"
     assert [d.subject for d in drafts] == ["book discount pricing", "greedy grouping overcharges",
                                            "weird type"], [d.subject for d in drafts]  # blank-subject dropped
     assert drafts[2].type == "fact"  # unknown type coerced

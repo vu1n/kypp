@@ -12,6 +12,8 @@ Decisions are **ratified constraints, not editable notes**. Develop *to* them:
 - If `brief check` asks for a sign-off (only decisions marked `signoff: required` do, and
   only when you touch the code under their `// Context:` comment) and your change STILL
   satisfies the decision, record `<anchor-id> conforms: <reason>` in `.brief/SIGNOFF`.
+  `brief triage` (optional System One model) writes that line itself for the asks it
+  rates as clearly conforming; read and answer the ones it leaves.
 - If the task CANNOT be done without changing a ratified decision, you may NOT change it
   yourself. Write `.brief/amendments/<anchor-id>.md` (what should change and why), record
   `<anchor-id> amend-proposed: <reason>` in `.brief/SIGNOFF`, and STOP — it needs human
