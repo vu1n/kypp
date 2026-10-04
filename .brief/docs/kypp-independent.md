@@ -1,0 +1,22 @@
+---
+id: kypp-independent
+project: kypp
+type: decision
+status: active
+title: "Attach to kypp, never embed it: no build or runtime dependency on pillbox"
+related_code:
+  - "pyproject.toml"
+  - "kypp/_pillbox.py"
+---
+
+<!-- brief:anchor independent -->
+## Attach kypp; it never depends on a host runtime
+
+kypp is an independent engine. Clients attach to it (CLI or MCP), and it spawns nothing. Its only knowledge of pillbox is how pillbox lays out §0 session logs on disk, and that knowledge lives in one module.
+
+**Why.** kypp is extracted so any agent host (pillbox, plain Claude Code, Codex) can use it. A runtime or build dependency on pillbox would re-couple the two and make kypp unusable outside it.
+
+### Invariant
+- `pyproject.toml` runtime dependencies stay free of pillbox (today: `pyturso`, `mcp`).
+- Pillbox-specific path layout (`global/`, `projects/<key>/sessions/`) is parsed only in `kypp/_pillbox.py`; other modules import its helpers instead of re-deriving paths.
+- kypp never launches a sandbox, agent, or pillbox command.

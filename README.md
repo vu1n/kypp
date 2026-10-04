@@ -55,10 +55,10 @@ two equivalent surfaces — pick whichever you have:
      include_candidates=true`, **invisible to `briefing` and default recall**. For settled team
      truths use `decide` / `remember_procedure` (MCP) or `kypp remember --accept`.
 4. **Wrong memory — correct it, don't ignore it.** Two cases:
-   - *A human told you the right answer* → `correct(subject, content)` (MCP) / `kypp correct`. It
-     records with **human authority** — outranking any agent claim and any amount of agent
-     corroboration — and immediately supersedes the subject's other claims. Reserve it for actual
-     human input.
+   - *A human told you the right answer* → `correct(subject, content)` (MCP). It lands accepted at
+     top confidence and supersedes the subject's weaker agent claims. Only the operator's
+     `kypp correct` records **human authority** (outranking any agent claim and any amount of
+     agent corroboration); an agent can't mint it, so a verified or human claim still wins.
    - *You believe it's wrong* → write the counter-claim under the **same subject** with higher
      confidence; `consolidate` supersedes the loser.
    Nothing is ever deleted; superseded claims stay as history (handles still `expand` — check

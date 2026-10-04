@@ -1,0 +1,22 @@
+---
+id: pointers-not-content
+project: kypp
+type: decision
+status: active
+title: "Memory returns pointers, never file content"
+related_code:
+  - "kypp/store.py"
+  - "kypp/view.py"
+  - "kypp/mcp_server.py"
+---
+
+<!-- brief:anchor pointers-not-content -->
+## Resolve code refs to pointers at recall; never inline code
+
+Recall returns one compact line per claim, `handle [type mark] subject — content → path:line`, and `expand(handle)` returns the full claim. Code refs are re-resolved against the current tree at recall and returned as a location plus at most a one-line preview.
+
+**Why.** Inlined code goes stale the moment it's stored and burns context. The agent should read the live code itself.
+
+### Invariant
+- A resolver returns `{path, line, preview}` plus a status; it never returns file bodies.
+- Recall and briefing output is handle lines. Full claims come only from `expand`/`show`.

@@ -1,0 +1,22 @@
+---
+id: verify-operator-only
+project: kypp
+type: decision
+status: active
+title: "Verify commands are an operator capability, never minted by agents"
+related_code:
+  - "kypp/verify.py"
+  - "kypp/mcp_server.py"
+  - "kypp/shell.py"
+---
+
+<!-- brief:anchor operator-only-verify -->
+## Only an operator attaches or runs verify commands
+
+A claim's `verify` field is arbitrary shell that `kypp verify` executes. Only a human operator attaches one (`kypp remember --verify`, `kypp correct --verify`), and only an operator runs `kypp verify`.
+
+**Why.** An agent-minted verify command on a shared store is remote code execution for whoever runs the next sweep.
+
+### Invariant
+- MCP tools never accept a `verify` argument.
+- `kypp verify` treats a timeout or spawn failure as a failed check and never aborts the sweep.

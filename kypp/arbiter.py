@@ -20,6 +20,7 @@ from .store import Claim, MemoryStore, project_from_env, store_from_env
 from .vocab import AUTHORITY_RANK
 
 
+# Context: doc://kypp/authority-order@0001#authority-dominates — rank survivors by authority first.
 def _rank(c: Claim) -> tuple:
     """Sort key, higher = stronger survivor: AUTHORITY first (a human correction outranks any agent
     claim and any amount of agent corroboration), then accepted, confidence, evidence, recency."""
@@ -73,6 +74,7 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
     return [c for c in clusters.values() if len(c) > 1]
 
 
+# Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
 def consolidate(store: MemoryStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None,
                 accept_corroboration: int | None = 2) -> dict:
@@ -98,6 +100,7 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
         plan += sem_plan
         superseded |= {cid for p in sem_plan for cid in p["superseded"]}
 
+    # Context: doc://kypp/corroboration-gate@0001#swarm-truth-gate — accept only when >= K distinct claims from distinct sessions agree.
     # Promote the survivor of each exact-subject group once enough independent sessions corroborate it.
     # Exact-subject only — semantic (different-subject) merges are too fuzzy to auto-accept on.
     promoted = []

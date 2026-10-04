@@ -23,6 +23,7 @@ SCOPES: tuple[str, ...] = get_args(Scope)
 TYPES: tuple[str, ...] = get_args(ClaimType)
 STATUSES: tuple[str, ...] = get_args(Status)
 AUTHORITIES: tuple[str, ...] = get_args(Authority)
+# Context: doc://kypp/authority-order@0001#authority-dominates — agent < verified < human; authority outranks confidence and corroboration.
 AUTHORITY_RANK: dict[str, int] = {a: i for i, a in enumerate(AUTHORITIES)}
 SURFACES: tuple[str, ...] = get_args(Surface)
 

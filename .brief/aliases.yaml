@@ -1,0 +1,28 @@
+additive-migrations:
+  latest: 1
+agent-mcp-surface-compose:
+  latest: 1
+append-only-history:
+  latest: 1
+authority-order:
+  latest: 1
+corroboration-gate:
+  latest: 1
+human-authority-operator-only:
+  latest: 1
+kypp-independent:
+  latest: 1
+memory-scope-decay:
+  latest: 1
+no-grader-leak:
+  latest: 1
+pointers-not-content:
+  latest: 1
+seed-or-donate:
+  latest: 1
+shared-claims-agnostic:
+  latest: 1
+turboquant-deferred:
+  latest: 1
+verify-operator-only:
+  latest: 1
