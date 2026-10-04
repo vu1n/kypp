@@ -411,7 +411,7 @@ def _refs_from(inp: dict | None) -> list[dict]:
     return [{"path": path}] if isinstance(path, str) and path else []
 
 
-# Context: doc://kypp/shared-claims-agnostic@0001#agnostic-shared-claims — strip model names and host paths from shared claims.
+# Why: strip model names and host paths from shared claims; model-entangled memory transfers poorly and paths leak machine layout.
 def _model_agnostic(content: str, models: list[str], scope: str) -> str:
     """Strip the producing model's identity from SHARED claims — model-entangled memory degrades
     cross-model transfer (MemCollab). Agent/user-scoped memory keeps it (single-model by definition)."""

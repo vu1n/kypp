@@ -100,7 +100,7 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
         plan += sem_plan
         superseded |= {cid for p in sem_plan for cid in p["superseded"]}
 
-    # Context: doc://kypp/corroboration-gate@0001#swarm-truth-gate — accept only when >= K distinct claims from distinct sessions agree.
+    # Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
     # Promote the survivor of each exact-subject group once enough independent sessions corroborate it.
     # Exact-subject only — semantic (different-subject) merges are too fuzzy to auto-accept on.
     promoted = []

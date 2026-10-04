@@ -76,7 +76,7 @@ CREATE INDEX IF NOT EXISTS usages_claim_idx ON claim_usages(claim_id);
 # COLUMN; re-adding raises a "duplicate column" parse error, which __init__ swallows — so this is the
 # idempotent way to evolve the schema without a version table. Keep each ADD COLUMN backward-compatible
 # (a DEFAULT, never NOT NULL) so old rows stay valid.
-# Context: doc://kypp/additive-migrations@0001#additive-schema — ADD COLUMN with a default only; never NOT NULL, no version table.
+# Why: ADD COLUMN with a default only (never NOT NULL, no version table); hosts on different kypp versions share one store file.
 _MIGRATIONS = [
     "ALTER TABLE memory_claims ADD COLUMN authority TEXT DEFAULT 'agent'",
     "ALTER TABLE memory_claims ADD COLUMN verify TEXT",
@@ -138,7 +138,7 @@ class CodeResolver(Protocol):
     def resolve(self, ref: dict) -> dict: ...
 
 
-# Context: doc://kypp/pointers-not-content@0001#pointers-not-content — resolvers return path:line + one-line preview, never file bodies.
+# Why: resolvers return path:line + one-line preview, never file bodies; inlined code goes stale and burns context.
 class RipgrepResolver:
     """Default resolver: ripgrep over the live repo — no index, no daemon, no setup, adequate for
     the common case. Prefers a definition-shaped line, falls back to any mention, then the stored
@@ -397,7 +397,7 @@ class MemoryStore:
         # browse mode skips the embedder: distance-to-an-empty-string is noise, not ranking.
         qv = self._vec(query) if (self.embed and query.strip()) else None
         if qv:
-            # Context: doc://kypp/turboquant-deferred@0001#linear-scan-recall — stay a linear scan until recall measurably hurts; next step is in-DB DiskANN.
+            # Why: a linear scan holds to ~1e4-1e5 claims (eval: .brief/docs/turboquant-deferred.md); next step is in-DB DiskANN.
             # semantic recall: cosine distance to the query embedding (linear scan — fine at bootstrap).
             # Claims with NO embedding (written before an embedder was wired) still return — the CASE
             # gives them NULL distance, sorted last — so attaching an embedder never makes prior claims

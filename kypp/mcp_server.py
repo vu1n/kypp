@@ -156,7 +156,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         AGENT claims on the subject, but it carries agent authority: only the operator's
         `kypp correct` writes human authority, so it never outranks a verified or human claim.
         Returns the claim id."""
-        # Context: doc://kypp/human-authority-operator-only@0001#operator-only-human — MCP never writes authority=human
+        # Context: doc://kypp/authority-order@0002#authority-dominates — MCP never writes authority=human
         cid = store.claim(type, subject, content, scope="project", project=project,
                           confidence=HUMAN_CORRECTION_CONFIDENCE, accept=True,
                           user=user, agent=agent)
