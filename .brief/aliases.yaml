@@ -5,7 +5,7 @@ agent-mcp-surface-compose:
 append-only-history:
   latest: 1
 authority-order:
-  latest: 2
+  latest: 3
 corroboration-gate:
   latest: 2
 human-authority-operator-only:
@@ -25,4 +25,4 @@ shared-claims-agnostic:
 turboquant-deferred:
   latest: 2
 verify-operator-only:
-  latest: 1
+  latest: 2
