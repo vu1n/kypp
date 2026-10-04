@@ -9,8 +9,9 @@ Decisions are **ratified constraints, not editable notes**. Develop *to* them:
 
 - A decision with `status: active` is READ-ONLY to coding work. Do NOT edit it to make
   your change fit — your code conforms to the decision, not the reverse.
-- When you change code a decision governs and it STILL satisfies that decision, record
-  `<anchor-id> conforms: <reason>` in `.brief/SIGNOFF`.
+- If `brief check` asks for a sign-off (only decisions marked `signoff: required` do, and
+  only when you touch the code under their `// Context:` comment) and your change STILL
+  satisfies the decision, record `<anchor-id> conforms: <reason>` in `.brief/SIGNOFF`.
 - If the task CANNOT be done without changing a ratified decision, you may NOT change it
   yourself. Write `.brief/amendments/<anchor-id>.md` (what should change and why), record
   `<anchor-id> amend-proposed: <reason>` in `.brief/SIGNOFF`, and STOP — it needs human
