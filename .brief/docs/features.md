@@ -107,6 +107,9 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
 ### Gotchas
 - Without `KYPP_DISTILL_MODEL` you only get heuristic, failure-mined pitfalls.
 - If the LLM distiller fails, it falls back to the heuristic distiller rather than raising.
+- With `TYPESAFE_API_KEY` set (and `kypp[s1]` installed), a System One gate drops drafts scoring
+  p_keep < 0.1. A missing key, failed call or non-probability answer keeps the draft: the gate
+  only removes, it never blocks a session.
 - Rubric handling is governed by `doc://kypp/no-grader-leak@latest#signal-only-rubric`.
 - Shared-scope claims get model names and absolute host paths stripped before storage. A direct
   `claim()` caller is trusted to do this itself; the store doesn't enforce it.

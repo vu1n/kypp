@@ -138,6 +138,7 @@ advisory flag set at recall when a code-anchored claim's anchors all fail to res
 | `KYPP_EMBED_MODEL` | ollama model → semantic vector recall (unset → keyword) |
 | `KYPP_DISTILL_MODEL` | ollama model → LLM distillation (unset → heuristic floor) |
 | `KYPP_OLLAMA_HOST` | ollama base URL (default `http://127.0.0.1:11434`) |
+| `TYPESAFE_API_KEY` | optional System One write gate (needs `kypp[s1]`): a TypeSafe-API model such as Jev drops distilled drafts it's confident aren't worth remembering. Also reads `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL`; `KYPP_S1=off` disables it. Unset → every draft is kept |
 
 ## How it plugs in
 
