@@ -20,7 +20,7 @@ from .store import Claim, MemoryStore, project_from_env, store_from_env
 from .vocab import AUTHORITY_RANK
 
 
-# Context: doc://kypp/authority-order@0001#authority-dominates — rank survivors by authority first.
+# Context: doc://kypp/authority-order@0002#authority-dominates — rank survivors by authority first.
 def _rank(c: Claim) -> tuple:
     """Sort key, higher = stronger survivor: AUTHORITY first (a human correction outranks any agent
     claim and any amount of agent corroboration), then accepted, confidence, evidence, recency."""
