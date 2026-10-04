@@ -147,7 +147,7 @@ def correct_main():
     args = ap.parse_args()
     from .arbiter import consolidate
     store = store_from_env()
-    # Context: doc://kypp/human-authority-operator-only@0001#operator-only-human — the only writer of human authority
+    # Context: doc://kypp/authority-order@0002#authority-dominates — the only writer of human authority
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
                       confidence=args.confidence, authority="human", verify=args.verify,
                       user=args.user, agent=args.agent)

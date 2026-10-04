@@ -32,8 +32,13 @@ statuses and authorities.
   falls back to keyword `LIKE` matching.
 - `_write` retries an MVCC conflict 5 times with no backoff. Only `turso.OperationalError`
   triggers a rollback.
-- Schema rules are in `doc://kypp/additive-migrations@latest#additive-schema`, and deletion
-  rules in `doc://kypp/append-only-history@latest#never-delete`.
+- Schema changes are `ADD COLUMN` with a default only: no `NOT NULL`, no version table. Hosts
+  on different kypp versions open the same store file.
+- Code refs resolve to `path:line` plus a one-line preview at recall. Never store or return
+  file bodies; they go stale and burn context.
+- Recall is a linear scan in tursodb on purpose. Read the evaluation in
+  `.brief/docs/turboquant-deferred.md` before adding a vector index; the next step is in-DB DiskANN.
+- Deletion rules are in `doc://kypp/append-only-history@latest#never-delete`.
 
 <!-- brief:anchor recall -->
 ## Recall, briefing and handles
@@ -66,7 +71,7 @@ to one project, derived from `KYPP_REPO_ROOT`.
 ### Gotchas
 - `serve --http` has no authentication. Keep it on localhost.
 - The MCP `correct` tool lands at agent authority, not human. Only the operator's `kypp correct`
-  writes human authority (`doc://kypp/human-authority-operator-only@latest#operator-only-human`).
+  writes human authority (`doc://kypp/authority-order@latest#authority-dominates`).
 
 <!-- brief:anchor capture -->
 ## Capture and sweep
@@ -103,6 +108,8 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
 - Without `KYPP_DISTILL_MODEL` you only get heuristic, failure-mined pitfalls.
 - If the LLM distiller fails, it falls back to the heuristic distiller rather than raising.
 - Rubric handling is governed by `doc://kypp/no-grader-leak@latest#signal-only-rubric`.
+- Shared-scope claims get model names and absolute host paths stripped before storage. A direct
+  `claim()` caller is trusted to do this itself; the store doesn't enforce it.
 
 <!-- brief:anchor consolidate -->
 ## Consolidation
@@ -147,7 +154,8 @@ paths:
 into §0 events.
 
 ### Gotchas
-- Governed by `doc://kypp/seed-or-donate@latest#seed-or-donate-never-both`.
+- `seed` skips eval-contaminated sessions, because those may become eval tasks. A session
+  that both seeds memory and becomes an eval task invalidates every lift measurement.
 - Codex transcripts can repeat a `call_id`. Duplicates collapse, but distinct calls without
   an id must not.
 
