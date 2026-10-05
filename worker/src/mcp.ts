@@ -1,7 +1,8 @@
 // mcp.ts — kypp's agent tools as a stateless streamable-HTTP MCP endpoint (JSON responses, no SSE,
 // no Durable Object). The same contract as kypp/mcp_server.py's briefing / recall / claim / expand /
 // correct; consolidation is the scheduled pass in index.ts, not an agent tool.
-import { type Claim, HUMAN_CORRECTION_CONFIDENCE, TYPES, briefingOrder, ftsQuery, planConsolidation, renderClaims } from "./memory.ts";
+import { type Claim, HUMAN_CORRECTION_CONFIDENCE, SCOPES, TYPES, briefingOrder, ftsQuery, planConsolidation, renderBriefing, renderClaims } from "./memory.ts";
+import { DROP_BELOW, type S1Client, judge } from "./s1.ts";
 import { D1Store } from "./store.ts";
 
 export interface Caller {
@@ -19,6 +20,8 @@ const INSTRUCTIONS = `kypp is shared memory for coding agents — durable lesson
 3. WHEN YOU LEARN SOMETHING DURABLE — \`claim\` a distilled, model-agnostic lesson. \`subject\` is its
    identity: reuse a subject to update it. Claims land as candidates; one is accepted once a second
    session claims the same subject. Don't store status ("shipped", "PR merged") — git holds that.
+   SHELVES (\`scope\`): project = this repo; user = how this person works, in every repo; global = true
+   for everyone.
 4. A HUMAN GAVE YOU THE RIGHT ANSWER — \`correct(subject, content)\`.`;
 
 const projectProp = { type: "string", description: "Repo name. Optional when the client sends an X-Kypp-Project header." };
@@ -30,12 +33,13 @@ const TOOLS = [
   },
   {
     name: "recall",
-    description: "Search shared memory by keywords. One compact line per hit: `handle [type ✓conf] subject — content`. ✓ accepted, ? candidate. Accepted only unless include_candidates.",
+    description: "Search shared memory by keywords across this project's, your own and the global shelf. One compact line per hit: `handle [type ✓conf] subject — content`. ✓ accepted, ? candidate. Accepted only unless include_candidates. `agent` limits hits to one client's claims.",
     inputSchema: {
       type: "object", required: ["query"],
       properties: {
         query: { type: "string" }, project: projectProp,
         types: { type: "array", items: { type: "string", enum: TYPES } },
+        agent: { type: "string", description: "Only claims written by this client." },
         include_candidates: { type: "boolean", default: false }, limit: { type: "integer", default: 10 },
       },
     },
@@ -47,9 +51,9 @@ const TOOLS = [
       type: "object", required: ["subject", "content"],
       properties: {
         subject: { type: "string" }, content: { type: "string" },
-        type: { type: "string", enum: TYPES, default: "fact" },
+        type: { type: "string", enum: TYPES, description: "Omit to let the server label it (defaults to fact)." },
         confidence: { type: "number", default: 0.7 },
-        scope: { type: "string", enum: ["project", "global"], default: "project" },
+        scope: { type: "string", enum: SCOPES, default: "project", description: "project = this repo; user = how this person works, in every repo; global = true for everyone." },
         project: projectProp,
         code_refs: { type: "array", items: { type: "object" }, description: "[{symbol, path, query}] anchors" },
       },
@@ -78,29 +82,40 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
-async function callTool(store: D1Store, name: string, a: Args, ctx: { project: string | null; session: string | null; caller: Caller }): Promise<string> {
+interface Ctx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null }
+
+async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
   const project: string | null = a.project || ctx.project;
+  const user = ctx.caller.user;
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
-      const claims = briefingOrder(await store.recall("", project, { limit: limit * 3 }), limit);
+      const claims = briefingOrder(await store.recall("", project, user, { limit: limit * 3 }), limit);
       await store.recordUsage(ctx.session, claims, "briefing", project);
-      return renderClaims(claims, "(no accepted memory yet)");
+      return renderBriefing(claims);
     }
     case "recall": {
-      const claims = await store.recall(ftsQuery(String(a.query ?? "")), project,
-        { includeCandidates: !!a.include_candidates, types: a.types, limit: a.limit });
+      const claims = await store.recall(ftsQuery(String(a.query ?? "")), project, user,
+        { includeCandidates: !!a.include_candidates, types: a.types, agent: a.agent, limit: a.limit });
       await store.recordUsage(ctx.session, claims, "recall", project, a.query || null);
       return renderClaims(claims);
     }
-    case "claim":
+    case "claim": {
+      const subject = String(a.subject ?? ""), content = String(a.content ?? "");
+      // Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — a cheap model gates writes; it filters and labels, never accepts or moves a claim.
+      const v = await judge(ctx.s1, { subject, content, project });
+      if (v.keep !== null && v.keep < DROP_BELOW) {
+        return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
+      }
+      const s1 = v.keep === null ? undefined : { keep: v.keep, general: v.general, type: v.type };
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement.
       return store.claim({
-        type: a.type ?? "fact", subject: String(a.subject ?? ""), content: String(a.content ?? ""),
+        type: a.type ?? v.type ?? "fact", subject, content,
         scope: a.scope ?? "project", project, confidence: a.confidence ?? 0.7,
         sourceIds: ctx.session ? [`session:${ctx.session}`] : [], codeRefs: a.code_refs ?? [],
-        accept: false, agent: ctx.caller.agent, user: ctx.caller.user,
+        accept: false, agent: ctx.caller.agent, user, metadata: s1 ? { s1 } : {},
       });
+    }
     case "expand": {
       const c = await store.get(String(a.handle ?? ""));
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
@@ -112,16 +127,16 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: { project: s
       const id = await store.claim({
         type: a.type ?? "fact", subject, content: String(a.content ?? ""), scope: "project", project,
         confidence: HUMAN_CORRECTION_CONFIDENCE, sourceIds: ctx.session ? [`session:${ctx.session}`] : [],
-        codeRefs: [], accept: true, agent: ctx.caller.agent, user: ctx.caller.user,
+        codeRefs: [], accept: true, agent: ctx.caller.agent, user,
       });
-      await store.apply(planConsolidation(await store.liveClaims(project, subject)));
+      await store.apply(planConsolidation(await store.liveClaims({ scope: "project", project, subject })));
       return id;
     }
   }
   throw new Error(`unknown tool ${name}`);
 }
 
-async function dispatch(msg: Rpc, store: D1Store, ctx: { project: string | null; session: string | null; caller: Caller }) {
+async function dispatch(msg: Rpc, store: D1Store, ctx: Ctx) {
   const ok = (result: unknown) => ({ jsonrpc: "2.0", id: msg.id, result });
   const err = (code: number, message: string) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
   switch (msg.method) {
@@ -152,7 +167,7 @@ async function dispatch(msg: Rpc, store: D1Store, ctx: { project: string | null;
 
 // Stateless: the session id handed out at initialize is only an identity the client echoes back,
 // so usage and claims from one session group together. Nothing is held between requests.
-export async function handleMcp(request: Request, db: D1Database, caller: Caller): Promise<Response> {
+export async function handleMcp(request: Request, db: D1Database, caller: Caller, s1: S1Client | null = null): Promise<Response> {
   if (request.method !== "POST") return new Response("POST JSON-RPC to this endpoint", { status: 405, headers: { Allow: "POST" } });
   const project = request.headers.get("X-Kypp-Project");
   let body: Rpc | Rpc[];
@@ -165,7 +180,7 @@ export async function handleMcp(request: Request, db: D1Database, caller: Caller
   const isInit = msgs.some((m) => m.method === "initialize");
   const session = isInit ? crypto.randomUUID().replaceAll("-", "").slice(0, 12) : request.headers.get(SESSION_HEADER);
   const store = new D1Store(db);
-  const ctx = { project, session, caller };
+  const ctx: Ctx = { project, session, caller, s1 };
   const replies = [];
   for (const m of msgs) {
     if (m.id === undefined) continue; // notifications get no reply

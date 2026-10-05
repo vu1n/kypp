@@ -2,3 +2,5 @@ KYPP_PUBLIC_URL=http://localhost:8787
 KYPP_OWNER_SECRET=local-owner-passphrase
 CONSENT_SECRET=local-consent-secret-0123456789abcdef
 KYPP_API_TOKENS=huddles:local-token-abcdefghijklmnop
+TYPESAFE_API_KEY=mock
+TYPESAFE_BASE_URL=http://localhost:8788

@@ -4,9 +4,10 @@
 import { AuthorizationError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { type Caller, handleMcp } from "./mcp.ts";
 import { planConsolidation } from "./memory.ts";
+import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
 
-export interface Env {
+export interface Env extends S1Env {
   DB: D1Database;
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: any; // injected by OAuthProvider for the default handler
@@ -100,7 +101,7 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
   provider ??= new OAuthProvider<Env>({
     apiRoute: "/mcp",
     apiHandler: {
-      fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcp(request, env.DB, (ctx as any).props as Caller),
+      fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcp(request, env.DB, (ctx as any).props as Caller, s1Client(env)),
     },
     defaultHandler: {
       fetch: (request: Request, env: Env) => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Claim, briefingOrder, compactLine, ftsQuery, planConsolidation, survivor } from "../src/memory.ts";
+import { type Claim, briefingOrder, compactLine, ftsQuery, planConsolidation, renderBriefing, survivor } from "../src/memory.ts";
 
 let n = 0;
 function claim(over: Partial<Claim>): Claim {
@@ -54,4 +54,16 @@ test("compact line carries handle, marks and a clipped body", () => {
 test("fts query quotes words so FTS syntax can't break the parse", () => {
   assert.equal(ftsQuery('libkrun OR "rebuild" -x NEAR('), '"libkrun" OR "OR" OR "rebuild" OR "x" OR "NEAR"');
   assert.equal(ftsQuery("  ?? "), "");
+});
+
+test("user-shelf claims group per owner", () => {
+  const mine = claim({ scope: "user", project: null, user: "vu", source_ids: ["session:A"] });
+  const theirs = claim({ scope: "user", project: null, user: "ana", source_ids: ["session:B"] });
+  assert.deepEqual(planConsolidation([mine, theirs]), { supersede: [], promote: [] });
+});
+
+test("briefing renders one heading per type", () => {
+  const out = renderBriefing(briefingOrder([claim({ type: "fact" }), claim({ type: "pitfall" }), claim({ type: "pitfall" })], 3));
+  assert.deepEqual(out.split("\n").filter((l) => l.startsWith("#")), ["# pitfall", "# fact"]);
+  assert.equal(renderBriefing([]), "(no accepted memory yet)");
 });

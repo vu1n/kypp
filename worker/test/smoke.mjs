@@ -3,11 +3,29 @@
 // Covers static-token MCP, two-session promotion through the scheduled pass, and the OAuth flow.
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
+import { createServer } from "node:http";
 
 const BASE = process.argv[2] ?? "http://localhost:8787";
 const TOKEN = "local-token-abcdefghijklmnop";
 const SECRET = "local-owner-passphrase";
 const subject = `smoke ${Date.now()}`;
+
+// A stand-in TypeSafe API on :8788 (.dev.vars points the gate at it): status reads as not worth
+// keeping, anything "flaky" is confidently a pitfall.
+const mock = createServer((req, res) => {
+  let raw = "";
+  req.on("data", (d) => (raw += d));
+  req.on("end", () => {
+    const { state } = JSON.parse(raw);
+    const flaky = state.content.includes("flaky");
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ model: "mock", usage: { input_tokens: 1, output_tokens: 1 }, answers: {
+      keep: { type: "noul", noul: state.content.includes("merged") ? 0.02 : 0.9 },
+      type: { type: "choice", choice: flaky ? "pitfall" : "fact", confidence: flaky ? 0.9 : 0.3, probabilities: {} },
+      general: { type: "noul", noul: 0.2 },
+    } }));
+  });
+}).listen(8788);
 
 async function rpc(auth, session, method, params, id = 1) {
   const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${auth}` };
@@ -48,6 +66,15 @@ await b("correct", { project: "smoke", subject, content: "the upload is fixed up
 const after = await b("recall", { project: "smoke", query: "upload" });
 assert.ok(after.includes("no retry") && !after.includes("then fail"), after);
 
+// gate: status is turned away; a defaulted type is relabelled when the model is sure
+assert.ok((await b("claim", { project: "smoke", subject: `${subject} status`, content: "PR 12 merged and shipped" })).startsWith("Not stored"));
+const typed = JSON.parse(await b("expand", { handle: await b("claim", { project: "smoke", subject: `${subject} ci`, content: "the flaky e2e job needs one rerun" }) }));
+assert.equal(typed.type, "pitfall");
+
+// user shelf: visible to its owner in any project, invisible to anyone else
+await b("claim", { scope: "user", subject: `${subject} asking`, content: "ask one question in prose, not an options menu" });
+assert.ok((await b("recall", { project: "other-repo", query: "options menu", include_candidates: true })).includes("prose"));
+
 // 2. no token → 401 with discovery pointer
 const anon = await fetch(`${BASE}/mcp`, { method: "POST", body: "{}" });
 assert.equal(anon.status, 401);
@@ -85,5 +112,7 @@ const cid = await o("claim", { project: "smoke", subject: `${subject} oauth`, co
 const viaOauth = JSON.parse(await o("expand", { handle: cid }));
 assert.equal(viaOauth.user, "owner");
 assert.equal(viaOauth.agent, "smoke-client");
+assert.ok(!(await o("recall", { project: "smoke", query: "options menu", include_candidates: true })).includes("prose"), "another user's shelf leaked");
+mock.close();
 
-console.log("OK — static token, two-session promotion, correct, 401 discovery, OAuth sign-in");
+console.log("OK — static token, two-session promotion, correct, S1 gate, user shelf, 401 discovery, OAuth sign-in");

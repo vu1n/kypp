@@ -15,5 +15,8 @@
   "vars": { "KYPP_PUBLIC_URL": "https://kypp.example.workers.dev" },
   "triggers": { "crons": ["17 * * * *"] }
   // Secrets (wrangler secret put): KYPP_OWNER_SECRET (sign-in passphrase), CONSENT_SECRET (32+ chars),
-  // KYPP_API_TOKENS (optional "name:token,name:token" for headless clients such as huddles).
+  // KYPP_API_TOKENS (optional "name:token,name:token" for headless clients such as huddles; the
+  // name is the token's user, so "owner:<token>" shares your own shelf).
+  // Optional System One write gate (Jev, Clef): TYPESAFE_API_KEY secret, plus TYPESAFE_BASE_URL and
+  // TYPESAFE_DEFAULT_MODEL vars when not using TypeSafe's defaults. No key → no gate. KYPP_S1=off disables it.
 }

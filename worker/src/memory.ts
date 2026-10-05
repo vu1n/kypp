@@ -6,6 +6,9 @@ export const TYPES = ["fact", "preference", "decision", "procedure", "artifact",
 export const AUTHORITIES = ["agent", "verified", "human"] as const;
 export type ClaimType = (typeof TYPES)[number];
 export type Authority = (typeof AUTHORITIES)[number];
+// Shelves: this repo, the signed-in person across repos, everyone. The agent is a label, not a shelf.
+export const SCOPES = ["project", "user", "global"] as const;
+export type Scope = (typeof SCOPES)[number];
 
 // Same value as vocab.HUMAN_CORRECTION_CONFIDENCE.
 export const HUMAN_CORRECTION_CONFIDENCE = 0.95;
@@ -15,7 +18,7 @@ export interface Claim {
   type: ClaimType;
   subject: string;
   content: string;
-  scope: "project" | "global";
+  scope: Scope;
   project: string | null;
   agent: string | null;
   user: string | null;
@@ -57,13 +60,14 @@ export interface Plan {
   promote: string[];
 }
 
-// arbiter.consolidate, exact-subject phases only: group live claims by (subject, scope, project),
+// arbiter.consolidate, exact-subject phases only: group live claims by (subject, scope, project, and
+// owner for the user shelf),
 // keep the strongest and supersede the rest; promote a candidate survivor once >= k claims from
 // >= k distinct sources agree.
 export function planConsolidation(live: Claim[], k = 2): Plan {
   const groups = new Map<string, Claim[]>();
   for (const c of live) {
-    const key = JSON.stringify([c.subject, c.scope, c.project]);
+    const key = JSON.stringify([c.subject, c.scope, c.project, c.scope === "user" ? c.user : null]);
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   const plan: Plan = { supersede: [], promote: [] };
@@ -92,6 +96,18 @@ export function compactLine(c: Claim): string {
 
 export function renderClaims(claims: Claim[], empty = "(no matching memory)"): string {
   return claims.map(compactLine).join("\n") || empty;
+}
+
+// The briefing, one heading per type in briefingOrder's order.
+export function renderBriefing(claims: Claim[]): string {
+  if (!claims.length) return "(no accepted memory yet)";
+  const out: string[] = [];
+  for (const c of claims) {
+    const head = `# ${c.type}`;
+    if (!out.includes(head)) out.push(head);
+    out.push(compactLine(c));
+  }
+  return out.join("\n");
 }
 
 // view.briefing_claims ordering: traps first, then choices made, then how-tos. Stable sort keeps
