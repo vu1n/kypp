@@ -77,6 +77,30 @@ to one project, derived from `KYPP_REPO_ROOT`.
   The stamp and usage logging need a session id: stdio mints one per process, `--http` needs
   `KYPP_SESSION`.
 
+<!-- brief:anchor hosted-worker -->
+## Hosted Worker
+
+```yaml
+paths:
+  - "worker/**"
+```
+
+The optional hosted store: a Cloudflare Worker over D1 serving `briefing`, `recall`, `claim`,
+`expand` and `correct` as a remote MCP server behind OAuth, so cloud sessions share one memory.
+`worker/src/memory.ts` ports the arbiter's ranking and promotion rules; an hourly cron runs the
+cleanup pass.
+
+### Gotchas
+- `memory.ts` mirrors `arbiter.py` and `view.py` by hand. A ranking or promotion change lands in
+  both, or local and hosted memory disagree.
+- The OAuth resource id is exactly `<KYPP_PUBLIC_URL>/mcp`. A path or query suffix on the MCP URL
+  breaks token audience checks, so the project travels as a tool argument or the
+  `X-Kypp-Project` header.
+- The MCP endpoint is stateless: the session id from `initialize` is only echoed back, never
+  stored. Don't add a Durable Object to hold sessions.
+- The cron pass is the only writer that changes existing rows. Keep status edits there (and in
+  `correct`, which consolidates one subject) so concurrent sessions only ever insert.
+
 <!-- brief:anchor capture -->
 ## Capture and sweep
 
