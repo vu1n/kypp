@@ -632,9 +632,9 @@ done."""
     ev2 = events + [{"sessionId": "sess2", "payload": {"type": "message_end", "messageId": "x", "model": "glm-4.6"}}]
     ids2 = distill_session(ev2, s2, project="pillbox", task="price books", distiller=dl)
     got = {c.subject: c for c in s2.recall("discount pricing greedy grouping", project="pillbox", include_candidates=True)}
-    assert got["book discount pricing"].status == "accepted", "type=decision auto-accepts"
+    assert got["book discount pricing"].status == "candidate", "a distilled decision waits for the K=2 gate"
     pit = got["greedy grouping overcharges"]
     assert pit.status == "candidate" and "glm-4.6" not in pit.content and "<model>" in pit.content, pit.content
     assert pit.code_refs and pit.code_refs[0]["path"] == "src/bookstore.py"
     print(f"OK — LLM distiller (stub): parsed {len(drafts)} drafts (fence+prose stripped, blank dropped, "
-          f"bad type coerced), wrote {len(ids2)}; decision auto-accepted, pitfall model-agnostic + code-anchored")
+          f"bad type coerced), wrote {len(ids2)}; decision lands candidate, pitfall model-agnostic + code-anchored")

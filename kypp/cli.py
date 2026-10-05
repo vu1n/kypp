@@ -5,7 +5,7 @@ mains/imports stay lazy so e.g. `serve` doesn't import the capture stack (or vic
 import sys
 
 _COMMANDS = {
-    "serve": "the MCP server (observe/claim/recall/expand/briefing/decide/remember_procedure/…)",
+    "serve": "the MCP server (observe/claim/recall/expand/briefing/correct/…)",
     "recall": "search shared memory — compact lines with handles",
     "show": "expand a claim handle to the full claim (JSON)",
     "remember": "store a claim: SUBJECT CONTENT (subject = identity key)",

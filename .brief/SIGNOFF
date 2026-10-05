@@ -9,3 +9,4 @@ authority-dominates conforms: comment-only; refs repinned to @0002, arbiter stil
 scope-keys-decay conforms: comment-only changes in arbiter/distill/store
 signal-only-rubric conforms: comment-only change in distill.py; rubric handling untouched
 operator-only-verify conforms: comment-only changes in mcp_server.py and shell.py; no verify argument added
+operator-only-verify conforms: MCP claim gains a session source stamp and decide/remember_procedure are removed; no tool accepts or runs a verify command

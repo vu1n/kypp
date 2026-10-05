@@ -52,8 +52,9 @@ two equivalent surfaces — pick whichever you have:
    - **Anchor to code** via `code_refs [{symbol, path, query}]` when the lesson concerns specific
      code. Anchors re-resolve at recall, so they survive refactors.
    - **Candidate vs accepted:** plain claims land as *candidates* — visible to `recall
-     include_candidates=true`, **invisible to `briefing` and default recall**. For settled team
-     truths use `decide` / `remember_procedure` (MCP) or `kypp remember --accept`.
+     include_candidates=true`, **invisible to `briefing` and default recall**. Use
+     `type=decision|procedure` for team truths and how-tos; they too wait as candidates until a
+     second session claims the same subject or an operator runs `kypp remember --accept`.
 4. **Wrong memory — correct it, don't ignore it.** Two cases:
    - *A human told you the right answer* → `correct(subject, content)` (MCP). It lands accepted at
      top confidence and supersedes the subject's weaker agent claims. Only the operator's
@@ -101,8 +102,13 @@ kypp batch                        # LLM re-distill a corpus of logs, one represe
 
 ## MCP tools
 
-`observe` · `claim` · `recall` · `expand` · `briefing` · `correct` · `decide` ·
-`remember_procedure` · `consolidate` · `resolve_conflicts`
+`observe` · `claim` · `recall` · `expand` · `briefing` · `correct` · `consolidate` ·
+`resolve_conflicts`
+
+Each stdio server is one session: it mints a session id (or takes `KYPP_SESSION`), stamps it on
+every `claim` as a source so two sessions agreeing can promote a candidate, and logs what
+`recall` / `briefing` / `expand` showed it. A shared `--http` server only does this when
+`KYPP_SESSION` is set.
 
 The DX contract is **handles**: `recall`/`briefing` return one compact line per claim —
 `handle [type ✓conf] subject — content → code pointer` — and `expand(handle)` dereferences only
