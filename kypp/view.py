@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
     store = MemoryStore(db, resolver=RipgrepResolver(root=repo))
     store.claim("fact", "filler", "an accepted fact", scope="project", project="p", accept=True)
-    store.claim("decision", "store engine", "tursodb", scope="project", project="p")
+    store.claim("decision", "store engine", "tursodb", scope="project", project="p", accept=True)
     pid = store.claim("pitfall", "libkrun rebuild", "x" * 300, scope="project", project="p",
                       confidence=0.9, accept=True,
                       code_refs=[{"symbol": "select_backend", "path": "mod.rs"}])

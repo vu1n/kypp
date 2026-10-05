@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """mcp_server.py — the swarm-memory engine as a single MCP server (observe / claim / recall /
-expand / briefing + the spec's decide / remember_procedure conveniences).
+expand / briefing / correct + the consolidate / resolve_conflicts maintenance tools).
 
 The ONE optional MCP an agent attaches (per swarm-memory-mcp-server-spec): a thin semantic layer over
 the store — the product is memory governance, not the transport. The server is bound to one project
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import uuid
 
 from .arbiter import consolidate as _consolidate
 from .arbiter import resolve_conflicts as _resolve_conflicts
@@ -44,8 +45,9 @@ next agent doesn't re-pay for lessons this one learned. The protocol:
    claim's IDENTITY: reuse an existing subject to update/correct it, a new subject makes a new memory.
    Keep content MODEL-AGNOSTIC (shared across models — write "X fails when…", not "claude couldn't X").
    Anchor to code via code_refs [{symbol,path,query}] when it concerns specific code. Plain claims land
-   as CANDIDATES (invisible to briefing/default recall); for settled team truths use `decide` /
-   `remember_procedure`.
+   as CANDIDATES (invisible to briefing/default recall) — use type=decision|procedure for team
+   truths and how-tos. A candidate is accepted once a second session claims the same subject, or an
+   operator accepts it; no agent call self-accepts.
 4. WRONG MEMORY — don't ignore it. A human gave the right answer → `correct(subject, content)` (lands
    accepted at top confidence, supersedes weaker agent claims; human authority comes only from the
    operator's `kypp correct`). You believe it's wrong → re-`claim` under the SAME subject with
@@ -68,7 +70,7 @@ def _claim_dict(c: Claim) -> dict:
             "low_confidence": c.low_confidence, "stale": c.stale, "agent": c.agent, "user": c.user}
 
 
-# Context: doc://kypp/agent-mcp-surface-compose@0001#compose-surface — target agent surface is compose/claim/expand/correct; the 10 verbs below predate it
+# Context: doc://kypp/agent-mcp-surface-compose@0001#compose-surface — target agent surface is compose/claim/expand/correct; the 8 verbs below predate it
 def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
               http: tuple[str, int] | None = None, consumer: str | None = None,
               user: str | None = None, agent: str | None = None):
@@ -109,8 +111,10 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         global (cross-project truth). The author (agent/model + human) is recorded automatically as
         provenance. Anchor to code via code_refs [{symbol,path,query}] when it concerns specific code.
         Returns the claim id."""
+        # Why: the session stamp is what lets consolidate's K=2 gate count two sessions agreeing.
+        sources = list(source_ids or []) + ([f"session:{consumer}"] if consumer else [])
         return store.claim(type, subject, content, scope=scope, project=project,
-                           confidence=confidence, source_ids=source_ids, code_refs=code_refs,
+                           confidence=confidence, source_ids=sources, code_refs=code_refs,
                            user=user, agent=agent)
 
     @mcp.tool()
@@ -138,6 +142,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         c = store.get(handle)
         if c is None:
             raise ValueError(f"unknown claim handle {handle!r}")
+        store.record_usage(consumer, [c], surface="expand", project=project)
         return _claim_dict(c)
 
     @mcp.tool()
@@ -162,20 +167,6 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
                           user=user, agent=agent)
         _consolidate(store, project=project, subject=subject)
         return cid
-
-    @mcp.tool()
-    def decide(subject: str, content: str, source_ids: list[str] | None = None) -> str:
-        """Record an ACCEPTED decision (durable, not a candidate) — the team's chosen answer for a
-        subject. Returns the claim id."""
-        # type=decision auto-accepts in the store (the rule lives there, not restated here).
-        return store.claim("decision", subject, content, scope="project", project=project,
-                           source_ids=source_ids, user=user, agent=agent)
-
-    @mcp.tool()
-    def remember_procedure(subject: str, content: str, source_ids: list[str] | None = None) -> str:
-        """Record an ACCEPTED procedure — a reusable how-to. Returns the claim id."""
-        return store.claim("procedure", subject, content, scope="project", project=project,
-                           source_ids=source_ids, accept=True, user=user, agent=agent)
 
     @mcp.tool()
     def consolidate(subject: str = "", dry_run: bool = False, semantic: float = 0.0) -> dict:
@@ -209,8 +200,11 @@ def main():
 
     http = (args.host, args.port) if args.http else None
     user, agent = identity_from_env()
+    # stdio = one server process per client session, so a fresh id IS the session; a shared HTTP
+    # server sees many sessions and can only use one the caller names.
+    consumer = os.environ.get("KYPP_SESSION") or (None if http else uuid.uuid4().hex[:12])
     mcp = build_mcp(store_from_env(), project_from_env(), http=http,
-                    consumer=os.environ.get("KYPP_SESSION"), user=user, agent=agent)
+                    consumer=consumer, user=user, agent=agent)
     mcp.run(transport="streamable-http" if args.http else "stdio")  # http = the attach surface
 
 
@@ -241,10 +235,11 @@ elif __name__ == "__main__":
                 "rebuild with --features libkrun + re-codesign or it falls back to docker",
                 scope="project", project="pillbox", source_ids=[oid], confidence=0.9,
                 code_refs=[{"symbol": "select_backend", "path": "src/sandbox/mod.rs"}], accept=True)
-    # the presets the decide / remember_procedure tools apply: type=decision auto-accepts; procedure
-    # is accepted via accept=True. Assert both land accepted (the tool closures rely on this).
+    # an agent-written decision is a candidate like any other claim; accept=True is the operator path.
+    agent_dec = store.claim("decision", "agent pick", "use X", scope="project", project="pillbox")
+    assert store.get(agent_dec).status == "candidate"
     store.claim("decision", "store engine", "tursodb embedded — concurrent writes + portability",
-                scope="project", project="pillbox")
+                scope="project", project="pillbox", accept=True)
     store.claim("procedure", "rebuild for libkrun", "cargo build --features libkrun; re-codesign",
                 scope="project", project="pillbox", accept=True)
 
@@ -272,7 +267,7 @@ elif __name__ == "__main__":
 
     note = ""
     try:
-        srv = build_mcp(store, "pillbox")
+        srv = build_mcp(store, "pillbox", consumer="sessA")
         assert srv.instructions and "briefing" in srv.instructions, "server must ship the protocol instructions"
         tm = getattr(srv, "_tool_manager", None)
         names = sorted(getattr(tm, "_tools", {})) if tm else []
@@ -283,6 +278,12 @@ elif __name__ == "__main__":
         live = [c for c in store.recall("image tag runner", project="pillbox") if c.subject == "image tag"]
         assert live and live[0].authority == "human" and live[0].content == "use runner:l7", live
         assert all(c.authority != "human" or c.content == "use runner:l7" for c in live), live
+        assert "decide" not in names and "remember_procedure" not in names, names
+        # an MCP claim carries its session as a source, and expand is logged as usage
+        cid = tm._tools["claim"].fn("flaky test", "retry once", type="pitfall")
+        assert store.get(cid).source_ids == ["session:sessA"] and store.get(cid).status == "candidate"
+        tm._tools["expand"].fn(cid[:8])
+        assert any(u["claim_id"] == cid and u["surface"] == "expand" for u in store.usages_for("sessA"))
         note = f"; mcp server built (tools: {names or 'registered'}, instructions shipped)"
     except ImportError:
         note = "; mcp SDK not installed — server build skipped (store + _claim_dict verified)"

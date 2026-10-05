@@ -263,9 +263,9 @@ class MemoryStore:
               code_refs: list[dict] | None = None, accept: bool = False,
               authority: str = "agent", verify: str | None = None) -> str:
         """Write a claim. Status rule (THE one place it lives — callers don't restate it):
-        `accept=True`, type='decision', or a non-agent `authority` (human/verified) lands accepted (a
-        decision/human-correction/verified-fact IS the chosen answer; making it a candidate would hide
-        it from default recall), everything else is a candidate for the arbiter. `authority` is the
+        `accept=True` or a non-agent `authority` (human/verified) lands accepted (a human correction or
+        verified fact IS the chosen answer), everything else — agent decisions included — is a candidate
+        for the arbiter's corroboration gate. `authority` is the
         survivor tie-break — a human correction outranks any agent claim regardless of confidence.
         `verify` is a deterministic freshness check (shell command, exit 0 = still true) that
         `kypp verify` runs to mark the claim verified/stale — the variance-free scoring channel for
@@ -273,7 +273,7 @@ class MemoryStore:
         _require(type in TYPES, f"bad type {type!r}")
         _require(scope in SCOPES, f"bad scope {scope!r}")
         _require(authority in AUTHORITIES, f"bad authority {authority!r}")
-        status = "accepted" if (accept or type == "decision" or authority != "agent") else "candidate"
+        status = "accepted" if (accept or authority != "agent") else "candidate"
         cid, now = _uid(), _now()
         vec = self._vec(f"{subject}\n{content}") if self.embed else None
         # vector32() must wrap a literal; embed it inline (values are our own floats, not user input).

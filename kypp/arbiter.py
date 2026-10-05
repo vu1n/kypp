@@ -7,8 +7,7 @@ many near-identical ("most criteria failed (8/8)" ×18). Per swarm-memory-mcp-se
 the rest. Never deletes: superseded rows stay for history; recall already excludes them.
 
 "Strongest" = accepted-over-candidate, then higher confidence, then more sources (evidence), then
-newer. This also implements decision supersession (a newer decision on the same subject wins) that
-`decide` deferred here. Read-only `resolve_conflicts` reports a subject's claims grouped by status.
+newer. This also implements decision supersession (a newer decision on the same subject wins). Read-only `resolve_conflicts` reports a subject's claims grouped by status.
 """
 from __future__ import annotations
 

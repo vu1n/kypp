@@ -72,6 +72,10 @@ to one project, derived from `KYPP_REPO_ROOT`.
 - `serve --http` has no authentication. Keep it on localhost.
 - The MCP `correct` tool lands at agent authority, not human. Only the operator's `kypp correct`
   writes human authority (`doc://kypp/authority-order@latest#authority-dominates`).
+- No agent call self-accepts. Every MCP `claim`, decisions included, lands as a candidate stamped
+  `session:<id>`; it is accepted when a second session claims the subject or an operator accepts it.
+  The stamp and usage logging need a session id: stdio mints one per process, `--http` needs
+  `KYPP_SESSION`.
 
 <!-- brief:anchor capture -->
 ## Capture and sweep

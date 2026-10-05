@@ -101,7 +101,7 @@ def remember_main():
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
                       confidence=args.confidence, accept=args.accept, verify=args.verify,
                       user=args.user, agent=args.agent)
-    # read the status back rather than re-spelling the store's rule (decision auto-accepts).
+    # read the status back rather than re-spelling the store's rule (accept/authority decide it).
     status = store.get(cid).status
     print(f"{cid[:8]} [{status} {args.type}] {args.subject}")
     if status == "candidate":
