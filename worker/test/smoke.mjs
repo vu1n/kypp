@@ -16,14 +16,18 @@ const mock = createServer((req, res) => {
   let raw = "";
   req.on("data", (d) => (raw += d));
   req.on("end", () => {
-    const { state } = JSON.parse(raw);
-    const flaky = state.content.includes("flaky");
-    res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ model: "mock", usage: { input_tokens: 1, output_tokens: 1 }, answers: {
-      keep: { type: "noul", noul: state.content.includes("merged") ? 0.02 : 0.9 },
+    const { state, questions } = JSON.parse(raw);
+    const text = JSON.stringify(state);
+    const flaky = text.includes("flaky");
+    const all = {
+      keep: { type: "noul", noul: text.includes("merged") ? 0.02 : 0.9 },
       type: { type: "choice", choice: flaky ? "pitfall" : "fact", confidence: flaky ? 0.9 : 0.3, probabilities: {} },
       general: { type: "noul", noul: 0.2 },
-    } }));
+      agree: { type: "noul", noul: text.includes("port 2") ? 0.1 : 0.9 },
+    };
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ model: "mock", usage: { input_tokens: 1, output_tokens: 1 },
+      answers: Object.fromEntries(Object.keys(questions).map((k) => [k, all[k]])) }));
   });
 }).listen(8788);
 
@@ -49,13 +53,17 @@ async function connect(auth) {
 const a = await connect(TOKEN);
 const tools = (await rpc(TOKEN, null, "tools/list", {})).body.result.tools.map((t) => t.name);
 assert.deepEqual(tools.sort(), ["briefing", "claim", "correct", "expand", "recall"]);
+await a("claim", { project: "smoke", subject: `${subject} port`, content: "the dev server uses port 1" });
 const id1 = await a("claim", { project: "smoke", subject, content: "retry the flaky upload once", type: "pitfall" });
 assert.ok(!(await a("briefing", { project: "smoke" })).includes(subject), "a fresh claim is a candidate");
 assert.ok((await a("recall", { project: "smoke", query: "flaky upload", include_candidates: true })).includes(id1.slice(0, 8)));
 const b = await connect(TOKEN);
 await b("claim", { project: "smoke", subject, content: "retry the flaky upload once, then fail", type: "pitfall" });
+await b("claim", { project: "smoke", subject: `${subject} port`, content: "the dev server uses port 2" });
 assert.equal((await fetch(`${BASE}/__scheduled`)).status, 200);
 const brief = await b("briefing", { project: "smoke" });
+// ...but two sessions that disagree stay candidates: the S1 judge holds the promotion
+assert.ok(!brief.includes(`${subject} port`), "a conflicted subject must not promote");
 assert.ok(brief.includes(subject) && brief.includes("✓"), `promoted after two sessions:\n${brief}`);
 const full = JSON.parse(await b("expand", { handle: brief.split("\n").find((l) => l.includes(subject)).slice(0, 8) }));
 assert.equal(full.status, "accepted");
@@ -72,8 +80,13 @@ const typed = JSON.parse(await b("expand", { handle: await b("claim", { project:
 assert.equal(typed.type, "pitfall");
 
 // user scope: visible to its owner in any project, invisible to anyone else
-await b("claim", { scope: "user", subject: `${subject} asking`, content: "ask one question in prose, not an options menu" });
+const mine = await b("claim", { scope: "user", subject: `${subject} asking`, content: "ask one question in prose, not an options menu" });
 assert.ok((await b("recall", { project: "other-repo", query: "options menu", include_candidates: true })).includes("prose"));
+
+// a forged session header earns no session stamp
+const forged = await rpc(TOKEN, "deadbeef0000.0000000000000000", "tools/call",
+  { name: "claim", arguments: { project: "smoke", subject: `${subject} forged`, content: "a lesson with a made-up session" } });
+assert.deepEqual(JSON.parse(await b("expand", { handle: forged.body.result.content[0].text })).source_ids, []);
 
 // 2. no token → 401 with discovery pointer
 const anon = await fetch(`${BASE}/mcp`, { method: "POST", body: "{}" });
@@ -113,6 +126,13 @@ const viaOauth = JSON.parse(await o("expand", { handle: cid }));
 assert.equal(viaOauth.user, "owner");
 assert.equal(viaOauth.agent, "smoke-client");
 assert.ok(!(await o("recall", { project: "smoke", query: "options menu", include_candidates: true })).includes("prose"), "another user's scope leaked");
+const peek = await rpc(tok.access_token, null, "tools/call", { name: "expand", arguments: { handle: mine } });
+assert.ok(peek.body.result.isError && peek.body.result.content[0].text.includes("unknown"), "expand leaked another user's scope");
 mock.close();
 
-console.log("OK — static token, two-session promotion, correct, S1 gate, user scope, 401 discovery, OAuth sign-in");
+// 4. passphrase attempts are rate limited
+const statuses = [];
+for (let i = 0; i < 6; i++) statuses.push((await post("nope")).status);
+assert.ok(statuses.includes(429), `no rate limit: ${statuses}`);
+
+console.log("OK — static token, promotion, correct, S1 gate, user scope + expand isolation, signed sessions, 401, OAuth, S1 hold on conflict, rate limit");

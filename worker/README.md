@@ -9,10 +9,20 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   label you can filter recall by (`agent`), not a scope.
 - **Categories:** the claim types (pitfall, decision, procedure, preference, fact, artifact,
   hypothesis). The briefing is grouped by type.
+- **Promotion:** a claim is accepted once it recurs in two sessions at least
+  `KYPP_RECUR_GAP_MINUTES` (default 60) apart. That measures repetition, not independent evidence:
+  one client can open two sessions, so the gap just makes faking it slow. Session ids are signed,
+  so a client can't invent one. A newer claim on an accepted subject waits as a pending update and
+  replaces the old answer once it recurs.
+- **Automatic, with a judge:** promotion needs no person in any scope. With a TypeSafe key, the
+  cleanup pass first asks the model whether the supporting claims agree; if they look conflicted,
+  the subject waits as candidates until a later pass. `correct` stays trust-based: any signed-in
+  agent can land an accepted project-scope answer.
 - **Optional write gate (Jev, Clef):** with a TypeSafe key, each `claim` is scored first. Status and
   session detail are turned away, a defaulted type is relabelled when the model is sure, and how
   general the lesson looks is recorded. The model never accepts a claim or moves it between
-  scopes. No key, a timeout or an error all mean no gate.
+  scopes. No key, a 5-second timeout or an error all mean no gate. With a key, each claim's subject
+  and content are sent to the TypeSafe API (or wherever `TYPESAFE_BASE_URL` points).
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
   logged per session. A subject two sessions claim is promoted by the hourly cleanup pass.
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
@@ -47,6 +57,6 @@ npx wrangler deploy
 cp .dev.vars.example .dev.vars
 npx wrangler d1 migrations apply kypp --local
 npx wrangler dev --test-scheduled            # in one shell
-npm test && node test/smoke.mjs              # unit tests, then the end-to-end smoke (mocks TypeSafe on :8788)
+npm test && node test/smoke.mjs              # unit + store tests (node:sqlite), then the end-to-end smoke (mocks TypeSafe on :8788)
 npm run typecheck
 ```

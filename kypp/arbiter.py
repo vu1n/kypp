@@ -41,15 +41,28 @@ def _survivor(members: list[Claim]) -> Claim:
     return max(members, key=_rank)
 
 
-def _plan_groups(groups: list[list[Claim]]) -> list[dict]:
-    """For each group of >1, keep the strongest (by _rank) and supersede the rest."""
+def _updates(members: list[Claim], survivor: Claim) -> list[Claim]:
+    """Candidates written after an ACCEPTED survivor at its authority: pending updates to that answer.
+    They outrank nothing yet (accepted beats candidate), so without this the old answer would
+    supersede its own correction. They wait, and replace it once they corroborate."""
+    if survivor.status != "accepted":
+        return []
+    return [m for m in members if m.status == "candidate" and m.authority == survivor.authority
+            and m.updated_at > survivor.updated_at]
+
+
+def _plan_groups(groups: list[list[Claim]], keep_updates: bool = True) -> list[dict]:
+    """For each group of >1, keep the strongest (by _rank) and, for exact-subject groups, any pending
+    updates to it; supersede the rest."""
     plan = []
     for members in groups:
         if len(members) < 2:
             continue
         survivor = _survivor(members)
-        plan.append({"subject": survivor.subject, "survivor": survivor.id,
-                     "superseded": [m.id for m in members if m.id != survivor.id]})
+        keep = {survivor.id} | ({u.id for u in _updates(members, survivor)} if keep_updates else set())
+        dropped = [m.id for m in members if m.id not in keep]
+        if dropped:
+            plan.append({"subject": survivor.subject, "survivor": survivor.id, "superseded": dropped})
     return plan
 
 
@@ -95,7 +108,8 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
 
     if semantic is not None:
         alive = {c.id: c for c in claims if c.id not in superseded}
-        sem_plan = _plan_groups(_semantic_clusters(store.similar_pairs(project, max_distance=semantic), alive))
+        sem_plan = _plan_groups(_semantic_clusters(store.similar_pairs(project, max_distance=semantic), alive),
+                               keep_updates=False)
         plan += sem_plan
         superseded |= {cid for p in sem_plan for cid in p["superseded"]}
 
@@ -115,6 +129,14 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
                     and len(members) >= accept_corroboration \
                     and _corroboration(members) >= accept_corroboration:
                 promoted.append(survivor.id)
+            # Pending updates that corroborate replace the accepted answer.
+            updates = [u for u in _updates(members, survivor) if u.id not in superseded]
+            if len(updates) >= accept_corroboration and _corroboration(updates) >= accept_corroboration:
+                winner = _survivor(updates)
+                promoted.append(winner.id)
+                retired = [m.id for m in members if m.id != winner.id and m.id not in superseded]
+                superseded |= set(retired)
+                plan.append({"subject": winner.subject, "survivor": winner.id, "superseded": retired})
 
     if not dry_run:
         for cid in superseded:
@@ -200,6 +222,20 @@ elif __name__ == "__main__":
     assert any(c.subject == "unrelated" for c in store.recall("unrelated", project="p")), "singleton untouched"
     # idempotent: a second pass finds nothing to do
     assert consolidate(store, project="p")["superseded"] == 0, "should be idempotent"
+
+    # an update to an ACCEPTED subject survives consolidation as a pending candidate, and replaces
+    # the old answer once a second session backs it
+    upd1 = store.claim("pitfall", "build fails", "fixed upstream", scope="project", project="p",
+                       confidence=0.4, source_ids=["sU1"])
+    consolidate(store, project="p")
+    assert store.get(upd1).status == "candidate", "an update must not be superseded by the answer it corrects"
+    store.claim("pitfall", "build fails", "fixed upstream, confirmed", scope="project", project="p",
+                confidence=0.4, source_ids=["sU2"])
+    consolidate(store, project="p")
+    now_live = store.recall("build fails", project="p")
+    assert len(now_live) == 1 and now_live[0].content.startswith("fixed upstream"), [c.content for c in now_live]
+    assert store.get(strong).status == "superseded"
+    strong = now_live[0].id
 
     print(f"OK — arbiter: consolidated 3 dupes → 1 survivor ({strong[:8]}, the accepted claim); "
           f"2 superseded (history kept, recall excludes); singleton untouched; idempotent")

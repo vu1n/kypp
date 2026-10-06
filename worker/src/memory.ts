@@ -55,29 +55,86 @@ export function corroboration(members: Claim[]): number {
   return new Set(members.flatMap((m) => m.source_ids)).size;
 }
 
-export interface Plan {
-  supersede: string[];
-  promote: string[];
+// The two-session rule measures recurrence, not independent evidence: one client can open two
+// sessions. Requiring the supporting sessions to span `minGapMs` makes "it came up again later" the
+// thing being counted, and makes faking it slow.
+export function recurs(members: Claim[], k: number, minGapMs: number): boolean {
+  if (members.length < k) return false;
+  const firstSeen = new Map<string, number>();
+  for (const m of members) {
+    const t = Date.parse(m.created_at);
+    for (const s of m.source_ids) firstSeen.set(s, Math.min(firstSeen.get(s) ?? t, t));
+  }
+  if (firstSeen.size < k) return false;
+  const times = [...firstSeen.values()];
+  return Math.max(...times) - Math.min(...times) >= minGapMs;
 }
 
-// arbiter.consolidate, exact-subject phases only: group live claims by (subject, scope, project, and
-// owner for the user scope),
-// keep the strongest and supersede the rest; promote a candidate survivor once >= k claims from
-// >= k distinct sources agree.
-export function planConsolidation(live: Claim[], k = 2): Plan {
-  const groups = new Map<string, Claim[]>();
-  for (const c of live) {
-    const key = JSON.stringify([c.subject, c.scope, c.project, c.scope === "user" ? c.user : null]);
-    groups.set(key, [...(groups.get(key) ?? []), c]);
+export interface Policy {
+  k: number;
+  minGapMs: number;
+  // Whether recurrence may accept this group's survivor; false holds it as a candidate (used when
+  // the agreement check finds the supporting claims conflicted).
+  autoAccept: (c: Claim) => boolean;
+}
+export const DEFAULT_POLICY: Policy = { k: 2, minGapMs: 0, autoAccept: () => true };
+
+export interface GroupKey { subject: string; scope: Scope; project: string | null; user: string | null }
+// `version` is the group's live-row count and newest updated_at at read time; apply() refuses a plan
+// whose group changed since (a correction or new claim landed), so a stale plan can't undo it.
+// `support` is the claims whose recurrence justifies the promotion, for an agreement check.
+export interface GroupPlan { key: GroupKey; version: string; supersede: string[]; promote: string[]; support: string[] }
+
+export function groupVersion(members: Claim[]): string {
+  return `${members.length}:${members.reduce((m, c) => (c.updated_at > m ? c.updated_at : m), "")}`;
+}
+
+export function groupKey(c: Claim): GroupKey {
+  return { subject: c.subject, scope: c.scope, project: c.project, user: c.scope === "user" ? c.user : null };
+}
+
+// arbiter.consolidate, exact-subject phases only. Per group of live claims on one subject (and owner,
+// for the user scope):
+// - a candidate survivor is promoted once it recurs across sessions; everything else is superseded;
+// - an accepted survivor keeps newer candidates of the same authority alive as pending UPDATES (an
+//   older accepted claim must not silently eat its own correction). Once the updates recur, the
+//   strongest update is promoted and the old answer superseded.
+export function planGroup(members: Claim[], policy: Policy = DEFAULT_POLICY): GroupPlan {
+  const best = survivor(members);
+  const plan: GroupPlan = { key: groupKey(best), version: groupVersion(members), supersede: [], promote: [], support: [] };
+  const updates = best.status === "accepted"
+    ? members.filter((m) => m.status === "candidate" && m.authority === best.authority && m.updated_at > best.updated_at)
+    : [];
+  if (updates.length && recurs(updates, policy.k, policy.minGapMs) && policy.autoAccept(best)) {
+    const winner = survivor(updates);
+    plan.promote.push(winner.id);
+    plan.support = updates.map((u) => u.id);
+    plan.supersede.push(...members.filter((m) => m.id !== winner.id).map((m) => m.id));
+    return plan;
   }
-  const plan: Plan = { supersede: [], promote: [] };
-  for (const members of groups.values()) {
-    const best = survivor(members);
-    if (members.length > 1) plan.supersede.push(...members.filter((m) => m.id !== best.id).map((m) => m.id));
-    // Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
-    if (best.status === "candidate" && members.length >= k && corroboration(members) >= k) plan.promote.push(best.id);
+  const pending = new Set(updates.map((u) => u.id));
+  plan.supersede.push(...members.filter((m) => m.id !== best.id && !pending.has(m.id)).map((m) => m.id));
+  // Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
+  if (best.status === "candidate" && recurs(members, policy.k, policy.minGapMs) && policy.autoAccept(best)) {
+    plan.promote.push(best.id);
+    plan.support = members.map((m) => m.id);
   }
   return plan;
+}
+
+export function groupClaims(live: Claim[]): Claim[][] {
+  const groups = new Map<string, Claim[]>();
+  for (const c of live) {
+    const key = JSON.stringify(groupKey(c));
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  return [...groups.values()];
+}
+
+export const hasWork = (p: GroupPlan) => p.supersede.length > 0 || p.promote.length > 0;
+
+export function planConsolidation(live: Claim[], policy: Policy = DEFAULT_POLICY): GroupPlan[] {
+  return groupClaims(live).map((m) => planGroup(m, policy)).filter(hasWork);
 }
 
 // view.compact_line, minus code grounding (the Worker has no checkout to resolve anchors against;
@@ -89,7 +146,7 @@ export function compactLine(c: Claim): string {
   const body = c.content.split(/\s+/).filter(Boolean).join(" ");
   let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth}] ${c.subject} — ${body.slice(0, CLIP)}`;
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
-  const path = c.code_refs.find((r) => typeof r.path === "string")?.path;
+  const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
   if (path) line += ` → ${path}`;
   return line;
 }

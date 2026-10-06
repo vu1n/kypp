@@ -4,3 +4,4 @@ CONSENT_SECRET=local-consent-secret-0123456789abcdef
 KYPP_API_TOKENS=huddles:local-token-abcdefghijklmnop
 TYPESAFE_API_KEY=mock
 TYPESAFE_BASE_URL=http://localhost:8788
+KYPP_RECUR_GAP_MINUTES=0

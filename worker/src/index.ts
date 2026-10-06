@@ -3,7 +3,8 @@
 // clients can present a named static token from KYPP_API_TOKENS instead.
 import { AuthorizationError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { type Caller, handleMcp } from "./mcp.ts";
-import { planConsolidation } from "./memory.ts";
+import { consolidate } from "./consolidate.ts";
+import { type Policy } from "./memory.ts";
 import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
 
@@ -15,7 +16,23 @@ export interface Env extends S1Env {
   KYPP_OWNER_SECRET: string;
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
+  KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
+  AUTH_LIMIT?: { limit(o: { key: string }): Promise<{ success: boolean }> }; // passphrase attempts
 }
+
+// Promotion is automatic in every scope; memory is for agents, so nothing waits on a person.
+export function policyFrom(env: Pick<Env, "KYPP_RECUR_GAP_MINUTES">): Policy {
+  const gap = Number(env.KYPP_RECUR_GAP_MINUTES ?? 60);
+  return { k: 2, minGapMs: (Number.isFinite(gap) && gap >= 0 ? gap : 60) * 60_000, autoAccept: () => true };
+}
+
+// False when this caller has used up its passphrase attempts (no binding configured = no limit).
+async function allowAttempt(request: Request, env: Env): Promise<boolean> {
+  if (!env.AUTH_LIMIT) return true;
+  const ip = request.headers.get("CF-Connecting-IP") ?? "local";
+  return (await env.AUTH_LIMIT.limit({ key: `pass:${ip}` })).success;
+}
+const tooMany = () => new Response("Too many attempts. Wait a minute and try again.", { status: 429 });
 
 const enc = new TextEncoder();
 const escape = (v: string) => v.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
@@ -63,6 +80,7 @@ async function authorize(request: Request, env: Env): Promise<Response> {
       const denied = await oauth.denyConsent(request, handle);
       return new Response(null, { status: 302, headers: denied.headers });
     }
+    if (!(await allowAttempt(request, env))) return tooMany();
     if (!env.KYPP_OWNER_SECRET || !(await sameSecret(String(form.get("secret") ?? ""), env.KYPP_OWNER_SECRET))) {
       // The handle is single-use only once approved/denied, so the same page can be retried.
       return new Response("Wrong passphrase. Go back and try again.", { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -101,7 +119,8 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
   provider ??= new OAuthProvider<Env>({
     apiRoute: "/mcp",
     apiHandler: {
-      fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcp(request, env.DB, (ctx as any).props as Caller, s1Client(env)),
+      fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcp(request, env.DB, (ctx as any).props as Caller,
+        { s1: s1Client(env), policy: policyFrom(env), sessionKey: `${env.CONSENT_SECRET}:session` }),
     },
     defaultHandler: {
       fetch: (request: Request, env: Env) => {
@@ -132,10 +151,9 @@ export default {
     return oauthProvider(env).fetch(request, env, ctx);
   },
 
-  // The cleanup pass: supersede duplicates and promote subjects two sessions agree on. It is the
-  // only writer that changes existing rows, so it runs in one place on a schedule.
+  // The cleanup pass: supersede duplicates and promote subjects that recur across sessions. Groups
+  // that changed while it ran are skipped and picked up next hour.
   async scheduled(_event: ScheduledController, env: Env) {
-    const store = new D1Store(env.DB);
-    await store.apply(planConsolidation(await store.liveClaims()));
+    await consolidate(new D1Store(env.DB), policyFrom(env), s1Client(env));
   },
 };

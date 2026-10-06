@@ -1,7 +1,28 @@
 // store.ts — the D1 side of kypp/store.py: claim, recall, get, usage, live claims, status writes.
-import { type Claim, type ClaimType, type Plan, SCOPES, type Scope, TYPES } from "./memory.ts";
+import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES } from "./memory.ts";
 
 const MAX_CONTENT = 4000;
+const MAX_REFS = 10;
+const REF_KEYS = ["symbol", "path", "query", "repo", "commit"];
+
+// code_refs arrive as untyped tool arguments; store only plain {symbol,path,query,repo,commit} strings
+// so a malformed entry can't break rendering later.
+export function cleanCodeRefs(refs: unknown): Record<string, string>[] {
+  if (refs === undefined || refs === null) return [];
+  if (!Array.isArray(refs) || refs.length > MAX_REFS) throw new Error(`code_refs must be a list of at most ${MAX_REFS} objects`);
+  return refs.map((r) => {
+    if (!r || typeof r !== "object" || Array.isArray(r)) throw new Error("each code_ref must be an object like {symbol, path, query}");
+    const out: Record<string, string> = {};
+    for (const k of REF_KEYS) {
+      const v = (r as Record<string, unknown>)[k];
+      if (v === undefined || v === null) continue;
+      if (typeof v !== "string" || v.length > 300) throw new Error(`code_ref.${k} must be a string of at most 300 chars`);
+      out[k] = v;
+    }
+    if (!Object.keys(out).length) throw new Error("a code_ref needs at least one of symbol, path or query");
+    return out;
+  });
+}
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID().replaceAll("-", "");
 
@@ -32,7 +53,7 @@ export interface ClaimInput {
   project: string | null;
   confidence: number;
   sourceIds: string[];
-  codeRefs: Record<string, unknown>[];
+  codeRefs: unknown;
   accept: boolean;
   agent: string | null;
   user: string | null;
@@ -40,7 +61,8 @@ export interface ClaimInput {
 }
 
 export class D1Store {
-  constructor(private db: D1Database) {}
+  private db: D1Database;
+  constructor(db: D1Database) { this.db = db; }
 
   // Context: doc://kypp/authority-order@0003#authority-dominates — the Worker only ever writes agent authority; human comes from the operator's local `kypp correct`.
   async claim(c: ClaimInput): Promise<string> {
@@ -51,13 +73,14 @@ export class D1Store {
     if (!c.subject.trim() || !c.content.trim()) throw new Error("subject and content are required");
     if (c.content.length > MAX_CONTENT) throw new Error(`content over ${MAX_CONTENT} chars; distill it`);
     const id = uid(), ts = now();
-    const confidence = Math.min(1, Math.max(0, c.confidence));
+    const confidence = Math.min(1, Math.max(0, Number(c.confidence) || 0));
+    const codeRefs = cleanCodeRefs(c.codeRefs);
     await this.db.batch([
       this.db.prepare(
         "INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,user,status,authority,confidence,source_ids,code_refs,metadata,created_at,updated_at)"
         + " VALUES(?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?)",
       ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.agent, c.user,
-        c.accept ? "accepted" : "candidate", confidence, JSON.stringify(c.sourceIds), JSON.stringify(c.codeRefs),
+        c.accept ? "accepted" : "candidate", confidence, JSON.stringify(c.sourceIds), JSON.stringify(codeRefs),
         JSON.stringify(c.metadata ?? {}), ts, ts),
       this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
     ]);
@@ -84,10 +107,14 @@ export class D1Store {
     return results.map(hydrate);
   }
 
-  // A handle is a claim id or its prefix; returns any status (a handle may point into history).
-  async get(handle: string): Promise<Claim | null> {
-    if (!/^[0-9a-f]{4,32}$/.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 4-32 hex chars)`);
-    const { results } = await this.db.prepare("SELECT * FROM memory_claims WHERE id LIKE ? LIMIT 2").bind(`${handle}%`).all();
+  // A handle is a claim id or its 8+ char prefix; returns any status (a handle may point into history).
+  // Another user's user-scope claims are invisible here exactly as in recall, including to the
+  // ambiguity check, so a prefix can't probe for them.
+  async get(handle: string, user: string | null): Promise<Claim | null> {
+    if (!/^[0-9a-f]{8,32}$/.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
+    const { results } = await this.db.prepare(
+      "SELECT * FROM memory_claims WHERE id LIKE ? AND (scope != 'user' OR user IS ?) LIMIT 2",
+    ).bind(`${handle}%`, user).all();
     if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
     return results.length ? hydrate(results[0]) : null;
   }
@@ -113,12 +140,31 @@ export class D1Store {
   }
 
   // Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim.
-  async apply(plan: Plan): Promise<void> {
-    const ts = now();
-    const stmts = [
-      ...plan.supersede.map((id) => this.db.prepare("UPDATE memory_claims SET status='superseded', updated_at=? WHERE id=?").bind(ts, id)),
-      ...plan.promote.map((id) => this.db.prepare("UPDATE memory_claims SET status='accepted', updated_at=? WHERE id=?").bind(ts, id)),
-    ];
-    if (stmts.length) await this.db.batch(stmts);
+  // One transaction per group, guarded by the version read at plan time: if the group changed since
+  // (a correction, a new claim, a review), the guard's CHECK fails, the group's batch rolls back and
+  // the next pass replans it. Returns how many groups were applied and skipped as stale.
+  async apply(plans: GroupPlan[]): Promise<{ applied: number; stale: number }> {
+    let applied = 0, stale = 0;
+    for (const p of plans) {
+      const ts = now();
+      const { subject, scope, project, user } = p.key;
+      const stmts = [
+        this.db.prepare(
+          "INSERT INTO consolidation_guard(ok) SELECT 0 WHERE (SELECT COUNT(*) || ':' || IFNULL(MAX(updated_at), '')"
+          + " FROM memory_claims WHERE status IN ('candidate','accepted') AND subject = ? AND scope = ? AND project IS ?"
+          + " AND (scope != 'user' OR user IS ?)) != ?",
+        ).bind(subject, scope, project, user, p.version),
+        ...p.supersede.map((id) => this.db.prepare("UPDATE memory_claims SET status='superseded', updated_at=? WHERE id=?").bind(ts, id)),
+        ...p.promote.map((id) => this.db.prepare("UPDATE memory_claims SET status='accepted', updated_at=? WHERE id=?").bind(ts, id)),
+      ];
+      try {
+        await this.db.batch(stmts);
+        applied++;
+      } catch (e) {
+        if (!String((e as Error).message).includes("CHECK constraint failed")) throw e;
+        stale++;
+      }
+    }
+    return { applied, stale };
   }
 }

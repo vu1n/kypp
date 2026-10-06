@@ -1,6 +1,7 @@
 // s1.ts — the optional System One write gate (Jev, Clef) over the TypeSafe API, the Worker's twin of
 // kypp/s1.py. A System One model returns calibrated probabilities, never text. It filters and labels
-// what enters memory; it never accepts a claim or changes its scope. No key → no gate.
+// what enters memory and can hold back a promotion it finds conflicted; it never accepts a claim or
+// changes its scope. No key → no gate.
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { TYPES, type ClaimType } from "./memory.ts";
 
@@ -20,9 +21,10 @@ export function s1Client(env: S1Env): S1Client | null {
   if (!env.TYPESAFE_API_KEY || ["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
   // A slow gate stalls the agent's claim call, so cap it; a timeout fails open like any error.
   return new TypeSafeClient({ apiKey: env.TYPESAFE_API_KEY, baseURL: env.TYPESAFE_BASE_URL, defaultModel: env.TYPESAFE_DEFAULT_MODEL,
-    timeout: 5000, retry: { maxRetries: 1 } });
+    timeout: DEADLINE_MS, retry: { maxRetries: 0 } });
 }
 
+export const DEADLINE_MS = 5000; // end to end, enforced in judge() too, not just per attempt
 export const DROP_BELOW = 0.1;   // same bar as distill.GatedDistiller
 const RETYPE_ABOVE = 0.6;        // only relabel a defaulted type when the model is fairly sure
 
@@ -67,11 +69,14 @@ export interface Verdict {
 const prob = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1 ? v : null);
 
 // Fail open: any error is "no opinion", never a drop.
-export async function judge(client: S1Client | null, draft: { subject: string; content: string; project: string | null }): Promise<Verdict> {
+export async function judge(client: S1Client | null, draft: { subject: string; content: string; project: string | null },
+  deadlineMs = DEADLINE_MS): Promise<Verdict> {
   const none: Verdict = { keep: null, type: null, general: null };
   if (!client) return none;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const { answers } = await client.systemOne({ state: draft, questions: QUESTIONS });
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
+    const { answers } = await Promise.race([client.systemOne({ state: draft, questions: QUESTIONS }), late]);
     const t = answers.type;
     const type = t?.type === "choice" && TYPES.includes(t.choice) && (prob(t.confidence) ?? 0) >= RETYPE_ABOVE ? (t.choice as ClaimType) : null;
     return {
@@ -81,5 +86,36 @@ export async function judge(client: S1Client | null, draft: { subject: string; c
     };
   } catch {
     return none;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+const AGREE = {
+  agree: {
+    type: "noul",
+    instructions: "The state holds claims about one subject, written to shared memory by coding agents in separate sessions. Do they say the same thing, so that one of them can stand as the agreed answer?",
+    criteria: {
+      true: "They make the same point, possibly in different words or detail.",
+      false: "They contradict each other, or make different points that can't both be the answer.",
+    },
+  },
+} as const;
+
+export const HOLD_BELOW = 0.5; // conflicted: the subject waits as candidates instead of promoting
+
+// P(the supporting claims agree), or null for no opinion. Fails open like judge().
+export async function agrees(client: S1Client | null, claims: { subject: string; content: string }[],
+  deadlineMs = DEADLINE_MS): Promise<number | null> {
+  if (!client || claims.length < 2) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
+    const { answers } = await Promise.race([client.systemOne({ state: { claims }, questions: AGREE }), late]);
+    return answers.agree?.type === "noul" ? prob(answers.agree.noul) : null;
+  } catch {
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }

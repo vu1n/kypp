@@ -103,6 +103,12 @@ cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `
   user scope the `user` column is the owner, so a static token's name decides whose user scope it reads.
 - The S1 gate fails open and only filters or labels. It must never accept a claim or change its
   scope (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
+- `apply()` guards each subject group with the count and newest `updated_at` read at plan time;
+  a group that changed since is skipped (CHECK on `consolidation_guard` rolls its batch back).
+  Any new writer of claim status must go through `apply()` or bump `updated_at`.
+- Promotion counts sessions that recur at least `KYPP_RECUR_GAP_MINUTES` apart. That is
+  repetition, not independent evidence; signed session ids only stop invented ones.
+- The S1 agreement check (`consolidate.ts`) can only hold a promotion back, never cause one.
 - The cron pass is the only writer that changes existing rows. Keep status edits there (and in
   `correct`, which consolidates one subject) so concurrent sessions only ever insert.
 
@@ -161,6 +167,10 @@ the weaker claims. It also promotes corroborated candidates.
 ### Gotchas
 - On a small or diverse corpus the corroboration gate (K=2) can promote nothing, leaving the
   briefing empty. That shows up as "memory had no effect", not as an error.
+- A candidate written after an accepted claim on the same subject (same authority) is a pending
+  update: it is kept, not superseded, and replaces the old answer once it corroborates. Without
+  that, accepted-beats-candidate made every update lose to the answer it corrects. Exact-subject
+  groups only; the semantic pass doesn't keep updates.
 
 <!-- brief:anchor verify -->
 ## Verify

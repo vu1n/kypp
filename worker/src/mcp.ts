@@ -1,7 +1,8 @@
 // mcp.ts — kypp's agent tools as a stateless streamable-HTTP MCP endpoint (JSON responses, no SSE,
 // no Durable Object). The same contract as kypp/mcp_server.py's briefing / recall / claim / expand /
 // correct; consolidation is the scheduled pass in index.ts, not an agent tool.
-import { type Claim, HUMAN_CORRECTION_CONFIDENCE, SCOPES, TYPES, briefingOrder, ftsQuery, planConsolidation, renderBriefing, renderClaims } from "./memory.ts";
+import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, SCOPES, TYPES, briefingOrder, ftsQuery, renderBriefing, renderClaims } from "./memory.ts";
+import { consolidate } from "./consolidate.ts";
 import { DROP_BELOW, type S1Client, judge } from "./s1.ts";
 import { D1Store } from "./store.ts";
 
@@ -82,7 +83,33 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
-interface Ctx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null }
+interface Ctx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy }
+
+export interface McpOptions {
+  s1?: S1Client | null;
+  policy?: Policy;
+  sessionKey?: string; // HMAC key for session ids; without one, ids are unsigned
+}
+
+// Session ids are `<id>.<mac>`, signed at initialize, so a client can't name an arbitrary session to
+// fake recurrence. A missing or bad signature means no session: claims get no stamp.
+async function mac(key: string, id: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(id)));
+  return [...sig.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function issueSession(key: string | undefined): Promise<string> {
+  const id = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  return key ? `${id}.${await mac(key, id)}` : id;
+}
+
+export async function verifySession(key: string | undefined, header: string | null): Promise<string | null> {
+  if (!header) return null;
+  if (!key) return header;
+  const [id, sig] = header.split(".");
+  return id && sig && sig === (await mac(key, id)) ? id : null;
+}
 
 async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
   const project: string | null = a.project || ctx.project;
@@ -112,12 +139,12 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
       return store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,
         scope: a.scope ?? "project", project, confidence: a.confidence ?? 0.7,
-        sourceIds: ctx.session ? [`session:${ctx.session}`] : [], codeRefs: a.code_refs ?? [],
+        sourceIds: ctx.session ? [`session:${ctx.session}`] : [], codeRefs: a.code_refs,
         accept: false, agent: ctx.caller.agent, user, metadata: s1 ? { s1 } : {},
       });
     }
     case "expand": {
-      const c = await store.get(String(a.handle ?? ""));
+      const c = await store.get(String(a.handle ?? ""), user);
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
       await store.recordUsage(ctx.session, [c], "expand", c.project);
       return JSON.stringify(claimDict(c), null, 2);
@@ -129,7 +156,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
         confidence: HUMAN_CORRECTION_CONFIDENCE, sourceIds: ctx.session ? [`session:${ctx.session}`] : [],
         codeRefs: [], accept: true, agent: ctx.caller.agent, user,
       });
-      await store.apply(planConsolidation(await store.liveClaims({ scope: "project", project, subject })));
+      await consolidate(store, ctx.policy, ctx.s1, { scope: "project", project, subject });
       return id;
     }
   }
@@ -165,9 +192,9 @@ async function dispatch(msg: Rpc, store: D1Store, ctx: Ctx) {
   }
 }
 
-// Stateless: the session id handed out at initialize is only an identity the client echoes back,
-// so usage and claims from one session group together. Nothing is held between requests.
-export async function handleMcp(request: Request, db: D1Database, caller: Caller, s1: S1Client | null = null): Promise<Response> {
+// Stateless: the session id handed out at initialize is only a signed identity the client echoes
+// back, so usage and claims from one session group together. Nothing is held between requests.
+export async function handleMcp(request: Request, db: D1Database, caller: Caller, opts: McpOptions = {}): Promise<Response> {
   if (request.method !== "POST") return new Response("POST JSON-RPC to this endpoint", { status: 405, headers: { Allow: "POST" } });
   const project = request.headers.get("X-Kypp-Project");
   let body: Rpc | Rpc[];
@@ -178,15 +205,16 @@ export async function handleMcp(request: Request, db: D1Database, caller: Caller
   }
   const msgs = Array.isArray(body) ? body : [body];
   const isInit = msgs.some((m) => m.method === "initialize");
-  const session = isInit ? crypto.randomUUID().replaceAll("-", "").slice(0, 12) : request.headers.get(SESSION_HEADER);
+  const issued = isInit ? await issueSession(opts.sessionKey) : null;
+  const session = issued ? issued.split(".")[0] : await verifySession(opts.sessionKey, request.headers.get(SESSION_HEADER));
   const store = new D1Store(db);
-  const ctx: Ctx = { project, session, caller, s1 };
+  const ctx: Ctx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY };
   const replies = [];
   for (const m of msgs) {
     if (m.id === undefined) continue; // notifications get no reply
     replies.push(await dispatch(m, store, ctx));
   }
-  const headers = new Headers(isInit && session ? { [SESSION_HEADER]: session } : {});
+  const headers = new Headers(issued ? { [SESSION_HEADER]: issued } : {});
   if (!replies.length) return new Response(null, { status: 202, headers });
   return Response.json(Array.isArray(body) ? replies : replies[0], { headers });
 }

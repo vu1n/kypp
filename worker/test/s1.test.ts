@@ -30,3 +30,10 @@ test("fails open on errors and junk", async () => {
   assert.equal((await judge(fake({ keep: { type: "noul", noul: Number.NaN } }), draft)).keep, null);
   assert.deepEqual(await judge(null, draft), { keep: null, type: null, general: null });
 });
+
+test("the deadline is end to end", async () => {
+  const hang: S1Client = { systemOne: () => new Promise(() => {}) };
+  const t0 = Date.now();
+  assert.deepEqual(await judge(hang, draft, 50), { keep: null, type: null, general: null });
+  assert.ok(Date.now() - t0 < 1000);
+});
