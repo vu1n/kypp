@@ -1,6 +1,6 @@
 // s1.ts — the optional System One write gate (Jev, Clef) over the TypeSafe API, the Worker's twin of
 // kypp/s1.py. A System One model returns calibrated probabilities, never text. It filters and labels
-// what enters memory; it never accepts a claim or moves one between shelves. No key → no gate.
+// what enters memory; it never accepts a claim or changes its scope. No key → no gate.
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { TYPES, type ClaimType } from "./memory.ts";
 

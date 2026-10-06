@@ -88,7 +88,7 @@ paths:
 The optional hosted store: a Cloudflare Worker over D1 serving `briefing`, `recall`, `claim`,
 `expand` and `correct` as a remote MCP server behind OAuth, so cloud sessions share one memory.
 `worker/src/memory.ts` ports the arbiter's ranking and promotion rules; an hourly cron runs the
-cleanup pass. It adds a `user` shelf (the signed-in person, every repo) beside `project` and
+cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `project` and
 `global`, and an optional System One write gate (`worker/src/s1.ts`, TypeSafe JS SDK).
 
 ### Gotchas
@@ -99,10 +99,10 @@ cleanup pass. It adds a `user` shelf (the signed-in person, every repo) beside `
   `X-Kypp-Project` header.
 - The MCP endpoint is stateless: the session id from `initialize` is only echoed back, never
   stored. Don't add a Durable Object to hold sessions.
-- The `user` shelf exists only in the Worker; local `vocab.Scope` is still project/global. On the
-  user shelf the `user` column is the owner, so a static token's name decides whose shelf it reads.
+- The `user` scope exists only in the Worker; local `vocab.Scope` is still project/global. On the
+  user scope the `user` column is the owner, so a static token's name decides whose user scope it reads.
 - The S1 gate fails open and only filters or labels. It must never accept a claim or change its
-  shelf (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
+  scope (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
 - The cron pass is the only writer that changes existing rows. Keep status edits there (and in
   `correct`, which consolidates one subject) so concurrent sessions only ever insert.
 

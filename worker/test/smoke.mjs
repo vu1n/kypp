@@ -71,7 +71,7 @@ assert.ok((await b("claim", { project: "smoke", subject: `${subject} status`, co
 const typed = JSON.parse(await b("expand", { handle: await b("claim", { project: "smoke", subject: `${subject} ci`, content: "the flaky e2e job needs one rerun" }) }));
 assert.equal(typed.type, "pitfall");
 
-// user shelf: visible to its owner in any project, invisible to anyone else
+// user scope: visible to its owner in any project, invisible to anyone else
 await b("claim", { scope: "user", subject: `${subject} asking`, content: "ask one question in prose, not an options menu" });
 assert.ok((await b("recall", { project: "other-repo", query: "options menu", include_candidates: true })).includes("prose"));
 
@@ -112,7 +112,7 @@ const cid = await o("claim", { project: "smoke", subject: `${subject} oauth`, co
 const viaOauth = JSON.parse(await o("expand", { handle: cid }));
 assert.equal(viaOauth.user, "owner");
 assert.equal(viaOauth.agent, "smoke-client");
-assert.ok(!(await o("recall", { project: "smoke", query: "options menu", include_candidates: true })).includes("prose"), "another user's shelf leaked");
+assert.ok(!(await o("recall", { project: "smoke", query: "options menu", include_candidates: true })).includes("prose"), "another user's scope leaked");
 mock.close();
 
-console.log("OK — static token, two-session promotion, correct, S1 gate, user shelf, 401 discovery, OAuth sign-in");
+console.log("OK — static token, two-session promotion, correct, S1 gate, user scope, 401 discovery, OAuth sign-in");

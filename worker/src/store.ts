@@ -13,15 +13,15 @@ function hydrate(r: Record<string, unknown>): Claim {
   };
 }
 
-// What a caller sees: this project's shelf, their own user shelf, and the global shelf; never
+// What a caller sees: this project's scope, their own user scope, and the global scope; never
 // superseded/rejected history. `t` is the table alias.
 function visible(t: string, project: string | null, user: string | null, includeCandidates: boolean): [string, unknown[]] {
   const status = includeCandidates ? `${t}.status IN ('candidate','accepted')` : `${t}.status = 'accepted'`;
-  const shelves = [`${t}.scope = 'global'`];
+  const scopes = [`${t}.scope = 'global'`];
   const params: unknown[] = [];
-  if (project) { shelves.push(`(${t}.scope = 'project' AND ${t}.project = ?)`); params.push(project); }
-  if (user) { shelves.push(`(${t}.scope = 'user' AND ${t}.user = ?)`); params.push(user); }
-  return [`${status} AND (${shelves.join(" OR ")})`, params];
+  if (project) { scopes.push(`(${t}.scope = 'project' AND ${t}.project = ?)`); params.push(project); }
+  if (user) { scopes.push(`(${t}.scope = 'user' AND ${t}.user = ?)`); params.push(user); }
+  return [`${status} AND (${scopes.join(" OR ")})`, params];
 }
 
 export interface ClaimInput {
@@ -65,7 +65,7 @@ export class D1Store {
   }
 
   // Browse (empty match) = strongest first; otherwise bm25 relevance, then the same tie-breaks as
-  // store.recall: accepted, nearer shelf (project, then user, then global), confidence.
+  // store.recall: accepted, nearer scope (project, then user, then global), confidence.
   async recall(match: string, project: string | null, user: string | null,
     opts: { includeCandidates?: boolean; types?: string[]; agent?: string; limit?: number } = {}): Promise<Claim[]> {
     const [where, params] = visible("c", project, user, !!opts.includeCandidates);

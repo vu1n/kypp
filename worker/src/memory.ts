@@ -6,7 +6,7 @@ export const TYPES = ["fact", "preference", "decision", "procedure", "artifact",
 export const AUTHORITIES = ["agent", "verified", "human"] as const;
 export type ClaimType = (typeof TYPES)[number];
 export type Authority = (typeof AUTHORITIES)[number];
-// Shelves: this repo, the signed-in person across repos, everyone. The agent is a label, not a shelf.
+// Scopes: this repo, the signed-in user across repos, everyone. The agent is a label, not a scope.
 export const SCOPES = ["project", "user", "global"] as const;
 export type Scope = (typeof SCOPES)[number];
 
@@ -61,7 +61,7 @@ export interface Plan {
 }
 
 // arbiter.consolidate, exact-subject phases only: group live claims by (subject, scope, project, and
-// owner for the user shelf),
+// owner for the user scope),
 // keep the strongest and supersede the rest; promote a candidate survivor once >= k claims from
 // >= k distinct sources agree.
 export function planConsolidation(live: Claim[], k = 2): Plan {

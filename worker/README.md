@@ -4,15 +4,15 @@ The same memory as local kypp, reachable from cloud sessions: a Cloudflare Worke
 a remote MCP server with OAuth. Local kypp is unchanged; this is the optional hosted store.
 
 - **Tools:** `briefing`, `recall`, `claim`, `expand`, `correct` (same contract as `kypp serve`).
-- **Shelves (`scope`):** `project` (this repo), `user` (the signed-in person, in every repo) and
+- **Scopes:** `project` (this repo), `user` (the signed-in person, in every repo) and
   `global` (everyone). Recall and briefing read all three, nearest first. The writing agent is a
-  label you can filter recall by (`agent`), not a shelf.
+  label you can filter recall by (`agent`), not a scope.
 - **Categories:** the claim types (pitfall, decision, procedure, preference, fact, artifact,
   hypothesis). The briefing is grouped by type.
 - **Optional write gate (Jev, Clef):** with a TypeSafe key, each `claim` is scored first. Status and
   session detail are turned away, a defaulted type is relabelled when the model is sure, and how
   general the lesson looks is recorded. The model never accepts a claim or moves it between
-  shelves. No key, a timeout or an error all mean no gate.
+  scopes. No key, a timeout or an error all mean no gate.
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
   logged per session. A subject two sessions claim is promoted by the hourly cleanup pass.
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local

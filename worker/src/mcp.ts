@@ -20,7 +20,7 @@ const INSTRUCTIONS = `kypp is shared memory for coding agents — durable lesson
 3. WHEN YOU LEARN SOMETHING DURABLE — \`claim\` a distilled, model-agnostic lesson. \`subject\` is its
    identity: reuse a subject to update it. Claims land as candidates; one is accepted once a second
    session claims the same subject. Don't store status ("shipped", "PR merged") — git holds that.
-   SHELVES (\`scope\`): project = this repo; user = how this person works, in every repo; global = true
+   SCOPE: project = this repo; user = how this person works, in every repo; global = true
    for everyone.
 4. A HUMAN GAVE YOU THE RIGHT ANSWER — \`correct(subject, content)\`.`;
 
@@ -33,7 +33,7 @@ const TOOLS = [
   },
   {
     name: "recall",
-    description: "Search shared memory by keywords across this project's, your own and the global shelf. One compact line per hit: `handle [type ✓conf] subject — content`. ✓ accepted, ? candidate. Accepted only unless include_candidates. `agent` limits hits to one client's claims.",
+    description: "Search shared memory by keywords across the project, user and global scopes. One compact line per hit: `handle [type ✓conf] subject — content`. ✓ accepted, ? candidate. Accepted only unless include_candidates. `agent` limits hits to one client's claims.",
     inputSchema: {
       type: "object", required: ["query"],
       properties: {
