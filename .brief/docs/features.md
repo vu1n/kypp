@@ -146,7 +146,8 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
 ### Gotchas
 - Without `KYPP_DISTILL_MODEL` you only get heuristic, failure-mined pitfalls.
 - If the LLM distiller fails, it falls back to the heuristic distiller rather than raising.
-- With `TYPESAFE_API_KEY` set (and `kypp[s1]` installed), a System One gate drops drafts scoring
+- With `TYPESAFE_API_KEY` or `KYPP_DECIDER_URL` (a local strands-decider) set, and `kypp[s1]`
+  installed, a System One gate drops drafts scoring
   p_keep < 0.1. A missing key, failed call or non-probability answer keeps the draft: the gate
   only removes, it never blocks a session.
 - Rubric handling is governed by `doc://kypp/no-grader-leak@latest#signal-only-rubric`.
@@ -171,6 +172,8 @@ the weaker claims. It also promotes corroborated candidates.
   update: it is kept, not superseded, and replaces the old answer once it corroborates. Without
   that, accepted-beats-candidate made every update lose to the answer it corrects. Exact-subject
   groups only; the semantic pass doesn't keep updates.
+- The S1 agreement judge only holds a promotion; `None` (no model, failed call) never blocks one.
+  A held group still supersedes its weaker duplicates, so the subject waits for a fresh session.
 
 <!-- brief:anchor verify -->
 ## Verify

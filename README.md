@@ -144,7 +144,8 @@ advisory flag set at recall when a code-anchored claim's anchors all fail to res
 | `KYPP_EMBED_MODEL` | ollama model → semantic vector recall (unset → keyword) |
 | `KYPP_DISTILL_MODEL` | ollama model → LLM distillation (unset → heuristic floor) |
 | `KYPP_OLLAMA_HOST` | ollama base URL (default `http://127.0.0.1:11434`) |
-| `TYPESAFE_API_KEY` | optional System One write gate (needs `kypp[s1]`): a TypeSafe-API model such as Jev drops distilled drafts it's confident aren't worth remembering. Also reads `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL`; `KYPP_S1=off` disables it. Unset → every draft is kept |
+| `TYPESAFE_API_KEY` | optional System One write gate (needs `kypp[s1]`): a TypeSafe-API model such as Jev drops distilled drafts it's confident aren't worth remembering. Also reads `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL`; `KYPP_S1=off` disables it. Unset → every draft is kept. The same model also checks that the claims behind a promotion agree, and holds a conflicted subject as a candidate |
+| `KYPP_DECIDER_URL` | the System One fallback when there's no `TYPESAFE_API_KEY`: a local server speaking the same API, e.g. `strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19 --port 8000` (MLX on Apple Silicon) with `KYPP_DECIDER_URL=http://127.0.0.1:8000`. `KYPP_DECIDER_MODEL` overrides the model name |
 
 ## How it plugs in
 

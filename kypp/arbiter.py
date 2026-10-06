@@ -15,6 +15,7 @@ import os
 import sys
 from collections import defaultdict
 
+from .s1 import HOLD_BELOW, agreement_judge
 from .store import Claim, MemoryStore, project_from_env, store_from_env
 from .vocab import AUTHORITY_RANK
 
@@ -89,14 +90,16 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
 # Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
 def consolidate(store: MemoryStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None,
-                accept_corroboration: int | None = 2) -> dict:
+                accept_corroboration: int | None = 2, judge=None) -> dict:
     """Phase 1: group live claims by exact (subject, scope, project); keep the strongest, supersede the
     rest. Phase 2 (when `semantic` is a cosine max-distance AND claims are embedded): cluster the
     SURVIVORS' different-subject near-duplicates and dedup those too — the LLM-distiller case, where
     each lesson gets a distinct subject but many mean the same thing. Phase 3 (when
     `accept_corroboration` is set, default 2): a candidate survivor backed by >= that many independent
     sessions is PROMOTED to accepted — the swarm-truth gate, so a corroborated lesson surfaces in
-    briefing/default recall without a manual --accept. dry_run returns the plan without writing.
+    briefing/default recall without a manual --accept. `judge` (s1.agreement_judge) may hold a
+    promotion back when the supporting claims look conflicted; it never causes one.
+    dry_run returns the plan without writing.
     Returns {groups, superseded, promoted, dry_run, plan:[{subject, survivor, superseded:[ids]}]}."""
     claims = store.live_claims(project, subject)
     by_subject: dict[tuple, list[Claim]] = defaultdict(list)
@@ -116,6 +119,11 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
     # Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
     # Promote the survivor of each exact-subject group once enough independent sessions corroborate it.
     # Exact-subject only — semantic (different-subject) merges are too fuzzy to auto-accept on.
+    # Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — the model can only hold a promotion back; recurrence is what accepts.
+    def held(support: list[Claim]) -> bool:
+        p = judge(support) if judge else None
+        return p is not None and p < HOLD_BELOW
+
     promoted = []
     if accept_corroboration:
         for members in groups:
@@ -127,11 +135,12 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
             # different-subject near-dup outranked it) — don't promote a just-superseded claim.
             if survivor.status == "candidate" and survivor.id not in superseded \
                     and len(members) >= accept_corroboration \
-                    and _corroboration(members) >= accept_corroboration:
+                    and _corroboration(members) >= accept_corroboration and not held(members):
                 promoted.append(survivor.id)
             # Pending updates that corroborate replace the accepted answer.
             updates = [u for u in _updates(members, survivor) if u.id not in superseded]
-            if len(updates) >= accept_corroboration and _corroboration(updates) >= accept_corroboration:
+            if len(updates) >= accept_corroboration and _corroboration(updates) >= accept_corroboration \
+                    and not held(updates):
                 winner = _survivor(updates)
                 promoted.append(winner.id)
                 retired = [m.id for m in members if m.id != winner.id and m.id not in superseded]
@@ -177,7 +186,7 @@ def main():
 
     result = consolidate(store_from_env(), project=args.project, subject=args.subject,
                          dry_run=args.dry_run, semantic=args.semantic,
-                         accept_corroboration=args.accept_corroboration or None)
+                         accept_corroboration=args.accept_corroboration or None, judge=agreement_judge())
     verb = "would supersede" if args.dry_run else "superseded"
     promo = "would promote" if args.dry_run else "promoted"
     print(f"{result['groups']} duplicate group(s); {verb} {result['superseded']} claim(s); "
@@ -263,6 +272,17 @@ elif __name__ == "__main__":
     assert not store.recall("self-cited", project="q"), "self-cited lone claim stays candidate"
     print("OK — arbiter corroboration: 2 sessions agreeing → candidate promoted to accepted; "
           "lone candidate stays a candidate")
+
+    # the agreement judge can hold a conflicted promotion back (and a judge with no opinion can't)
+    store.claim("fact", "dev port", "the dev server uses port 1", scope="project", project="q",
+                confidence=0.6, source_ids=["sessD"])
+    store.claim("fact", "dev port", "the dev server uses port 2", scope="project", project="q",
+                confidence=0.6, source_ids=["sessE"])
+    assert consolidate(store, project="q", subject="dev port", dry_run=True, judge=lambda cs: 0.1)["promoted"] == 0
+    assert consolidate(store, project="q", subject="dev port", dry_run=True, judge=lambda cs: None)["promoted"] == 1
+    consolidate(store, project="q", subject="dev port", judge=lambda cs: 0.1)
+    assert not store.recall("dev port", project="q"), "a conflicted subject must stay a candidate"
+    print("OK — arbiter judge: a conflicted pair is held; no opinion never blocks")
 
     # authority: a HUMAN correction outranks agent claims AND agent corroboration on the same subject.
     # Two agent sessions agree on the WRONG tag; a human asserts the right one → human wins, rest gone.

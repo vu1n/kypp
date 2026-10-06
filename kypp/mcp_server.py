@@ -20,6 +20,7 @@ import os
 import uuid
 
 from .arbiter import consolidate as _consolidate
+from .s1 import agreement_judge
 from .arbiter import resolve_conflicts as _resolve_conflicts
 from .store import Claim, MemoryStore, RipgrepResolver, identity_from_env, project_from_env, store_from_env
 from .view import briefing_claims, render_claims
@@ -178,7 +179,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         near-duplicates (needs an embedder). Superseded claims are kept for history but excluded from
         recall."""
         return _consolidate(store, project=project, subject=subject or None, dry_run=dry_run,
-                            semantic=semantic or None)
+                            semantic=semantic or None, judge=agreement_judge())
 
     @mcp.tool()
     def resolve_conflicts(subject: str) -> dict:
