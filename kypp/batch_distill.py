@@ -87,7 +87,8 @@ def main():
                   f"{os.path.basename(os.path.dirname(path))}", flush=True)
         except Exception as e:
             print(f"  [{i}/{len(reps)}] ERR {type(e).__name__}: {str(e)[:80]}", flush=True)
-    res = consolidate(store, project=args.project)
+    from .s1 import agreement_judge
+    res = consolidate(store, project=args.project, judge=agreement_judge())
     print(f"\ndistilled {n_claims} claims from {len(reps)} tasks in {time.monotonic() - t0:.0f}s; "
           f"consolidate superseded {res['superseded']} across {res['groups']} dup group(s)", flush=True)
 

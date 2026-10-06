@@ -1,0 +1,25 @@
+{
+  "name": "kypp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Create both, then paste their ids here: `wrangler d1 create kypp`, `wrangler kv namespace create OAUTH_KV`.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "kypp", "database_id": "00000000-0000-4000-8000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "00000000000000000000000000000000" }
+  ],
+  // The cleanup pass (supersede duplicates, promote two-session claims) runs here, in one place.
+  // The public origin, used as the OAuth issuer and the MCP resource id (<url>/mcp).
+  // KYPP_RECUR_GAP_MINUTES: how far apart the sessions behind a promotion must be.
+  "vars": { "KYPP_PUBLIC_URL": "https://kypp.example.workers.dev", "KYPP_RECUR_GAP_MINUTES": "60" },
+  // Passphrase attempts on the sign-in page: 5 a minute per IP.
+  "ratelimits": [{ "name": "AUTH_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } }],
+  "triggers": { "crons": ["17 * * * *"] }
+  // Secrets (wrangler secret put): KYPP_OWNER_SECRET (sign-in passphrase), CONSENT_SECRET (32+ chars),
+  // KYPP_API_TOKENS (optional "name:token,name:token" for headless clients such as huddles; the
+  // name is the token's user, so "owner:<token>" shares your own user scope).
+  // Optional System One write gate (Jev, Clef): TYPESAFE_API_KEY secret, plus TYPESAFE_BASE_URL and
+  // TYPESAFE_DEFAULT_MODEL vars when not using TypeSafe's defaults. No key → no gate. KYPP_S1=off disables it.
+}

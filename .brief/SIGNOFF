@@ -10,3 +10,8 @@ scope-keys-decay conforms: comment-only changes in arbiter/distill/store
 signal-only-rubric conforms: comment-only change in distill.py; rubric handling untouched
 operator-only-verify conforms: comment-only changes in mcp_server.py and shell.py; no verify argument added
 operator-only-verify conforms: MCP claim gains a session source stamp and decide/remember_procedure are removed; no tool accepts or runs a verify command
+scope-keys-decay conforms: the S1 agreement judge in arbiter only holds a promotion back (None never blocks); recurrence still accepts, as in the Worker
+authority-dominates conforms: ranking unchanged; the judge only removes promotions of agent candidates and never touches authority
+never-delete conforms: no delete path; a held group only skips set_status(accepted)
+compose-surface conforms: mcp consolidate tool passes the agreement judge; no tool added or removed
+operator-only-verify conforms: mcp_server only wires the judge into consolidate; no tool accepts or runs a verify command
