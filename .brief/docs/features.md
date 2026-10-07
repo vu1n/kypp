@@ -109,6 +109,8 @@ cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `
 - Promotion counts sessions that recur at least `KYPP_RECUR_GAP_MINUTES` apart. That is
   repetition, not independent evidence; signed session ids only stop invented ones.
 - The S1 agreement check (`consolidate.ts`) can only hold a promotion back, never cause one.
+- `correct` bypasses the S1 gate and the two-session rule. `KYPP_CORRECT=off` (set in
+  `wrangler.jsonc`) hides and refuses it; `.dev.vars` turns it back on for the smoke test.
 - The cron pass is the only writer that changes existing rows. Keep status edits there (and in
   `correct`, which consolidates one subject) so concurrent sessions only ever insert.
 

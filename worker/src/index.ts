@@ -17,6 +17,7 @@ export interface Env extends S1Env {
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
+  KYPP_CORRECT?: string;            // "off" hides the trust-based `correct` tool
   AUTH_LIMIT?: { limit(o: { key: string }): Promise<{ success: boolean }> }; // passphrase attempts
 }
 
@@ -120,7 +121,7 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
     apiRoute: "/mcp",
     apiHandler: {
       fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcp(request, env.DB, (ctx as any).props as Caller,
-        { s1: s1Client(env), policy: policyFrom(env), sessionKey: `${env.CONSENT_SECRET}:session` }),
+        { s1: s1Client(env), policy: policyFrom(env), sessionKey: `${env.CONSENT_SECRET}:session`, correct: env.KYPP_CORRECT !== "off" }),
     },
     defaultHandler: {
       fetch: (request: Request, env: Env) => {
