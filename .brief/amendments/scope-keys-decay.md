@@ -1,4 +1,4 @@
-# Amend `scope-keys-decay`: agents write at origin; a consolidation ("dream") pass places, merges and decays
+# Amend `scope-keys-decay`: agents write at origin; a "defrag" pass places, merges and decays
 
 Proposed 2026-10-07, from Vu in the dev project thread: "agent just writes to memory; reads return
 memories with different scopes matching the query; a periodic consolidation process dedupes,
@@ -24,7 +24,7 @@ deterministic background pass, not in the agent's call.
    sessions' unsorted claims stay hidden until the pass has filed them, as candidates are today.
 3. **Roll-up lives in a table, not in claims.** A small, editable `project → parent(s)` table (a repo
    may sit in several groups) defines what each origin can see. Regrouping never rewrites a claim.
-4. **The consolidation pass (the existing hourly cron, extended) does the arranging:**
+4. **The defrag pass (the existing hourly consolidation cron, extended) does the arranging:**
    - *File:* assigns unsorted claims to an origin (an S1 choice over the known projects). Unsure
      claims stay unsorted.
    - *Dedupe:* finds near-duplicate claims across subjects, not only exact-subject groups, and
@@ -48,7 +48,7 @@ claims wait, per the 2026-10-06 project decision.
 
 ## Order of work if ratified
 
-0. Unsorted writes never fail, plus the pass filing them into origins, together (unsorted alone
+0. Unsorted writes never fail, plus the defrag pass filing them into origins, together (unsorted alone
    just builds a pile). Reads label level and status.
 1. Add the roll-up table and cascading reads.
 2. Cross-subject dedupe and recurrence-based widening in the cron, once real multi-repo lessons exist
