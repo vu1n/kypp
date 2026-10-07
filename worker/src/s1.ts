@@ -135,21 +135,25 @@ export async function agrees(client: S1Client | null, claims: { subject: string;
 export const FILE_ABOVE = 0.7; // an unsorted claim is filed only on a confident choice
 const MAX_PROJECTS = 60;       // one choice question; past this, filing waits for a narrower list
 
+export const NO_PROJECT = "none of these"; // the choice that leaves a claim unsorted
+
 export interface ProjectInfo { name: string; description: string }
 
 // Which known project an unsorted claim belongs to, or null: no model, no projects, an error, a
-// timeout, "none", a name that isn't registered, or a choice under FILE_ABOVE. `origin` is the
+// timeout, NO_PROJECT, a name that isn't registered, or a choice under FILE_ABOVE. `origin` is the
 // unrecognised name the writer gave, if any; it is a hint, not an answer.
 export async function fileUnder(client: S1Client | null, claim: { subject: string; content: string; origin: string | null },
   projects: ProjectInfo[], deadlineMs = DEADLINE_MS): Promise<{ project: string; confidence: number } | null> {
   if (!client || !projects.length || projects.length > MAX_PROJECTS) return null;
-  const criteria: Record<string, string> = {};
-  for (const p of projects) criteria[p.name] = p.description || `The repository named ${p.name}.`;
-  criteria.none = "It is not clearly about any one of these, or it is about the person rather than a repository.";
+  // fromEntries, so a project named like an Object.prototype key is still an ordinary choice.
+  const criteria = Object.fromEntries([
+    ...projects.filter((p) => p.name !== NO_PROJECT).map((p) => [p.name, p.description || `The repository named ${p.name}.`]),
+    [NO_PROJECT, "It is not clearly about any one of these, or it is about the person rather than a repository."],
+  ]);
   const file = { type: "choice", instructions: "The state holds a lesson a coding agent saved without saying which repository it is about. Which one is it about?", criteria };
   try {
     const a = (await ask(client, claim, { file }, deadlineMs)).file, confidence = prob(a?.confidence);
-    if (a?.type !== "choice" || a.choice === "none" || confidence === null || confidence < FILE_ABOVE) return null;
+    if (a?.type !== "choice" || a.choice === NO_PROJECT || confidence === null || confidence < FILE_ABOVE) return null;
     return projects.some((p) => p.name === a.choice) ? { project: a.choice, confidence } : null;
   } catch {
     return null;

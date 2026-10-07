@@ -11,10 +11,13 @@ export const SCOPES = ["project", "user", "global"] as const;
 export type Scope = (typeof SCOPES)[number];
 
 // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
-// Matches on the last path segment, so "vu1n/Kypp" and a clone URL both resolve to "kypp".
+// An exact name wins; otherwise both sides compare by last path segment, so "vu1n/Kypp" and a clone
+// URL resolve to "kypp", and a project registered as "vu1n/kypp" is still reachable.
+const repoName = (s: string) => s.trim().replace(/\.git$/i, "").split("/").filter(Boolean).pop()?.toLowerCase();
 export function resolveOrigin(origin: string | null | undefined, known: string[]): string | null {
-  const name = (origin ?? "").trim().replace(/\.git$/i, "").split("/").filter(Boolean).pop()?.toLowerCase();
-  return name ? known.find((k) => k.toLowerCase() === name) ?? null : null;
+  const given = (origin ?? "").trim(), name = repoName(given);
+  if (!name) return null;
+  return known.find((k) => k === given) ?? known.find((k) => repoName(k) === name) ?? null;
 }
 
 // Where a claim sits, as shown on every read line.

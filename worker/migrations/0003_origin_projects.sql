@@ -2,6 +2,9 @@
 -- where the claim is filed. A project-scope claim with no project is unsorted until defrag files it.
 ALTER TABLE memory_claims ADD COLUMN origin TEXT;
 ALTER TABLE memory_claims ADD COLUMN session TEXT;
+-- When defrag last tried and failed to file an unsorted claim, so each pass starts with the ones it
+-- has waited longest on instead of re-asking about the same few.
+ALTER TABLE memory_claims ADD COLUMN file_tried_at TEXT;
 UPDATE memory_claims SET origin = project WHERE origin IS NULL;
 CREATE INDEX IF NOT EXISTS claims_session_idx ON memory_claims(session);
 

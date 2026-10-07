@@ -138,23 +138,32 @@ export class D1Store {
     return results as unknown as ProjectInfo[];
   }
 
-  async unsorted(limit = 50): Promise<Claim[]> {
+  // Never-tried first, then the ones tried longest ago, so claims the model can't place don't hold
+  // up the rest of the queue.
+  async unsorted(limit: number): Promise<Claim[]> {
     const { results } = await this.db.prepare(
-      `SELECT * FROM memory_claims WHERE status IN ('candidate','accepted') AND ${UNSORTED} ORDER BY created_at LIMIT ?`,
+      `SELECT * FROM memory_claims WHERE status IN ('candidate','accepted') AND ${UNSORTED}`
+      + " ORDER BY file_tried_at IS NOT NULL, file_tried_at, created_at LIMIT ?",
     ).bind(limit).all();
     return results.map(hydrate);
   }
 
+  async fileTried(id: string): Promise<void> {
+    await this.db.prepare(`UPDATE memory_claims SET file_tried_at = ? WHERE id = ? AND ${UNSORTED}`).bind(now(), id).run();
+  }
+
   // Files one unsorted claim and logs the move. False if it was already filed (a concurrent pass).
+  // Why: updated_at is left alone. It dates the lesson, and planGroup treats a newer candidate as an
+  // update to an accepted answer; the group guard still notices the move because the count changes.
   async file(id: string, project: string, score: number | null, reason: string): Promise<boolean> {
-    const ts = now();
-    // The log row is written only if the update just above it took.
     const [moved] = await this.db.batch([
-      this.db.prepare(`UPDATE memory_claims SET project = ?, updated_at = ? WHERE id = ? AND ${UNSORTED}`).bind(project, ts, id),
+      this.db.prepare(`UPDATE memory_claims SET project = ? WHERE id = ? AND ${UNSORTED}`).bind(project, id),
+      // The log row is written only for the pass whose update took: one 'file' row per claim.
       this.db.prepare(
         "INSERT INTO defrag_log(id, claim_id, action, from_project, to_project, score, reason, created_at)"
-        + " SELECT ?, id, 'file', NULL, project, ?, ?, ? FROM memory_claims WHERE id = ? AND project = ? AND updated_at = ?",
-      ).bind(uid(), score, reason, ts, id, project, ts),
+        + " SELECT ?, id, 'file', NULL, project, ?, ?, ? FROM memory_claims WHERE id = ? AND project = ?"
+        + " AND NOT EXISTS (SELECT 1 FROM defrag_log WHERE claim_id = ? AND action = 'file')",
+      ).bind(uid(), score, reason, now(), id, project, id),
     ]);
     return moved.meta.changes > 0;
   }

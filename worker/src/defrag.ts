@@ -16,9 +16,15 @@ export async function fileClaim(store: D1Store, s1: S1Client | null, c: Pick<Cla
   return (await store.file(c.id, pick.project, pick.confidence, "model choice")) ? pick.project : null;
 }
 
+// Each unfiled claim can cost one model call, so a pass takes a bounded batch and rotates through the rest.
+const BATCH = 25;
+
 export async function defrag(store: D1Store, policy: Policy, s1: S1Client | null) {
   const projects = await store.projects();
   let filed = 0;
-  for (const c of await store.unsorted()) if (await fileClaim(store, s1, c, projects)) filed++;
+  for (const c of await store.unsorted(BATCH)) {
+    if (await fileClaim(store, s1, c, projects)) filed++;
+    else await store.fileTried(c.id);
+  }
   return { filed, ...(await consolidate(store, policy, s1)) };
 }

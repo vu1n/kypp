@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { defrag } from "../src/defrag.ts";
 import { handleMcp } from "../src/mcp.ts";
 import { DEFAULT_POLICY, resolveOrigin } from "../src/memory.ts";
-import { FILE_ABOVE, type S1Client, fileUnder } from "../src/s1.ts";
+import { FILE_ABOVE, NO_PROJECT, type S1Client, fileUnder } from "../src/s1.ts";
 import { D1Store } from "../src/store.ts";
 import { memoryD1 } from "./d1.ts";
 
@@ -47,6 +47,18 @@ test("an origin resolves to a known project by name, ignoring case, owner prefix
   assert.equal(resolveOrigin("dev", known), null);
   assert.equal(resolveOrigin(null, known), null);
   assert.equal(resolveOrigin("  ", known), null);
+  // names registered before this rule (any string was a project) stay reachable, exact match first
+  assert.equal(resolveOrigin("vu1n/kypp", ["kypp", "vu1n/kypp"]), "vu1n/kypp");
+  assert.equal(resolveOrigin("kypp", ["vu1n/kypp"]), "vu1n/kypp");
+  assert.equal(resolveOrigin("kypp", ["Kypp", "kypp"]), "kypp");
+});
+
+test("an unknown project argument falls back to a known header", async () => {
+  const db = await setup();
+  const out = await client(db, { header: "kypp" })("claim", { project: "dev", subject: "s", content: "a durable lesson" });
+  const r = await row(db, out.text);
+  assert.deepEqual([r.project, r.origin], ["kypp", "dev"]);
+  assert.ok(!(await client(db, { header: "kypp" })("recall", { project: "dev", query: "durable" })).text.startsWith("note:"));
 });
 
 test("a write from a known project is filed there and keeps its origin", async () => {
@@ -74,8 +86,11 @@ test("a write with an unknown or missing project lands unsorted; it never fails 
 test("an agent can't write global scope; user scope is still its choice", async () => {
   const db = await setup();
   const c = client(db, { header: "kypp" });
-  const g = await row(db, idOf((await c("claim", { subject: "g", content: "true everywhere", scope: "global" })).text));
-  assert.deepEqual([g.scope, g.project], ["project", "kypp"]);
+  for (const scope of ["global", "User"]) {
+    const bad = await c("claim", { subject: "g", content: "true everywhere", scope });
+    assert.ok(bad.isError && /bad scope/.test(bad.text), bad.text);
+  }
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM memory_claims").first() as any).n, 0);
   const u = await row(db, idOf((await c("claim", { subject: "u", content: "prefers short PRs", scope: "user" })).text));
   assert.deepEqual([u.scope, u.project, u.origin, u.user], ["user", null, "kypp", "owner"]);
 });
@@ -94,7 +109,7 @@ test("defrag files what the write left unsorted; an unsure or unknown answer lea
   const db = await setup();
   const id = idOf((await client(db)("claim", { subject: "s", content: "a lesson" })).text);
   const store = new D1Store(db);
-  for (const s1 of [null, filer("onoda", FILE_ABOVE - 0.1), filer("not-a-project", 0.99), filer("none", 0.99)]) {
+  for (const s1 of [null, filer("onoda", FILE_ABOVE - 0.1), filer("not-a-project", 0.99), filer(NO_PROJECT, 0.99)]) {
     assert.equal((await defrag(store, DEFAULT_POLICY, s1)).filed, 0);
     assert.equal((await row(db, id)).project, null);
   }
@@ -153,6 +168,47 @@ test("fileUnder returns a known project only when the model is confident", async
   assert.equal(await fileUnder({ systemOne: async () => { throw new Error("down"); } }, claim, PROJECTS), null);
   let asked: any;
   await fileUnder({ systemOne: async (req) => { asked = req; return { answers: {} }; } }, claim, PROJECTS);
-  assert.deepEqual(Object.keys(asked.questions.file.criteria), ["kypp", "onoda", "none"]);
+  assert.deepEqual(Object.keys(asked.questions.file.criteria), ["kypp", "onoda", NO_PROJECT]);
+  const odd = [{ name: "__proto__", description: "" }, { name: NO_PROJECT, description: "a repo with the reserved name" }];
+  await fileUnder({ systemOne: async (req) => { asked = req; return { answers: {} }; } }, claim, odd);
+  assert.deepEqual(Object.keys(asked.questions.file.criteria), ["__proto__", NO_PROJECT]);
+  assert.match(asked.questions.file.criteria[NO_PROJECT], /not clearly about/);
   assert.deepEqual(asked.state, claim);
+});
+
+test("filing keeps the claim's date, so an old stray can't pass for an update to a newer answer", async () => {
+  const db = await setup();
+  const id = idOf((await client(db)("claim", { subject: "s", content: "a lesson" })).text);
+  const before = (await row(db, id)).updated_at;
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal((await defrag(new D1Store(db), DEFAULT_POLICY, filer("kypp", 0.9))).filed, 1);
+  assert.equal((await row(db, id)).updated_at, before);
+});
+
+test("defrag rotates through unsorted claims instead of re-asking about the same ones", async () => {
+  const db = await setup();
+  const store = new D1Store(db);
+  const ids: string[] = [];
+  for (let i = 0; i < 30; i++) ids.push(idOf((await client(db)("claim", { subject: `s${i}`, content: `lesson ${i}` })).text));
+  const asked: string[] = [];
+  const unsure: S1Client = { systemOne: async ({ state }) => { asked.push((state as any).subject); return { answers: {} }; } };
+  await defrag(store, DEFAULT_POLICY, unsure);
+  await defrag(store, DEFAULT_POLICY, unsure);
+  assert.equal(new Set(asked).size, 30, "the second pass reached the claims the first one didn't");
+});
+
+test("a write-time filing failure still returns the stored claim's id", async () => {
+  const db = await setup();
+  const boom = { ...db, prepare: (sql: string) => { if (/UPDATE memory_claims SET project/.test(sql)) throw new Error("d1 down"); return db.prepare(sql); } } as D1Database;
+  const out = await client(boom, { s1: filer("kypp", 0.9) })("claim", { subject: "s", content: "a lesson" });
+  assert.ok(!out.isError, out.text);
+  assert.match(out.text, /^[0-9a-f]{32}\nunsorted: /);
+});
+
+test("without a session the unsorted reply doesn't promise a recall", async () => {
+  const db = await setup();
+  const req = new Request("https://k/mcp", { method: "POST",
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "claim", arguments: { subject: "s", content: "c" } } }) });
+  const { result } = await (await handleMcp(req, db, { user: "owner", agent: "t" })).json() as any;
+  assert.match(result.content[0].text, /it can't be recalled until the server files it/);
 });

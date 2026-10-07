@@ -63,8 +63,8 @@ npx wrangler deploy
 
 - **Claude Code:** in each repo, `claude mcp add --transport http --scope project kypp https://<worker>/mcp --header "X-Kypp-Project: <repo>"`,
   then `/mcp` to sign in. `--scope project` writes `.mcp.json` into the repo, so the project
-  header is pinned per repo. One Worker holds every repo's memory; a call with no project can
-  read only user and global claims and can't write project ones.
+  header is pinned per repo. One Worker holds every repo's memory; a call with no known project
+  reads only user and global claims, and its claims land unsorted (see Placement).
 - **Claude (projects and chat):** Settings → Connectors → Add custom connector → `https://<worker>/mcp`.
 - **Headless (huddles):** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
 

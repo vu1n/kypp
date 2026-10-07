@@ -119,7 +119,9 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
   // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
   const origin: string | null = a.project || ctx.project || null;
   const projects = name === "expand" ? [] : await store.projects();
-  const project = resolveOrigin(origin, projects.map((p) => p.name));
+  const names = projects.map((p) => p.name);
+  // Why: the header is set in config and the argument by the model, so a wrong argument falls back to the header.
+  const project = resolveOrigin(a.project, names) ?? resolveOrigin(ctx.project, names);
   const user = ctx.caller.user;
   // Why: a read without a known project used to return less with no sign of it.
   const note = project ? "" : `note: ${origin ? `"${origin}" is not a known project` : "no project given"}, so this shows user and global memory only. Known projects: ${known(projects)}.\n`;
@@ -144,8 +146,11 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
       }
       const s1 = v.keep === null ? undefined : { keep: v.keep, general: v.general, type: v.type };
-      // Why: the agent picks who a lesson is about (user), never how widely it applies; a global request is filed like any other.
-      const scope = a.scope === "user" ? "user" : "project";
+      // Why: the agent picks who a lesson is about (user), never how widely it applies, so global is refused.
+      if (a.scope !== undefined && a.scope !== "project" && a.scope !== "user") {
+        throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
+      }
+      const scope: "project" | "user" = a.scope ?? "project";
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement.
       const id = await store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,
@@ -154,8 +159,15 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
         accept: false, agent: ctx.caller.agent, user, metadata: s1 ? { s1 } : {},
       });
       // Why: clients that can't send a header shouldn't wait an hour for defrag to file their claim.
-      if (scope === "user" || project || await fileClaim(store, ctx.s1, { id, subject, content, origin }, projects)) return id;
-      return `${id}\nunsorted: ${origin ? `"${origin}" is not a known project` : "no project given"}, so only this session can recall it until the server files it. Known projects: ${known(projects)}.`;
+      if (scope === "user" || project) return id;
+      try {
+        if (await fileClaim(store, ctx.s1, { id, subject, content, origin }, projects)) return id;
+      } catch (e) {
+        // The claim is stored; defrag retries the filing, so report the id rather than an error the agent would retry.
+        console.error(`kypp: write-time filing of ${id} failed`, e);
+      }
+      const reach = ctx.session ? "only this session can recall it (with include_candidates)" : "it can't be recalled";
+      return `${id}\nunsorted: ${origin ? `"${origin}" is not a known project` : "no project given"}, so ${reach} until the server files it. Known projects: ${known(projects)}.`;
     }
     case "expand": {
       const c = await store.get(String(a.handle ?? ""), user);
