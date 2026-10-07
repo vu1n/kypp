@@ -20,8 +20,12 @@ deterministic background pass, not in the agent's call.
    and never silently creates a new project. Session, agent and time are recorded as today.
 2. **Reads cascade.** `recall` and `briefing` take the caller's origin and return matches from origin,
    then every group or org the origin rolls up to, then user, then global, nearest first, each line
-   labelled with its level and status. No scope argument; origin only affects ranking. Other
-   sessions' unsorted claims stay hidden until the pass has filed them, as candidates are today.
+   labelled with its level and status. No scope argument; origin only affects ranking.
+   **Multiplayer:** other sessions' candidates at the caller's origin are returned too, labelled
+   unconfirmed and ranked below accepted claims, so agents in one repo see each other's lessons
+   (close to agent messaging). Unsorted claims appear once defrag has filed them, so nothing leaks
+   across repos. *Echo guard:* a session that was shown a candidate and then claims the same subject
+   does not count as the independent second session that accepts it.
 3. **Roll-up lives in a table, not in claims.** A small, editable `project → parent(s)` table (a repo
    may sit in several groups) defines what each origin can see. Regrouping never rewrites a claim.
 4. **The defrag pass (the existing hourly consolidation cron, extended) does the arranging:**
