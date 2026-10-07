@@ -147,16 +147,16 @@ export class D1Store {
 
   // Files one unsorted claim and logs the move. False if it was already filed (a concurrent pass).
   async file(id: string, project: string, score: number | null, reason: string): Promise<boolean> {
-    const ts = now(), logId = uid();
-    // The log row is written only if the update just above it took, so it doubles as the result.
-    await this.db.batch([
+    const ts = now();
+    // The log row is written only if the update just above it took.
+    const [moved] = await this.db.batch([
       this.db.prepare(`UPDATE memory_claims SET project = ?, updated_at = ? WHERE id = ? AND ${UNSORTED}`).bind(project, ts, id),
       this.db.prepare(
         "INSERT INTO defrag_log(id, claim_id, action, from_project, to_project, score, reason, created_at)"
         + " SELECT ?, id, 'file', NULL, project, ?, ?, ? FROM memory_claims WHERE id = ? AND project = ? AND updated_at = ?",
-      ).bind(logId, score, reason, ts, id, project, ts),
+      ).bind(uid(), score, reason, ts, id, project, ts),
     ]);
-    return (await this.db.prepare("SELECT 1 FROM defrag_log WHERE id = ?").bind(logId).first()) !== null;
+    return moved.meta.changes > 0;
   }
 
   // `filed` leaves out unsorted claims, which must not be grouped or promoted before they have a project.

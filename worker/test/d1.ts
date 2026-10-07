@@ -9,7 +9,7 @@ class Stmt {
   bind(...args: unknown[]) { return new Stmt(this.db, this.sql, args); }
   async all() { return { results: this.db.prepare(this.sql).all(...(this.args as any[])) as Record<string, unknown>[] }; }
   async first() { return (await this.all()).results[0] ?? null; }
-  async run() { this.db.prepare(this.sql).run(...(this.args as any[])); return { success: true }; }
+  async run() { const r = this.db.prepare(this.sql).run(...(this.args as any[])); return { success: true, meta: { changes: Number(r.changes) } }; }
 }
 
 export function memoryD1(): D1Database {

@@ -75,6 +75,17 @@ export interface Verdict {
   general: number | null;       // P(holds outside this repo)
 }
 
+// One System One call under the end-to-end deadline; rejects on error or timeout so callers fail open.
+async function ask(client: S1Client, state: unknown, questions: Record<string, unknown>, deadlineMs: number): Promise<Record<string, any>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
+    return (await Promise.race([client.systemOne({ state, questions }), late])).answers;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 const prob = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1 ? v : null);
 
 // Fail open: any error is "no opinion", never a drop.
@@ -82,10 +93,8 @@ export async function judge(client: S1Client | null, draft: { subject: string; c
   deadlineMs = DEADLINE_MS): Promise<Verdict> {
   const none: Verdict = { keep: null, type: null, general: null };
   if (!client) return none;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
-    const { answers } = await Promise.race([client.systemOne({ state: draft, questions: QUESTIONS }), late]);
+    const answers = await ask(client, draft, QUESTIONS, deadlineMs);
     const t = answers.type;
     const type = t?.type === "choice" && TYPES.includes(t.choice) && (prob(t.confidence) ?? 0) >= RETYPE_ABOVE ? (t.choice as ClaimType) : null;
     return {
@@ -95,8 +104,6 @@ export async function judge(client: S1Client | null, draft: { subject: string; c
     };
   } catch {
     return none;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -117,15 +124,11 @@ export const HOLD_BELOW = 0.5; // conflicted: the subject waits as candidates in
 export async function agrees(client: S1Client | null, claims: { subject: string; content: string }[],
   deadlineMs = DEADLINE_MS): Promise<number | null> {
   if (!client || claims.length < 2) return null;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
-    const { answers } = await Promise.race([client.systemOne({ state: { claims }, questions: AGREE }), late]);
+    const answers = await ask(client, { claims }, AGREE, deadlineMs);
     return answers.agree?.type === "noul" ? prob(answers.agree.noul) : null;
   } catch {
     return null;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -144,16 +147,11 @@ export async function fileUnder(client: S1Client | null, claim: { subject: strin
   for (const p of projects) criteria[p.name] = p.description || `The repository named ${p.name}.`;
   criteria.none = "It is not clearly about any one of these, or it is about the person rather than a repository.";
   const file = { type: "choice", instructions: "The state holds a lesson a coding agent saved without saying which repository it is about. Which one is it about?", criteria };
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
-    const { answers } = await Promise.race([client.systemOne({ state: claim, questions: { file } }), late]);
-    const a = answers.file, confidence = prob(a?.confidence);
+    const a = (await ask(client, claim, { file }, deadlineMs)).file, confidence = prob(a?.confidence);
     if (a?.type !== "choice" || a.choice === "none" || confidence === null || confidence < FILE_ABOVE) return null;
     return projects.some((p) => p.name === a.choice) ? { project: a.choice, confidence } : null;
   } catch {
     return null;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
   }
 }
