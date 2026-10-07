@@ -16,12 +16,14 @@
   // KYPP_CORRECT: "off" hides `correct`, which lands accepted claims past the gate and the
   // two-session rule. Off for the alpha; set "on" once agents should be trusted with it.
   "vars": { "KYPP_PUBLIC_URL": "https://kypp.example.workers.dev", "KYPP_RECUR_GAP_MINUTES": "60", "KYPP_CORRECT": "off" },
+  // The System One gate runs Clef here when no TYPESAFE_API_KEY is set (KYPP_S1_MODEL picks clef-flash).
+  "ai": { "binding": "AI" },
   // Passphrase attempts on the sign-in page: 5 a minute per IP.
   "ratelimits": [{ "name": "AUTH_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } }],
   "triggers": { "crons": ["17 * * * *"] }
   // Secrets (wrangler secret put): KYPP_OWNER_SECRET (sign-in passphrase), CONSENT_SECRET (32+ chars),
   // KYPP_API_TOKENS (optional "name:token,name:token" for headless clients such as huddles; the
   // name is the token's user, so "owner:<token>" shares your own user scope).
-  // Optional System One write gate (Jev, Clef): TYPESAFE_API_KEY secret, plus TYPESAFE_BASE_URL and
-  // TYPESAFE_DEFAULT_MODEL vars when not using TypeSafe's defaults. No key → no gate. KYPP_S1=off disables it.
+  // System One gate: Clef on the AI binding by default. A TYPESAFE_API_KEY secret (plus optional
+  // TYPESAFE_BASE_URL / TYPESAFE_DEFAULT_MODEL vars) routes it to TypeSafe instead. KYPP_S1=off disables it.
 }

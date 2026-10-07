@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:local": "sed '/\"ai\":/d' wrangler.jsonc > wrangler.local.jsonc && wrangler dev -c wrangler.local.jsonc",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types test/*.test.ts"
