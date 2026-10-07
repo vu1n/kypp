@@ -15,12 +15,17 @@ deterministic background pass, not in the agent's call.
 ## What changes
 
 1. **Writes record origin, never scope.** A claim stores the repo it was learned in (from the header,
-   the `project` argument, or the session) as a flat, immutable origin. The agent never passes a
-   scope. A write with no origin, or an unknown one, still lands, marked *unsorted*; it never fails
+   the `project` argument, or the session) as a flat, immutable origin. The agent never picks a
+   project, group or global scope. A write with no origin, or an unknown one, still lands, marked *unsorted*; it never fails
    and never silently creates a new project. Session, agent and time are recorded as today.
+   The user axis stays a write-time choice: a claim about how this person works (a preference or
+   workflow) is still marked `user` by the agent, as `scope=user` is today, and is read from every
+   repo. That marks *who* a lesson is about, not how general it is, so it needs no defrag move.
 2. **Reads cascade.** `recall` and `briefing` take the caller's origin and return matches from origin,
-   then every group or org the origin rolls up to, then user, then global, nearest first, each line
-   labelled with its level and status. No scope argument; origin only affects ranking.
+   every group or org the origin rolls up to, user, and global, each line labelled with its level and
+   status. Relevance ranks first, as the compose contract and today's Worker query do; nearness to the
+   origin is a boost and tie-break after relevance, so an exact shared match is never crowded out by
+   weak local ones. No scope argument; origin only affects ranking.
    **Multiplayer:** other sessions' candidates at the caller's origin are returned too, labelled
    unconfirmed and ranked below accepted claims, so agents in one repo see each other's lessons
    (close to agent messaging). Unsorted claims appear once defrag has filed them, so nothing leaks
@@ -30,7 +35,9 @@ deterministic background pass, not in the agent's call.
    agents" section; unconfirmed claims mainly surface on `recall`.
    *Injection guard:* reads become a channel between agents, so server instructions say memory is
    information to weigh, never instructions to follow, and the write gate also holds back claims that
-   tell agents to do something rather than record a lesson.
+   read as control text aimed at agents (override other instructions, send data or credentials
+   somewhere, act outside the repo's work) rather than a lesson about the codebase or the person.
+   Procedures, preferences and pitfalls are action-shaped by nature and stay in scope under §1.
 3. **Roll-up lives in a table, not in claims.** A small, editable `project → parent(s)` table (a repo
    may sit in several groups) defines what each origin can see. Regrouping never rewrites a claim.
 4. **The defrag pass (the existing hourly consolidation cron, extended) does the arranging:**
