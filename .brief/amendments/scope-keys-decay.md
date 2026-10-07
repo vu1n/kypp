@@ -31,7 +31,13 @@ deterministic background pass, not in the agent's call.
    the query, and the top `limit` are returned. Nearness and status adjust that score after it. This
    lives inside the compose contract's selection step, same signature and caller. If S1 is off, slow
    or fails, the FTS order stands, as the write gate degrades today. Ranking never changes what a
-   caller may see, only the order.
+   caller may see, only the order. Candidates under a relevance floor are dropped rather than
+   padding to `limit`. `briefing` has no query, so it scores against the repo and the agent's stated
+   task. A 2026-10-07 probe (one query, 12 to 36 claims) ranked by meaning with a clean gap
+   (relevant at 0.6 or higher, the rest at 0.14 or lower) in about 0.5 s on clef-flash and 1 s on clef.
+   Model choice and floor get set on a proper query set. The reranker only sees what search fetched,
+   so a wide pool (about 40) matters; embeddings (Open) would widen reach. The same scoring serves
+   defrag's "same lesson?" check.
    **Multiplayer:** other sessions' candidates at the caller's origin are returned too, labelled
    unconfirmed and ranked below accepted claims, so agents in one repo see each other's lessons
    (close to agent messaging). Other sessions see unsorted claims once they are filed, so nothing
