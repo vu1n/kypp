@@ -14,16 +14,18 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   one client can open two sessions, so the gap just makes faking it slow. Session ids are signed,
   so a client can't invent one. A newer claim on an accepted subject waits as a pending update and
   replaces the old answer once it recurs.
-- **Automatic, with a judge:** promotion needs no person in any scope. With a TypeSafe key, the
+- **Automatic, with a judge:** promotion needs no person in any scope. With the write gate on, the
   cleanup pass first asks the model whether the supporting claims agree; if they look conflicted,
   the subject waits as candidates until a later pass. `correct` stays trust-based: any signed-in
   agent can land an accepted project-scope answer, so `KYPP_CORRECT=off` (the shipped default in
   `wrangler.jsonc`) hides it from the tool list and refuses calls.
-- **Optional write gate (Jev, Clef):** with a TypeSafe key, each `claim` is scored first. Status and
-  session detail are turned away, a defaulted type is relabelled when the model is sure, and how
-  general the lesson looks is recorded. The model never accepts a claim or moves it between
-  scopes. No key, a 5-second timeout or an error all mean no gate. With a key, each claim's subject
-  and content are sent to the TypeSafe API (or wherever `TYPESAFE_BASE_URL` points).
+- **Write gate (Jev, Clef):** each `claim` is scored first. Status and session detail are turned
+  away, a defaulted type is relabelled when the model is sure, and how general the lesson looks is
+  recorded. The model never accepts a claim or moves it between scopes. The gate runs Clef through
+  the Workers AI binding in `wrangler.jsonc` (`KYPP_S1_MODEL` picks another model), so each claim's
+  subject and content stay on Cloudflare. With a TypeSafe key they go to the TypeSafe API instead
+  (or wherever `TYPESAFE_BASE_URL` points). `KYPP_S1=off`, no key and no binding, a 5-second
+  timeout or an error all mean no gate.
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
   logged per session. A subject two sessions claim is promoted by the hourly cleanup pass.
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
@@ -43,7 +45,7 @@ npx wrangler deploy                          # prints https://kypp.<subdomain>.w
 npx wrangler secret put KYPP_OWNER_SECRET    # the passphrase you type on the sign-in page; make it long
 npx wrangler secret put CONSENT_SECRET       # 32+ random chars
 npx wrangler secret put KYPP_API_TOKENS      # optional: "huddles:<long random token>" for headless clients
-npx wrangler secret put TYPESAFE_API_KEY     # optional write gate; set TYPESAFE_BASE_URL / TYPESAFE_DEFAULT_MODEL vars for Clef
+npx wrangler secret put TYPESAFE_API_KEY     # optional: run the write gate over the TypeSafe API instead of Workers AI
 npx wrangler deploy
 ```
 

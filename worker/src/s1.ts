@@ -1,7 +1,8 @@
-// s1.ts — the optional System One write gate (Jev, Clef) over the TypeSafe API, the Worker's twin of
-// kypp/s1.py. A System One model returns calibrated probabilities, never text. It filters and labels
-// what enters memory and can hold back a promotion it finds conflicted; it never accepts a claim or
-// changes its scope. No key → no gate.
+// s1.ts — the optional System One write gate (Jev, Clef), the Worker's twin of kypp/s1.py. It reaches
+// the model over the TypeSafe API when there is a key, else through a Workers AI binding (Clef). A
+// System One model returns calibrated probabilities, never text. It filters and labels what enters
+// memory and can hold back a promotion it finds conflicted; it never accepts a claim or changes its
+// scope. No key and no binding → no gate.
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { TYPES, type ClaimType } from "./memory.ts";
 
@@ -9,6 +10,8 @@ export interface S1Env {
   TYPESAFE_API_KEY?: string;
   TYPESAFE_BASE_URL?: string;
   TYPESAFE_DEFAULT_MODEL?: string;
+  AI?: { run(model: string, input: unknown): Promise<unknown> }; // Workers AI binding
+  KYPP_S1_MODEL?: string; // Workers AI model, default WORKERS_AI_MODEL
   KYPP_S1?: string;
 }
 
@@ -17,11 +20,19 @@ export interface S1Client {
   systemOne(req: { state: unknown; questions: Record<string, unknown> }): PromiseLike<{ answers: Record<string, any> }>;
 }
 
+export const WORKERS_AI_MODEL = "@cf/cloudflare/clef";
+
+// A TypeSafe key wins over the Workers AI binding, so setting one switches models without a config change.
 export function s1Client(env: S1Env): S1Client | null {
-  if (!env.TYPESAFE_API_KEY || ["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
+  if (["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
   // A slow gate stalls the agent's claim call, so cap it; a timeout fails open like any error.
-  return new TypeSafeClient({ apiKey: env.TYPESAFE_API_KEY, baseURL: env.TYPESAFE_BASE_URL, defaultModel: env.TYPESAFE_DEFAULT_MODEL,
-    timeout: DEADLINE_MS, retry: { maxRetries: 0 } });
+  if (env.TYPESAFE_API_KEY) return new TypeSafeClient({ apiKey: env.TYPESAFE_API_KEY, baseURL: env.TYPESAFE_BASE_URL,
+    defaultModel: env.TYPESAFE_DEFAULT_MODEL, timeout: DEADLINE_MS, retry: { maxRetries: 0 } });
+  const ai = env.AI;
+  if (!ai) return null;
+  // Clef on Workers AI takes the same { state, questions } and returns the same { answers }.
+  const model = env.KYPP_S1_MODEL || WORKERS_AI_MODEL;
+  return { systemOne: (req) => ai.run(model, req) as Promise<{ answers: Record<string, any> }> };
 }
 
 export const DEADLINE_MS = 5000; // end to end, enforced in judge() too, not just per attempt
