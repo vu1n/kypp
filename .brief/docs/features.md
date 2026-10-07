@@ -111,6 +111,15 @@ defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It
   against it (`resolveOrigin`) and never inserted, so tests and the smoke run must register theirs.
   A project-scope claim with `project IS NULL` is unsorted: only its own session reads it, and
   consolidation skips it (`liveClaims({ filed: true })`) so it can't be promoted before it is filed.
+- A `group` claim stores the group's name in `project`, so any query keyed on `project` alone must
+  also check `scope`. Groups come from `project_parents` (`store.ancestors`, recursive, depth < 4,
+  cycles stop); nothing writes `scope='group'` until step 2 widening, so group reads are empty until then.
+- Recall shows other sessions' candidates in the caller's project by default (`candidates: "origin"`).
+  The echo guard (`store.shownCandidate`) relies on `claim_usages` rows for what a session was shown,
+  so every read path that renders claims must keep calling `recordUsage`.
+- The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
+  (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
+  re-judged every pass until one sticks, so new write paths must keep recording the verdict.
 - `origin` is what the writer said and is never updated; `project` is where the claim is filed.
   Change placement only through `store.file()`, which also writes `defrag_log`.
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;

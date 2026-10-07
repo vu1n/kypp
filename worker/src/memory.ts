@@ -7,7 +7,9 @@ export const AUTHORITIES = ["agent", "verified", "human"] as const;
 export type ClaimType = (typeof TYPES)[number];
 export type Authority = (typeof AUTHORITIES)[number];
 // Scopes: this repo, the signed-in user across repos, everyone. The agent is a label, not a scope.
-export const SCOPES = ["project", "user", "global"] as const;
+// `group` is a level in the roll-up table (a group or org several projects share); its claims carry the
+// group's name in `project`. Only defrag widens a claim into one; agents never write it.
+export const SCOPES = ["project", "group", "user", "global"] as const;
 export type Scope = (typeof SCOPES)[number];
 
 // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
@@ -29,7 +31,8 @@ export function resolveOrigin(origin: string | null | undefined, known: string[]
 
 // Where a claim sits, as shown on every read line.
 export function level(c: Pick<Claim, "scope" | "project">): string {
-  return c.scope === "project" ? c.project ?? "unsorted" : c.scope;
+  if (c.scope === "project") return c.project ?? "unsorted";
+  return c.scope === "group" ? `group:${c.project}` : c.scope;
 }
 
 // Same value as vocab.HUMAN_CORRECTION_CONFIDENCE.

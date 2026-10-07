@@ -37,19 +37,35 @@ function hydrate(r: Record<string, unknown>): Claim {
 
 const UNSORTED = "scope = 'project' AND project IS NULL";
 
-// What a caller sees: this project's scope, their own user scope, the global scope, and the unsorted
-// claims their own session wrote; never superseded/rejected history. `t` is the table alias.
+// Which unconfirmed (candidate) claims a read returns besides accepted memory: none (briefing),
+// other agents' claims in the caller's own project (the default), or candidates at every level.
+export type Candidates = "none" | "origin" | "all";
+
+// What a caller sees: this project, the groups it rolls up to, their own user scope, the global
+// scope, and the unsorted claims their own session wrote; never superseded/rejected history.
+// `t` is the table alias.
+// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
 // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
-function visible(t: string, project: string | null, user: string | null, includeCandidates: boolean, session: string | null): [string, unknown[]] {
-  const status = includeCandidates ? `${t}.status IN ('candidate','accepted')` : `${t}.status = 'accepted'`;
-  const scopes = [`${t}.scope = 'global'`];
+function visible(t: string, project: string | null, groups: string[], user: string | null, candidates: Candidates,
+  session: string | null): [string, unknown[]] {
+  const levels = [`${t}.scope = 'global'`];
   const params: unknown[] = [];
-  if (project) { scopes.push(`(${t}.scope = 'project' AND ${t}.project = ?)`); params.push(project); }
-  if (user) { scopes.push(`(${t}.scope = 'user' AND ${t}.user = ?)`); params.push(user); }
+  if (project) { levels.push(`(${t}.scope = 'project' AND ${t}.project = ?)`); params.push(project); }
+  if (groups.length) { levels.push(`(${t}.scope = 'group' AND ${t}.project IN (${groups.map(() => "?").join(",")}))`); params.push(...groups); }
+  if (user) { levels.push(`(${t}.scope = 'user' AND ${t}.user = ?)`); params.push(user); }
+  const status = candidates === "all" ? `${t}.status IN ('candidate','accepted')` : `${t}.status = 'accepted'`;
+  const parts = [`(${status} AND (${levels.join(" OR ")}))`];
+  if (candidates === "origin" && project) {
+    parts.push(`(${t}.status = 'candidate' AND ${t}.scope = 'project' AND ${t}.project = ?${session ? ` AND ${t}.session IS NOT ?` : ""})`);
+    params.push(project, ...(session ? [session] : []));
+  }
   // Session ids aren't bound to a caller, so the row's user must match too: a replayed session
   // header can't read someone else's unsorted claims.
-  if (session) { scopes.push(`(${t}.scope = 'project' AND ${t}.project IS NULL AND ${t}.session = ? AND ${t}.user IS ?)`); params.push(session, user); }
-  return [`${status} AND (${scopes.join(" OR ")})`, params];
+  if (session) {
+    parts.push(`(${t}.status = 'candidate' AND ${t}.scope = 'project' AND ${t}.project IS NULL AND ${t}.session = ? AND ${t}.user IS ?)`);
+    params.push(session, user);
+  }
+  return [`(${parts.join(" OR ")})`, params];
 }
 
 export interface ClaimInput {
@@ -96,21 +112,24 @@ export class D1Store {
   }
 
   // Browse (empty match) = strongest first; otherwise bm25 relevance, then the same tie-breaks as
-  // store.recall: accepted, nearer scope (project, then user, then global), confidence.
+  // store.recall: accepted, nearer level (project, then its groups, then user, then global), confidence.
   async recall(match: string, project: string | null, user: string | null,
-    opts: { includeCandidates?: boolean; types?: string[]; agent?: string; limit?: number; session?: string | null } = {}): Promise<Claim[]> {
-    const [where, params] = visible("c", project, user, !!opts.includeCandidates, opts.session ?? null);
+    opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null } = {}): Promise<Claim[]> {
+    const [where, params] = visible("c", project, opts.groups ?? [], user, opts.candidates ?? "origin", opts.session ?? null);
     const types = opts.types ?? [];
     let filter = types.length ? ` AND c.type IN (${types.map(() => "?").join(",")})` : "";
     const fparams: unknown[] = [...types];
     if (opts.agent) { filter += " AND c.agent = ?"; fparams.push(opts.agent); }
-    const order = "(c.status='accepted') DESC, CASE c.scope WHEN 'project' THEN 0 WHEN 'user' THEN 1 ELSE 2 END, c.confidence DESC, c.updated_at DESC";
+    // `groups` comes nearest first, so a parent's claim outranks a grandparent's.
+    const groups = opts.groups ?? [];
+    const near = groups.length ? `1 + (CASE c.project ${groups.map((_, i) => `WHEN ? THEN ${i}`).join(" ")} END) * 0.01` : "1";
+    const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC`;
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
     const sql = match
       ? `SELECT c.* FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
         + ` WHERE claims_fts MATCH ? AND ${where}${filter} ORDER BY bm25(claims_fts), ${order} LIMIT ?`
       : `SELECT c.* FROM memory_claims c WHERE ${where}${filter} ORDER BY ${order} LIMIT ?`;
-    const binds = [...(match ? [match] : []), ...params, ...fparams, limit];
+    const binds = [...(match ? [match] : []), ...params, ...fparams, ...groups, limit];
     const { results } = await this.db.prepare(sql).bind(...binds).all();
     return results.map(hydrate);
   }
@@ -139,6 +158,39 @@ export class D1Store {
     ).bind(uid(), consumer, c.id, project, c.scope, surface, query, ts)));
   }
 
+  // Every group or org `project` rolls up to, nearest first, through parents of parents up to three
+  // levels (a cycle in the table just stops). The roll-up table is the only thing that decides what a
+  // project can see.
+  async ancestors(project: string): Promise<string[]> {
+    const { results } = await this.db.prepare(
+      "WITH RECURSIVE up(name, depth) AS (SELECT parent, 1 FROM project_parents WHERE project = ?"
+      + " UNION SELECT p.parent, up.depth + 1 FROM project_parents p JOIN up ON p.project = up.name WHERE up.depth < 3)"
+      + " SELECT name, MIN(depth) AS d FROM up WHERE name != ? GROUP BY name ORDER BY d, name",
+    ).bind(project, project).all();
+    return results.map((r) => r.name as string);
+  }
+
+  // Other sessions' newest unconfirmed claims in this project, for the briefing's "recent" section.
+  async recentCandidates(project: string, session: string | null, limit: number): Promise<Claim[]> {
+    const { results } = await this.db.prepare(
+      "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = 'project' AND project = ? AND session IS NOT ?"
+      + " ORDER BY created_at DESC LIMIT ?",
+    ).bind(project, session, limit).all();
+    return results.map(hydrate);
+  }
+
+  // Echo guard: was this session shown another session's unconfirmed claim on `subject` in `project`?
+  // Repeating what it was shown is not independent evidence, so such a claim doesn't count toward
+  // accepting the subject.
+  async shownCandidate(session: string, subject: string, project: string): Promise<string[]> {
+    const { results } = await this.db.prepare(
+      "SELECT DISTINCT c.id FROM claim_usages u JOIN memory_claims c ON c.id = u.claim_id"
+      + " WHERE u.consumer = ? AND c.subject = ? AND c.scope = 'project' AND c.project = ? AND c.status = 'candidate'"
+      + " AND c.session IS NOT ?",
+    ).bind(session, subject, project, session).all();
+    return results.map((r) => r.id as string);
+  }
+
   async projects(): Promise<ProjectInfo[]> {
     const { results } = await this.db.prepare("SELECT name, description FROM projects ORDER BY name").all();
     return results as unknown as ProjectInfo[];
@@ -156,6 +208,35 @@ export class D1Store {
 
   async fileTried(id: string): Promise<void> {
     await this.db.prepare(`UPDATE memory_claims SET file_tried_at = ? WHERE id = ? AND ${UNSORTED}`).bind(now(), id).run();
+  }
+
+  // Agent claims the write gate had no verdict on (S1 off, erroring or slow when they were written),
+  // never-retried first, so defrag can judge them late.
+  async unjudged(limit: number): Promise<Claim[]> {
+    const { results } = await this.db.prepare(
+      "SELECT * FROM memory_claims WHERE status IN ('candidate','accepted') AND authority = 'agent'"
+      + " AND json_extract(metadata, '$.s1') IS NULL"
+      + " ORDER BY json_extract(metadata, '$.s1_tried') IS NOT NULL, json_extract(metadata, '$.s1_tried'), created_at LIMIT ?",
+    ).bind(limit).all();
+    return results.map(hydrate);
+  }
+
+  // Records a late verdict, or (verdict null) that the model still had no opinion, for rotation.
+  async judged(id: string, verdict: Record<string, unknown> | null): Promise<void> {
+    await (verdict
+      ? this.db.prepare("UPDATE memory_claims SET metadata = json_set(metadata, '$.s1', json(?)) WHERE id = ?").bind(JSON.stringify(verdict), id)
+      : this.db.prepare("UPDATE memory_claims SET metadata = json_set(metadata, '$.s1_tried', ?) WHERE id = ?").bind(now(), id)).run();
+  }
+
+  // Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim.
+  // Takes a live claim out of memory with the reason in its metadata; bumps updated_at so a plan
+  // already made for its group goes stale.
+  async reject(id: string, reason: string): Promise<boolean> {
+    const r = await this.db.prepare(
+      "UPDATE memory_claims SET status = 'rejected', updated_at = ?, metadata = json_set(metadata, '$.rejected', ?)"
+      + " WHERE id = ? AND status IN ('candidate','accepted')",
+    ).bind(now(), reason, id).run();
+    return r.meta.changes > 0;
   }
 
   // Files one unsorted claim and logs the move. False if it was already filed (a concurrent pass).

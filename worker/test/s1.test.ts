@@ -27,7 +27,7 @@ test("reads keep, a confident type and generality", async () => {
     type: { type: "choice", choice: "pitfall", confidence: 0.8, probabilities: {} },
     general: { type: "noul", noul: 0.9 },
   }), draft);
-  assert.deepEqual(v, { keep: 0.04, type: "pitfall", general: 0.9 });
+  assert.deepEqual(v, { keep: 0.04, type: "pitfall", general: 0.9, control: null });
 });
 
 test("an unsure type label is ignored", async () => {
@@ -37,14 +37,14 @@ test("an unsure type label is ignored", async () => {
 
 test("fails open on errors and junk", async () => {
   const boom: S1Client = { systemOne: async () => { throw new Error("down"); } };
-  assert.deepEqual(await judge(boom, draft), { keep: null, type: null, general: null });
+  assert.deepEqual(await judge(boom, draft), { keep: null, type: null, general: null, control: null });
   assert.equal((await judge(fake({ keep: { type: "noul", noul: Number.NaN } }), draft)).keep, null);
-  assert.deepEqual(await judge(null, draft), { keep: null, type: null, general: null });
+  assert.deepEqual(await judge(null, draft), { keep: null, type: null, general: null, control: null });
 });
 
 test("the deadline is end to end", async () => {
   const hang: S1Client = { systemOne: () => new Promise(() => {}) };
   const t0 = Date.now();
-  assert.deepEqual(await judge(hang, draft, 50), { keep: null, type: null, general: null });
+  assert.deepEqual(await judge(hang, draft, 50), { keep: null, type: null, general: null, control: null });
   assert.ok(Date.now() - t0 < 1000);
 });
