@@ -3,7 +3,7 @@
 // clients can present a named static token from KYPP_API_TOKENS instead.
 import { AuthorizationError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { type Caller, handleMcp } from "./mcp.ts";
-import { consolidate } from "./consolidate.ts";
+import { defrag } from "./defrag.ts";
 import { type Policy } from "./memory.ts";
 import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
@@ -157,9 +157,9 @@ export default {
     return oauthProvider(env).fetch(request, env, ctx);
   },
 
-  // The cleanup pass: supersede duplicates and promote subjects that recur across sessions. Groups
-  // that changed while it ran are skipped and picked up next hour.
+  // The defrag pass: file unsorted claims, supersede duplicates and promote subjects that recur
+  // across sessions. Groups that changed while it ran are skipped and picked up next hour.
   async scheduled(_event: ScheduledController, env: Env) {
-    await consolidate(new D1Store(env.DB), policyFrom(env), s1Client(env));
+    await defrag(new D1Store(env.DB), policyFrom(env), s1Client(env));
   },
 };

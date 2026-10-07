@@ -10,6 +10,18 @@ export type Authority = (typeof AUTHORITIES)[number];
 export const SCOPES = ["project", "user", "global"] as const;
 export type Scope = (typeof SCOPES)[number];
 
+// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
+// Matches on the last path segment, so "vu1n/Kypp" and a clone URL both resolve to "kypp".
+export function resolveOrigin(origin: string | null | undefined, known: string[]): string | null {
+  const name = (origin ?? "").trim().replace(/\.git$/i, "").split("/").filter(Boolean).pop()?.toLowerCase();
+  return name ? known.find((k) => k.toLowerCase() === name) ?? null : null;
+}
+
+// Where a claim sits, as shown on every read line.
+export function level(c: Pick<Claim, "scope" | "project">): string {
+  return c.scope === "project" ? c.project ?? "unsorted" : c.scope;
+}
+
 // Same value as vocab.HUMAN_CORRECTION_CONFIDENCE.
 export const HUMAN_CORRECTION_CONFIDENCE = 0.95;
 
@@ -19,7 +31,9 @@ export interface Claim {
   subject: string;
   content: string;
   scope: Scope;
-  project: string | null;
+  project: string | null; // where it is filed; null on a project-scope claim means unsorted
+  origin?: string | null; // what the writer said it was working in; never changes
+  session?: string | null;
   agent: string | null;
   user: string | null;
   status: "candidate" | "accepted" | "superseded" | "rejected";
@@ -144,7 +158,7 @@ export function compactLine(c: Claim): string {
   const mark = c.status === "accepted" ? "✓" : "?";
   const auth = c.authority === "human" ? " 👤" : c.authority === "verified" ? " ☑" : "";
   const body = c.content.split(/\s+/).filter(Boolean).join(" ");
-  let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth}] ${c.subject} — ${body.slice(0, CLIP)}`;
+  let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth} @${level(c)}] ${c.subject} — ${body.slice(0, CLIP)}`;
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
   const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
   if (path) line += ` → ${path}`;

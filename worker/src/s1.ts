@@ -1,7 +1,7 @@
 // s1.ts — the optional System One write gate (Jev, Clef) over the TypeSafe API or Workers AI, the
 // Worker's twin of kypp/s1.py. A System One model returns calibrated probabilities, never text. It filters and labels
-// what enters memory and can hold back a promotion it finds conflicted; it never accepts a claim or
-// changes its scope. No key and no AI binding → no gate.
+// what enters memory, files an unsorted claim into a known project, and can hold back a promotion it
+// finds conflicted; it never accepts or widens a claim. No key and no AI binding → no gate.
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { TYPES, type ClaimType } from "./memory.ts";
 
@@ -122,6 +122,35 @@ export async function agrees(client: S1Client | null, claims: { subject: string;
     const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
     const { answers } = await Promise.race([client.systemOne({ state: { claims }, questions: AGREE }), late]);
     return answers.agree?.type === "noul" ? prob(answers.agree.noul) : null;
+  } catch {
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+export const FILE_ABOVE = 0.7; // an unsorted claim is filed only on a confident choice
+const MAX_PROJECTS = 60;       // one choice question; past this, filing waits for a narrower list
+
+export interface ProjectInfo { name: string; description: string }
+
+// Which known project an unsorted claim belongs to, or null: no model, no projects, an error, a
+// timeout, "none", a name that isn't registered, or a choice under FILE_ABOVE. `origin` is the
+// unrecognised name the writer gave, if any; it is a hint, not an answer.
+export async function fileUnder(client: S1Client | null, claim: { subject: string; content: string; origin: string | null },
+  projects: ProjectInfo[], deadlineMs = DEADLINE_MS): Promise<{ project: string; confidence: number } | null> {
+  if (!client || !projects.length || projects.length > MAX_PROJECTS) return null;
+  const criteria: Record<string, string> = {};
+  for (const p of projects) criteria[p.name] = p.description || `The repository named ${p.name}.`;
+  criteria.none = "It is not clearly about any one of these, or it is about the person rather than a repository.";
+  const file = { type: "choice", instructions: "The state holds a lesson a coding agent saved without saying which repository it is about. Which one is it about?", criteria };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
+    const { answers } = await Promise.race([client.systemOne({ state: claim, questions: { file } }), late]);
+    const a = answers.file, confidence = prob(a?.confidence);
+    if (a?.type !== "choice" || a.choice === "none" || confidence === null || confidence < FILE_ABOVE) return null;
+    return projects.some((p) => p.name === a.choice) ? { project: a.choice, confidence } : null;
   } catch {
     return null;
   } finally {

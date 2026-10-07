@@ -1,5 +1,6 @@
 // store.ts — the D1 side of kypp/store.py: claim, recall, get, usage, live claims, status writes.
 import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES } from "./memory.ts";
+import type { ProjectInfo } from "./s1.ts";
 
 const MAX_CONTENT = 4000;
 const MAX_REFS = 10;
@@ -34,14 +35,17 @@ function hydrate(r: Record<string, unknown>): Claim {
   };
 }
 
-// What a caller sees: this project's scope, their own user scope, and the global scope; never
-// superseded/rejected history. `t` is the table alias.
-function visible(t: string, project: string | null, user: string | null, includeCandidates: boolean): [string, unknown[]] {
+const UNSORTED = "scope = 'project' AND project IS NULL";
+
+// What a caller sees: this project's scope, their own user scope, the global scope, and the unsorted
+// claims their own session wrote; never superseded/rejected history. `t` is the table alias.
+function visible(t: string, project: string | null, user: string | null, includeCandidates: boolean, session: string | null): [string, unknown[]] {
   const status = includeCandidates ? `${t}.status IN ('candidate','accepted')` : `${t}.status = 'accepted'`;
   const scopes = [`${t}.scope = 'global'`];
   const params: unknown[] = [];
   if (project) { scopes.push(`(${t}.scope = 'project' AND ${t}.project = ?)`); params.push(project); }
   if (user) { scopes.push(`(${t}.scope = 'user' AND ${t}.user = ?)`); params.push(user); }
+  if (session) { scopes.push(`(${t}.scope = 'project' AND ${t}.project IS NULL AND ${t}.session = ?)`); params.push(session); }
   return [`${status} AND (${scopes.join(" OR ")})`, params];
 }
 
@@ -50,7 +54,9 @@ export interface ClaimInput {
   subject: string;
   content: string;
   scope: Scope;
-  project: string | null;
+  project: string | null; // a registered project, or null to leave a project-scope claim unsorted
+  origin?: string | null;
+  session?: string | null;
   confidence: number;
   sourceIds: string[];
   codeRefs: unknown;
@@ -68,7 +74,6 @@ export class D1Store {
   async claim(c: ClaimInput): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
-    if (c.scope === "project" && !c.project) throw new Error("a project-scoped claim needs a project");
     if (c.scope === "user" && !c.user) throw new Error("a user-scoped claim needs a signed-in user");
     if (!c.subject.trim() || !c.content.trim()) throw new Error("subject and content are required");
     if (c.content.length > MAX_CONTENT) throw new Error(`content over ${MAX_CONTENT} chars; distill it`);
@@ -77,9 +82,9 @@ export class D1Store {
     const codeRefs = cleanCodeRefs(c.codeRefs);
     await this.db.batch([
       this.db.prepare(
-        "INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,user,status,authority,confidence,source_ids,code_refs,metadata,created_at,updated_at)"
-        + " VALUES(?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?)",
-      ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.agent, c.user,
+        "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,created_at,updated_at)"
+        + " VALUES(?,?,?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?)",
+      ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.origin ?? c.project, c.session ?? null, c.agent, c.user,
         c.accept ? "accepted" : "candidate", confidence, JSON.stringify(c.sourceIds), JSON.stringify(codeRefs),
         JSON.stringify(c.metadata ?? {}), ts, ts),
       this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
@@ -90,8 +95,8 @@ export class D1Store {
   // Browse (empty match) = strongest first; otherwise bm25 relevance, then the same tie-breaks as
   // store.recall: accepted, nearer scope (project, then user, then global), confidence.
   async recall(match: string, project: string | null, user: string | null,
-    opts: { includeCandidates?: boolean; types?: string[]; agent?: string; limit?: number } = {}): Promise<Claim[]> {
-    const [where, params] = visible("c", project, user, !!opts.includeCandidates);
+    opts: { includeCandidates?: boolean; types?: string[]; agent?: string; limit?: number; session?: string | null } = {}): Promise<Claim[]> {
+    const [where, params] = visible("c", project, user, !!opts.includeCandidates, opts.session ?? null);
     const types = opts.types ?? [];
     let filter = types.length ? ` AND c.type IN (${types.map(() => "?").join(",")})` : "";
     const fparams: unknown[] = [...types];
@@ -128,9 +133,37 @@ export class D1Store {
     ).bind(uid(), consumer, c.id, project, c.scope, surface, query, ts)));
   }
 
-  async liveClaims(filter: { scope?: Scope; project?: string | null; user?: string | null; subject?: string } = {}): Promise<Claim[]> {
+  async projects(): Promise<ProjectInfo[]> {
+    const { results } = await this.db.prepare("SELECT name, description FROM projects ORDER BY name").all();
+    return results as unknown as ProjectInfo[];
+  }
+
+  async unsorted(limit = 50): Promise<Claim[]> {
+    const { results } = await this.db.prepare(
+      `SELECT * FROM memory_claims WHERE status IN ('candidate','accepted') AND ${UNSORTED} ORDER BY created_at LIMIT ?`,
+    ).bind(limit).all();
+    return results.map(hydrate);
+  }
+
+  // Files one unsorted claim and logs the move. False if it was already filed (a concurrent pass).
+  async file(id: string, project: string, score: number | null, reason: string): Promise<boolean> {
+    const ts = now(), logId = uid();
+    // The log row is written only if the update just above it took, so it doubles as the result.
+    await this.db.batch([
+      this.db.prepare(`UPDATE memory_claims SET project = ?, updated_at = ? WHERE id = ? AND ${UNSORTED}`).bind(project, ts, id),
+      this.db.prepare(
+        "INSERT INTO defrag_log(id, claim_id, action, from_project, to_project, score, reason, created_at)"
+        + " SELECT ?, id, 'file', NULL, project, ?, ?, ? FROM memory_claims WHERE id = ? AND project = ? AND updated_at = ?",
+      ).bind(logId, score, reason, ts, id, project, ts),
+    ]);
+    return (await this.db.prepare("SELECT 1 FROM defrag_log WHERE id = ?").bind(logId).first()) !== null;
+  }
+
+  // `filed` leaves out unsorted claims, which must not be grouped or promoted before they have a project.
+  async liveClaims(filter: { scope?: Scope; project?: string | null; user?: string | null; subject?: string; filed?: boolean } = {}): Promise<Claim[]> {
     let sql = "SELECT * FROM memory_claims WHERE status IN ('candidate','accepted')";
     const binds: unknown[] = [];
+    if (filter.filed) sql += ` AND NOT (${UNSORTED})`;
     if (filter.scope !== undefined) { sql += " AND scope = ?"; binds.push(filter.scope); }
     if (filter.project !== undefined) { sql += " AND project IS ?"; binds.push(filter.project); }
     if (filter.user !== undefined) { sql += " AND user IS ?"; binds.push(filter.user); }

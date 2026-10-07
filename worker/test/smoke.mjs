@@ -79,6 +79,12 @@ assert.ok((await b("claim", { project: "smoke", subject: `${subject} status`, co
 const typed = JSON.parse(await b("expand", { handle: await b("claim", { project: "smoke", subject: `${subject} ci`, content: "the flaky e2e job needs one rerun" }) }));
 assert.equal(typed.type, "pitfall");
 
+// an unknown project is not an error: the claim lands unsorted and only its own session reads it
+const stray = await b("claim", { project: "not-registered", subject: `${subject} stray`, content: "a lesson with nowhere to go yet" });
+assert.match(stray, /\nunsorted: /);
+assert.ok((await b("recall", { project: "smoke", query: "nowhere", include_candidates: true })).includes("@unsorted"));
+assert.ok(!(await a("recall", { project: "smoke", query: "nowhere", include_candidates: true })).includes(stray.slice(0, 8)));
+
 // user scope: visible to its owner in any project, invisible to anyone else
 const mine = await b("claim", { scope: "user", subject: `${subject} asking`, content: "ask one question in prose, not an options menu" });
 assert.ok((await b("recall", { project: "other-repo", query: "options menu", include_candidates: true })).includes("prose"));
