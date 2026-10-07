@@ -15,3 +15,4 @@ authority-dominates conforms: ranking unchanged; the judge only removes promotio
 never-delete conforms: no delete path; a held group only skips set_status(accepted)
 compose-surface conforms: mcp consolidate tool passes the agreement judge; no tool added or removed
 operator-only-verify conforms: mcp_server only wires the judge into consolidate; no tool accepts or runs a verify command
+scope-keys-decay amend-proposed: agents write at origin with no scope; the consolidation pass files, dedupes and widens (model may hold back, never cause), replacing 'the model never moves a claim between scopes'
