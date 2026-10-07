@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { consolidate } from "../src/consolidate.ts";
+import { settle } from "../src/defrag.ts";
 import { planConsolidation } from "../src/memory.ts";
 import type { S1Client } from "../src/s1.ts";
 import { type ClaimInput, D1Store, cleanCodeRefs } from "../src/store.ts";
@@ -60,7 +60,7 @@ test("the S1 judge holds back a conflicted promotion, and only that", async () =
   await store.claim(base({ subject: "port", content: "use port 2", sourceIds: ["session:B"] }));
   await store.claim(base({ subject: "lint", content: "run ruff", sourceIds: ["session:A"] }));
   await store.claim(base({ subject: "lint", content: "run ruff first", sourceIds: ["session:B"] }));
-  await consolidate(store, { k: 2, minGapMs: 0, autoAccept: () => true }, s1);
+  await settle(store, { k: 2, minGapMs: 0, autoAccept: () => true }, s1);
   const live = await store.liveClaims();
   assert.deepEqual(live.filter((c) => c.subject === "port").map((c) => c.status).sort(), ["candidate"], "conflicted subject waits");
   assert.deepEqual(live.filter((c) => c.subject === "lint").map((c) => c.status), ["accepted"]);

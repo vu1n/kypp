@@ -7,7 +7,8 @@ export const AUTHORITIES = ["agent", "verified", "human"] as const;
 export type ClaimType = (typeof TYPES)[number];
 export type Authority = (typeof AUTHORITIES)[number];
 // Scopes: this repo, the signed-in user across repos, everyone. The agent is a label, not a scope.
-export const SCOPES = ["project", "user", "global"] as const;
+// `unsorted` holds a claim whose origin is missing or not a known project until defrag files it.
+export const SCOPES = ["project", "user", "global", "unsorted"] as const;
 export type Scope = (typeof SCOPES)[number];
 
 // Same value as vocab.HUMAN_CORRECTION_CONFIDENCE.
@@ -20,6 +21,7 @@ export interface Claim {
   content: string;
   scope: Scope;
   project: string | null;
+  origin?: string | null; // the repo name it was written from, as given; never changes
   agent: string | null;
   user: string | null;
   status: "candidate" | "accepted" | "superseded" | "rejected";
@@ -125,6 +127,8 @@ export function planGroup(members: Claim[], policy: Policy = DEFAULT_POLICY): Gr
 export function groupClaims(live: Claim[]): Claim[][] {
   const groups = new Map<string, Claim[]>();
   for (const c of live) {
+    // An unsorted claim has no project yet, so it can't recur with anything; defrag files it first.
+    if (c.scope === "unsorted") continue;
     const key = JSON.stringify(groupKey(c));
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
@@ -137,6 +141,11 @@ export function planConsolidation(live: Claim[], policy: Policy = DEFAULT_POLICY
   return groupClaims(live).map((m) => planGroup(m, policy)).filter(hasWork);
 }
 
+// Which level a line came from, so an agent can weigh it: the project's name, user, global or unsorted.
+export function level(c: Claim): string {
+  return c.scope === "project" ? (c.project ?? "project") : c.scope;
+}
+
 // view.compact_line, minus code grounding (the Worker has no checkout to resolve anchors against;
 // it names the first anchored path instead).
 const CLIP = 240;
@@ -144,7 +153,7 @@ export function compactLine(c: Claim): string {
   const mark = c.status === "accepted" ? "✓" : "?";
   const auth = c.authority === "human" ? " 👤" : c.authority === "verified" ? " ☑" : "";
   const body = c.content.split(/\s+/).filter(Boolean).join(" ");
-  let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth}] ${c.subject} — ${body.slice(0, CLIP)}`;
+  let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth}] (${level(c)}) ${c.subject} — ${body.slice(0, CLIP)}`;
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
   const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
   if (path) line += ` → ${path}`;
@@ -172,6 +181,19 @@ export function renderBriefing(claims: Claim[]): string {
 const BRIEFING_PRIORITY: Record<string, number> = { pitfall: 0, decision: 1, procedure: 2 };
 export function briefingOrder(claims: Claim[], limit: number): Claim[] {
   return [...claims].sort((a, b) => (BRIEFING_PRIORITY[a.type] ?? 3) - (BRIEFING_PRIORITY[b.type] ?? 3)).slice(0, limit);
+}
+
+// Repo names compare trimmed and lowercased; anything else isn't a usable project name.
+export function projectName(raw: unknown): string | null {
+  const name = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  return /^[a-z0-9][a-z0-9._-]{0,99}$/.test(name) ? name : null;
+}
+
+// KYPP_PROJECTS, the known projects. Unset keeps the old behaviour (any well-formed name is a
+// project); set, an unknown name lands as unsorted instead of starting a separate memory.
+export function projectList(raw: string | undefined): string[] | null {
+  const names = (raw ?? "").split(",").map(projectName).filter((n): n is string => !!n);
+  return names.length ? [...new Set(names)] : null;
 }
 
 // An FTS5 MATCH expression from free text: each word quoted (so FTS syntax in the query can't

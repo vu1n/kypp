@@ -87,7 +87,7 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
     return [c for c in clusters.values() if len(c) > 1]
 
 
-# Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
+# Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
 def consolidate(store: MemoryStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None,
                 accept_corroboration: int | None = 2, judge=None) -> dict:
@@ -119,7 +119,7 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
     # Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
     # Promote the survivor of each exact-subject group once enough independent sessions corroborate it.
     # Exact-subject only — semantic (different-subject) merges are too fuzzy to auto-accept on.
-    # Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — the model can only hold a promotion back; recurrence is what accepts.
+    # Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — the model can only hold a promotion back; recurrence is what accepts.
     def held(support: list[Claim]) -> bool:
         p = judge(support) if judge else None
         return p is not None and p < HOLD_BELOW

@@ -36,13 +36,21 @@ function hydrate(r: Record<string, unknown>): Claim {
 
 // What a caller sees: this project's scope, their own user scope, and the global scope; never
 // superseded/rejected history. `t` is the table alias.
-function visible(t: string, project: string | null, user: string | null, includeCandidates: boolean): [string, unknown[]] {
+// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — the writing session always sees its own unsorted claims; others see them once filed.
+function visible(t: string, project: string | null, user: string | null, includeCandidates: boolean,
+  session: string | null = null): [string, unknown[]] {
   const status = includeCandidates ? `${t}.status IN ('candidate','accepted')` : `${t}.status = 'accepted'`;
   const scopes = [`${t}.scope = 'global'`];
   const params: unknown[] = [];
   if (project) { scopes.push(`(${t}.scope = 'project' AND ${t}.project = ?)`); params.push(project); }
   if (user) { scopes.push(`(${t}.scope = 'user' AND ${t}.user = ?)`); params.push(user); }
-  return [`${status} AND (${scopes.join(" OR ")})`, params];
+  let where = `(${status} AND (${scopes.join(" OR ")}))`;
+  // Session ids are hex, so they can't carry LIKE wildcards.
+  if (session && /^[0-9a-f]+$/.test(session)) {
+    where += ` OR (${t}.scope = 'unsorted' AND ${t}.status = 'candidate' AND ${t}.source_ids LIKE ?)`;
+    params.push(`%"session:${session}"%`);
+  }
+  return [`(${where})`, params];
 }
 
 export interface ClaimInput {
@@ -51,6 +59,7 @@ export interface ClaimInput {
   content: string;
   scope: Scope;
   project: string | null;
+  origin?: string | null;
   confidence: number;
   sourceIds: string[];
   codeRefs: unknown;
@@ -70,6 +79,7 @@ export class D1Store {
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
     if (c.scope === "project" && !c.project) throw new Error("a project-scoped claim needs a project");
     if (c.scope === "user" && !c.user) throw new Error("a user-scoped claim needs a signed-in user");
+    if (c.scope === "unsorted" && c.accept) throw new Error("an unsorted claim can't land accepted");
     if (!c.subject.trim() || !c.content.trim()) throw new Error("subject and content are required");
     if (c.content.length > MAX_CONTENT) throw new Error(`content over ${MAX_CONTENT} chars; distill it`);
     const id = uid(), ts = now();
@@ -77,9 +87,9 @@ export class D1Store {
     const codeRefs = cleanCodeRefs(c.codeRefs);
     await this.db.batch([
       this.db.prepare(
-        "INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,user,status,authority,confidence,source_ids,code_refs,metadata,created_at,updated_at)"
-        + " VALUES(?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?)",
-      ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.agent, c.user,
+        "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,agent,user,status,authority,confidence,source_ids,code_refs,metadata,created_at,updated_at)"
+        + " VALUES(?,?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?)",
+      ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.origin ?? null, c.agent, c.user,
         c.accept ? "accepted" : "candidate", confidence, JSON.stringify(c.sourceIds), JSON.stringify(codeRefs),
         JSON.stringify(c.metadata ?? {}), ts, ts),
       this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
@@ -90,13 +100,13 @@ export class D1Store {
   // Browse (empty match) = strongest first; otherwise bm25 relevance, then the same tie-breaks as
   // store.recall: accepted, nearer scope (project, then user, then global), confidence.
   async recall(match: string, project: string | null, user: string | null,
-    opts: { includeCandidates?: boolean; types?: string[]; agent?: string; limit?: number } = {}): Promise<Claim[]> {
-    const [where, params] = visible("c", project, user, !!opts.includeCandidates);
+    opts: { includeCandidates?: boolean; types?: string[]; agent?: string; limit?: number; session?: string | null } = {}): Promise<Claim[]> {
+    const [where, params] = visible("c", project, user, !!opts.includeCandidates, opts.session ?? null);
     const types = opts.types ?? [];
     let filter = types.length ? ` AND c.type IN (${types.map(() => "?").join(",")})` : "";
     const fparams: unknown[] = [...types];
     if (opts.agent) { filter += " AND c.agent = ?"; fparams.push(opts.agent); }
-    const order = "(c.status='accepted') DESC, CASE c.scope WHEN 'project' THEN 0 WHEN 'user' THEN 1 ELSE 2 END, c.confidence DESC, c.updated_at DESC";
+    const order = "(c.status='accepted') DESC, CASE c.scope WHEN 'project' THEN 0 WHEN 'unsorted' THEN 1 WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC";
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
     const sql = match
       ? `SELECT c.* FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
@@ -137,6 +147,33 @@ export class D1Store {
     if (filter.subject !== undefined) { sql += " AND subject = ?"; binds.push(filter.subject); }
     const { results } = await this.db.prepare(sql).bind(...binds).all();
     return results.map(hydrate);
+  }
+
+  // Projects that already hold filed claims: what an unsorted claim can be filed into when the
+  // server has no KYPP_PROJECTS list.
+  async filedProjects(): Promise<string[]> {
+    const { results } = await this.db.prepare(
+      "SELECT DISTINCT project FROM memory_claims WHERE scope = 'project' AND project IS NOT NULL ORDER BY project",
+    ).all();
+    return results.map((r) => r.project as string);
+  }
+
+  async unsorted(limit = 50): Promise<Claim[]> {
+    const { results } = await this.db.prepare(
+      "SELECT * FROM memory_claims WHERE scope = 'unsorted' AND status = 'candidate' ORDER BY created_at LIMIT ?",
+    ).bind(limit).all();
+    return results.map(hydrate);
+  }
+
+  // File an unsorted claim into a project, logging who placed it and why in metadata.filed. Only an
+  // unsorted row moves, so a second pass (or a race with another) is a no-op. Returns whether it moved.
+  async file(id: string, project: string, why: { by: string; p?: number | null }): Promise<boolean> {
+    const ts = now();
+    const res = await this.db.prepare(
+      "UPDATE memory_claims SET scope = 'project', project = ?, updated_at = ?,"
+      + " metadata = json_set(IFNULL(metadata, '{}'), '$.filed', json(?)) WHERE id = ? AND scope = 'unsorted'",
+    ).bind(project, ts, JSON.stringify({ ...why, at: ts }), id).run();
+    return (res.meta?.changes ?? 0) > 0;
   }
 
   // Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim.

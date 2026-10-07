@@ -93,3 +93,8 @@ claims wait, per the 2026-10-06 project decision.
 - Short-lived notes ("deploy is broken right now") are out of scope. The gate rejects them as status.
   If agents want them, they become their own kind with an expiry that defrag never promotes.
 - Tags for topical recall boost, never for visibility. Deferred until search misses show the need.
+
+
+---
+ratified_rev: 0002
+ratified_by: Vu

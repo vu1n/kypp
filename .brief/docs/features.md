@@ -88,7 +88,7 @@ paths:
 The optional hosted store: a Cloudflare Worker over D1 serving `briefing`, `recall`, `claim`,
 `expand` and `correct` as a remote MCP server behind OAuth, so cloud sessions share one memory.
 `worker/src/memory.ts` ports the arbiter's ranking and promotion rules; an hourly cron runs the
-cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `project` and
+defrag pass (`worker/src/defrag.ts`), which files unsorted claims and settles subject groups. It adds a `user` scope (the signed-in person, every repo) beside `project` and
 `global`, and an optional System One write gate (`worker/src/s1.ts`, TypeSafe JS SDK).
 
 ### Gotchas
@@ -99,25 +99,31 @@ cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `
   `X-Kypp-Project` header.
 - The MCP endpoint is stateless: the session id from `initialize` is only echoed back, never
   stored. Don't add a Durable Object to hold sessions.
-- The `user` scope exists only in the Worker; local `vocab.Scope` is still project/global. On the
+- The `user` and `unsorted` scopes exist only in the Worker; local `vocab.Scope` is still project/global. On the
   user scope the `user` column is the owner, so a static token's name decides whose user scope it reads.
 - The S1 gate runs Clef on the `AI` binding unless `TYPESAFE_API_KEY` is set. Workers AI is always
   remote, so plain `wrangler dev` fails without a Cloudflare login; `npm run dev:local` (and CI's
   smoke) strips the binding and uses the TypeSafe mock from `.dev.vars`.
-- The S1 gate fails open and only filters or labels. It must never accept a claim or change its
-  scope (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
+- The S1 gate fails open. It filters, labels, and may file an unsorted claim into one known
+  project; it must never accept or widen a claim (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
+- `scope='unsorted'` rows have `project` NULL and are skipped by `groupClaims`, so they can't
+  promote before they're filed. Their writer finds them through `source_ids LIKE '%"session:<id>"%'`
+  in `visible()`; that's why the session id must stay hex.
+- `origin` is the normalized name the client gave and never changes; `project` is where the claim
+  is filed. Only `store.file()` moves a row out of unsorted, and it bumps `updated_at` so `apply()`'s
+  guard sees the group change.
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;
   a group that changed since is skipped (CHECK on `consolidation_guard` rolls its batch back).
   Any new writer of claim status must go through `apply()` or bump `updated_at`.
 - Promotion counts sessions that recur at least `KYPP_RECUR_GAP_MINUTES` apart. That is
   repetition, not independent evidence; signed session ids only stop invented ones.
-- The S1 agreement check (`consolidate.ts`) can only hold a promotion back, never cause one.
+- The S1 agreement check (`defrag.ts`) can only hold a promotion back, never cause one.
 - `correct` bypasses the S1 gate and the two-session rule. `KYPP_CORRECT=off` (set in
   `wrangler.jsonc`) hides and refuses it; `.dev.vars` turns it back on for the smoke test.
 - `/oauth/register` is open by design (MCP clients self-register), so `REGISTER_LIMIT` throttles it
   per IP in `index.ts` before the OAuth provider writes the client to KV.
 - The cron pass is the only writer that changes existing rows. Keep status edits there (and in
-  `correct`, which consolidates one subject) so concurrent sessions only ever insert.
+  `correct`, which settles one subject) so concurrent sessions only ever insert.
 
 <!-- brief:anchor capture -->
 ## Capture and sweep

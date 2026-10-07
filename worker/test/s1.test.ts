@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type S1Client, judge, s1Client } from "../src/s1.ts";
+import { type S1Client, fileTo, judge, s1Client } from "../src/s1.ts";
 
 const draft = { subject: "s", content: "c", project: "p" };
 const fake = (answers: Record<string, unknown>): S1Client => ({ systemOne: async () => ({ answers }) });
@@ -27,7 +27,7 @@ test("reads keep, a confident type and generality", async () => {
     type: { type: "choice", choice: "pitfall", confidence: 0.8, probabilities: {} },
     general: { type: "noul", noul: 0.9 },
   }), draft);
-  assert.deepEqual(v, { keep: 0.04, type: "pitfall", general: 0.9 });
+  assert.deepEqual(v, { keep: 0.04, type: "pitfall", general: 0.9, project: null });
 });
 
 test("an unsure type label is ignored", async () => {
@@ -37,14 +37,25 @@ test("an unsure type label is ignored", async () => {
 
 test("fails open on errors and junk", async () => {
   const boom: S1Client = { systemOne: async () => { throw new Error("down"); } };
-  assert.deepEqual(await judge(boom, draft), { keep: null, type: null, general: null });
+  assert.deepEqual(await judge(boom, draft), { keep: null, type: null, general: null, project: null });
   assert.equal((await judge(fake({ keep: { type: "noul", noul: Number.NaN } }), draft)).keep, null);
-  assert.deepEqual(await judge(null, draft), { keep: null, type: null, general: null });
+  assert.deepEqual(await judge(null, draft), { keep: null, type: null, general: null, project: null });
 });
 
 test("the deadline is end to end", async () => {
   const hang: S1Client = { systemOne: () => new Promise(() => {}) };
   const t0 = Date.now();
-  assert.deepEqual(await judge(hang, draft, 50), { keep: null, type: null, general: null });
+  assert.deepEqual(await judge(hang, draft, 50), { keep: null, type: null, general: null, project: null });
   assert.ok(Date.now() - t0 < 1000);
+});
+
+test("filing picks a known project only when sure, never 'none' or an unlisted name", async () => {
+  const pick = (choice: string, confidence: number) => fake({ project: { type: "choice", choice, confidence, probabilities: {} } });
+  assert.deepEqual(await fileTo(pick("kypp", 0.9), draft, ["kypp", "brief"]), { project: "kypp", p: 0.9 });
+  assert.equal(await fileTo(pick("kypp", 0.6), draft, ["kypp", "brief"]), null);
+  assert.equal(await fileTo(pick("none", 0.99), draft, ["kypp"]), null);
+  assert.equal(await fileTo(pick("evil", 0.99), draft, ["kypp"]), null);
+  assert.equal(await fileTo(pick("kypp", 0.9), draft, []), null);
+  const v = await judge(pick("brief", 0.95), draft, undefined, ["kypp", "brief"]);
+  assert.deepEqual(v.project, { project: "brief", p: 0.95 });
 });

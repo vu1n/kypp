@@ -13,7 +13,7 @@ human-authority-operator-only:
 kypp-independent:
   latest: 2
 memory-scope-decay:
-  latest: 1
+  latest: 2
 no-grader-leak:
   latest: 1
 pointers-not-content:

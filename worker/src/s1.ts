@@ -1,7 +1,7 @@
 // s1.ts — the optional System One write gate (Jev, Clef) over the TypeSafe API or Workers AI, the
 // Worker's twin of kypp/s1.py. A System One model returns calibrated probabilities, never text. It filters and labels
-// what enters memory and can hold back a promotion it finds conflicted; it never accepts a claim or
-// changes its scope. No key and no AI binding → no gate.
+// what enters memory, files an unsorted claim into one known project when sure, and can hold back a
+// promotion it finds conflicted; it never accepts or widens a claim. No key and no AI binding → no gate.
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { TYPES, type ClaimType } from "./memory.ts";
 
@@ -73,25 +73,67 @@ export interface Verdict {
   keep: number | null;          // P(worth remembering); null = no opinion
   type: ClaimType | null;       // a confident type label, or null
   general: number | null;       // P(holds outside this repo)
+  project: Filing | null;       // where an unsorted claim belongs, when asked and confident
+}
+
+export interface Filing { project: string; p: number }
+export const FILE_ABOVE = 0.8;  // file an unsorted claim only when the model is quite sure
+const MAX_FILE_CHOICES = 50;
+
+// Which known project an unsorted claim was learned in. A choice among names plus "none", so an
+// unsure answer leaves the claim unsorted rather than guessing.
+function fileQuestion(projects: string[]) {
+  const criteria: Record<string, string> = { none: "None of these repositories, or it can't be told from the lesson." };
+  for (const p of projects.slice(0, MAX_FILE_CHOICES)) criteria[p] = `The repository named "${p}".`;
+  return {
+    type: "choice",
+    instructions: "The state holds a lesson a coding agent saved without naming a known repository (`project` is what it gave, if anything). Which repository is the lesson about?",
+    criteria,
+  } as const;
+}
+
+function filing(answer: any, projects: string[]): Filing | null {
+  if (answer?.type !== "choice" || answer.choice === "none" || !projects.includes(answer.choice)) return null;
+  const p = prob(answer.confidence);
+  return p !== null && p >= FILE_ABOVE ? { project: answer.choice, p } : null;
+}
+
+// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — filing places an unsorted claim into one known project; the model never widens or accepts.
+export async function fileTo(client: S1Client | null, draft: { subject: string; content: string; project: string | null },
+  projects: string[], deadlineMs = DEADLINE_MS): Promise<Filing | null> {
+  if (!client || !projects.length) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
+    const { answers } = await Promise.race([client.systemOne({ state: draft, questions: { project: fileQuestion(projects) } }), late]);
+    return filing(answers.project, projects);
+  } catch {
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 const prob = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1 ? v : null);
 
-// Fail open: any error is "no opinion", never a drop.
+// Fail open: any error is "no opinion", never a drop. With `fileInto`, the same call also asks
+// which of those projects the claim belongs in (write-time filing of an unsorted claim).
 export async function judge(client: S1Client | null, draft: { subject: string; content: string; project: string | null },
-  deadlineMs = DEADLINE_MS): Promise<Verdict> {
-  const none: Verdict = { keep: null, type: null, general: null };
+  deadlineMs = DEADLINE_MS, fileInto: string[] = []): Promise<Verdict> {
+  const none: Verdict = { keep: null, type: null, general: null, project: null };
   if (!client) return none;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("s1 deadline")), deadlineMs); });
-    const { answers } = await Promise.race([client.systemOne({ state: draft, questions: QUESTIONS }), late]);
+    const questions = fileInto.length ? { ...QUESTIONS, project: fileQuestion(fileInto) } : QUESTIONS;
+    const { answers } = await Promise.race([client.systemOne({ state: draft, questions }), late]);
     const t = answers.type;
     const type = t?.type === "choice" && TYPES.includes(t.choice) && (prob(t.confidence) ?? 0) >= RETYPE_ABOVE ? (t.choice as ClaimType) : null;
     return {
       keep: answers.keep?.type === "noul" ? prob(answers.keep.noul) : null,
       type,
       general: answers.general?.type === "noul" ? prob(answers.general.noul) : null,
+      project: fileInto.length ? filing(answers.project, fileInto) : null,
     };
   } catch {
     return none;

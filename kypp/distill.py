@@ -363,7 +363,7 @@ class GatedDistiller:
             return drafts
         kept = []
         for d in drafts:
-            # Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — a cheap model gates writes; no model keeps today's behavior
+            # Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — a cheap model gates writes; no model keeps today's behavior
             p = s1.noul({"task": trace.task, "type": d.type, "subject": d.subject, "lesson": d.content},
                         s1.keep_question(), via=self.via)
             if p is not None and p < self.drop_below:

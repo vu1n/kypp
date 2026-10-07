@@ -14,19 +14,27 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   one client can open two sessions, so the gap just makes faking it slow. Session ids are signed,
   so a client can't invent one. A newer claim on an accepted subject waits as a pending update and
   replaces the old answer once it recurs.
+- **Placement (origin + defrag):** a claim records the repo name it was written from. Agents only
+  choose `scope=user` (how this person works); they never pick global. A write with no project, or
+  one not in `KYPP_PROJECTS`, still lands as *unsorted*: the writing session sees it right away,
+  other sessions only once it is filed. The gate tries to file it into a known project in the same
+  call, and the hourly defrag pass retries (an origin that has since joined `KYPP_PROJECTS` files
+  without the model). Every filing is logged in the claim's `metadata.filed`. Leave
+  `KYPP_PROJECTS` unset to keep treating any well-formed name as a project. Recall and briefing
+  lines say where each came from: `(repo)`, `(user)`, `(global)` or `(unsorted)`.
 - **Automatic, with a judge:** promotion needs no person in any scope. With the gate on, the
-  cleanup pass first asks the model whether the supporting claims agree; if they look conflicted,
+  defrag pass first asks the model whether the supporting claims agree; if they look conflicted,
   the subject waits as candidates until a later pass. `correct` stays trust-based: any signed-in
   agent can land an accepted project-scope answer, so `KYPP_CORRECT=off` (the shipped default in
   `wrangler.jsonc`) hides it from the tool list and refuses calls.
 - **Write gate (Clef, or Jev):** each `claim` is scored first by Clef on the Worker's Workers AI
   binding (`KYPP_S1_MODEL=clef-flash` for the faster one), or by TypeSafe when `TYPESAFE_API_KEY` is set. Status and
   session detail are turned away, a defaulted type is relabelled when the model is sure, and how
-  general the lesson looks is recorded. The model never accepts a claim or moves it between
-  scopes. `KYPP_S1=off`, a 5-second timeout or an error all mean no gate. Each claim's subject and
+  general the lesson looks is recorded. The model may file an unsorted claim into one known
+  project when sure; it never accepts or widens a claim. `KYPP_S1=off`, a 5-second timeout or an error all mean no gate. Each claim's subject and
   content go to Workers AI in your Cloudflare account, or to the TypeSafe API when a key is set.
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
-  logged per session. A subject two sessions claim is promoted by the hourly cleanup pass.
+  logged per session. A subject two sessions claim is promoted by the hourly defrag pass.
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
   operator's `kypp correct`.
 - **No Durable Objects.** The MCP endpoint is stateless JSON over HTTP.

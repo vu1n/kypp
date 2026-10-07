@@ -3,8 +3,8 @@
 // clients can present a named static token from KYPP_API_TOKENS instead.
 import { AuthorizationError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { type Caller, handleMcp } from "./mcp.ts";
-import { consolidate } from "./consolidate.ts";
-import { type Policy } from "./memory.ts";
+import { defrag } from "./defrag.ts";
+import { type Policy, projectList } from "./memory.ts";
 import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
 
@@ -18,6 +18,7 @@ export interface Env extends S1Env {
   KYPP_API_TOKENS?: string;
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
   KYPP_CORRECT?: string;            // "off" hides the trust-based `correct` tool
+  KYPP_PROJECTS?: string;           // comma-separated known repo names; unset = any well-formed name is a project
   AUTH_LIMIT?: RateLimit;     // passphrase attempts
   REGISTER_LIMIT?: RateLimit; // OAuth client registrations, which anyone can attempt
 }
@@ -123,7 +124,8 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
     apiRoute: "/mcp",
     apiHandler: {
       fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcp(request, env.DB, (ctx as any).props as Caller,
-        { s1: s1Client(env), policy: policyFrom(env), sessionKey: `${env.CONSENT_SECRET}:session`, correct: env.KYPP_CORRECT !== "off" }),
+        { s1: s1Client(env), policy: policyFrom(env), sessionKey: `${env.CONSENT_SECRET}:session`, correct: env.KYPP_CORRECT !== "off",
+          projects: projectList(env.KYPP_PROJECTS) }),
     },
     defaultHandler: {
       fetch: (request: Request, env: Env) => {
@@ -157,9 +159,9 @@ export default {
     return oauthProvider(env).fetch(request, env, ctx);
   },
 
-  // The cleanup pass: supersede duplicates and promote subjects that recur across sessions. Groups
-  // that changed while it ran are skipped and picked up next hour.
+  // The defrag pass: file unsorted claims, supersede duplicates and promote subjects that recur
+  // across sessions. Groups that changed while it ran are skipped and picked up next hour.
   async scheduled(_event: ScheduledController, env: Env) {
-    await consolidate(new D1Store(env.DB), policyFrom(env), s1Client(env));
+    await defrag(new D1Store(env.DB), policyFrom(env), s1Client(env), projectList(env.KYPP_PROJECTS));
   },
 };
