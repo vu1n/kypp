@@ -28,8 +28,10 @@ deterministic background pass, not in the agent's call.
    weak local ones. No scope argument; origin only affects ranking.
    **Multiplayer:** other sessions' candidates at the caller's origin are returned too, labelled
    unconfirmed and ranked below accepted claims, so agents in one repo see each other's lessons
-   (close to agent messaging). Unsorted claims appear once defrag has filed them, so nothing leaks
-   across repos. *Echo guard:* a session that was shown a candidate and then claims the same subject
+   (close to agent messaging). Other sessions see unsorted claims once they are filed, so nothing
+   leaks across repos. The writing session always sees its own unsorted claims, and filing is
+   tried at write time for that one claim, with the hourly pass as the fallback, so header-less
+   clients (Claude, Codex, Projects) don't wait an hour to share or recall a lesson. *Echo guard:* a session that was shown a candidate and then claims the same subject
    does not count as the independent second session that accepts it (kypp already logs which
    session was shown which claim). `briefing` stays settled memory plus a short "recent from other
    agents" section; unconfirmed claims mainly surface on `recall`.
