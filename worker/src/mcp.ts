@@ -4,7 +4,7 @@
 import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, ftsQuery, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
 import { consolidate } from "./consolidate.ts";
 import { fileClaim } from "./defrag.ts";
-import { DROP_BELOW, type ProjectInfo, type S1Client, judge } from "./s1.ts";
+import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, type S1Client, judge } from "./s1.ts";
 import { D1Store } from "./store.ts";
 
 export interface Caller {
@@ -150,6 +150,10 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
       const v = await judge(ctx.s1, { subject, content, project });
       if (v.keep !== null && v.keep < DROP_BELOW) {
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
+      }
+      // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — reads are a channel between agents, so the gate holds back control text aimed at them.
+      if (v.control !== null && v.control > CONTROL_ABOVE) {
+        return `Not stored: this reads as instructions aimed at other agents rather than a lesson about the code or the person (p_control=${v.control.toFixed(2)}).`;
       }
       const s1 = v.keep === null ? undefined : { keep: v.keep, general: v.general, type: v.type };
       // Why: the agent picks who a lesson is about (user), never how widely it applies, so global is refused.
