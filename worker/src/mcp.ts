@@ -83,12 +83,13 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
-interface Ctx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy }
+interface Ctx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy; correct: boolean }
 
 export interface McpOptions {
   s1?: S1Client | null;
   policy?: Policy;
   sessionKey?: string; // HMAC key for session ids; without one, ids are unsigned
+  correct?: boolean;   // offer the trust-based `correct` tool (default on; KYPP_CORRECT=off hides it)
 }
 
 // Session ids are `<id>.<mac>`, signed at initialize, so a client can't name an arbitrary session to
@@ -150,6 +151,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
       return JSON.stringify(claimDict(c), null, 2);
     }
     case "correct": {
+      if (!ctx.correct) throw new Error("correct is turned off on this server; use claim instead");
       const subject = String(a.subject ?? "");
       const id = await store.claim({
         type: a.type ?? "fact", subject, content: String(a.content ?? ""), scope: "project", project,
@@ -173,13 +175,13 @@ async function dispatch(msg: Rpc, store: D1Store, ctx: Ctx) {
         protocolVersion: VERSIONS.includes(asked) ? asked : VERSIONS[2],
         capabilities: { tools: {} },
         serverInfo: { name: "kypp", version: "0.1.0" },
-        instructions: INSTRUCTIONS,
+        instructions: ctx.correct ? INSTRUCTIONS : INSTRUCTIONS.slice(0, INSTRUCTIONS.indexOf("\n4.")),
       });
     }
     case "ping":
       return ok({});
     case "tools/list":
-      return ok({ tools: TOOLS });
+      return ok({ tools: ctx.correct ? TOOLS : TOOLS.filter((t) => t.name !== "correct") });
     case "tools/call":
       try {
         const text = await callTool(store, msg.params?.name, msg.params?.arguments ?? {}, ctx);
@@ -208,7 +210,7 @@ export async function handleMcp(request: Request, db: D1Database, caller: Caller
   const issued = isInit ? await issueSession(opts.sessionKey) : null;
   const session = issued ? issued.split(".")[0] : await verifySession(opts.sessionKey, request.headers.get(SESSION_HEADER));
   const store = new D1Store(db);
-  const ctx: Ctx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY };
+  const ctx: Ctx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY, correct: opts.correct ?? true };
   const replies = [];
   for (const m of msgs) {
     if (m.id === undefined) continue; // notifications get no reply

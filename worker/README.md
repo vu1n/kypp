@@ -17,7 +17,8 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Automatic, with a judge:** promotion needs no person in any scope. With a TypeSafe key, the
   cleanup pass first asks the model whether the supporting claims agree; if they look conflicted,
   the subject waits as candidates until a later pass. `correct` stays trust-based: any signed-in
-  agent can land an accepted project-scope answer.
+  agent can land an accepted project-scope answer, so `KYPP_CORRECT=off` (the shipped default in
+  `wrangler.jsonc`) hides it from the tool list and refuses calls.
 - **Optional write gate (Jev, Clef):** with a TypeSafe key, each `claim` is scored first. Status and
   session detail are turned away, a defaulted type is relabelled when the model is sure, and how
   general the lesson looks is recorded. The model never accepts a claim or moves it between
@@ -33,10 +34,12 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 
 ```sh
 cd worker && npm install
+npx wrangler login
 npx wrangler d1 create kypp                  # paste database_id into wrangler.jsonc
 npx wrangler kv namespace create OAUTH_KV    # paste id into wrangler.jsonc
-# set vars.KYPP_PUBLIC_URL in wrangler.jsonc to the Worker's https origin
 npx wrangler d1 migrations apply kypp --remote
+npx wrangler deploy                          # prints https://kypp.<subdomain>.workers.dev
+# set vars.KYPP_PUBLIC_URL in wrangler.jsonc to that origin (OAuth issuer + resource id), then:
 npx wrangler secret put KYPP_OWNER_SECRET    # the passphrase you type on the sign-in page; make it long
 npx wrangler secret put CONSENT_SECRET       # 32+ random chars
 npx wrangler secret put KYPP_API_TOKENS      # optional: "huddles:<long random token>" for headless clients
@@ -46,8 +49,10 @@ npx wrangler deploy
 
 ## Connect
 
-- **Claude Code:** `claude mcp add --transport http kypp https://<worker>/mcp`, then `/mcp` to sign in.
-  Add `--header "X-Kypp-Project: <repo>"` to skip passing `project` on every call.
+- **Claude Code:** in each repo, `claude mcp add --transport http --scope project kypp https://<worker>/mcp --header "X-Kypp-Project: <repo>"`,
+  then `/mcp` to sign in. `--scope project` writes `.mcp.json` into the repo, so the project
+  header is pinned per repo. One Worker holds every repo's memory; a call with no project can
+  read only user and global claims and can't write project ones.
 - **Claude (projects and chat):** Settings → Connectors → Add custom connector → `https://<worker>/mcp`.
 - **Headless (huddles):** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
 
