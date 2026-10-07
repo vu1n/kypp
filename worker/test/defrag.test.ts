@@ -145,6 +145,10 @@ test("only the writing session sees its unsorted claims", async () => {
   assert.ok(!(await client(db, { session: "b", header: "kypp" })("recall", q)).text.includes(id.slice(0, 8)));
   // the same session id under another signed-in user doesn't see them either
   assert.ok(!(await client(db, { session: "a", user: "ana" })("recall", q)).text.includes(id.slice(0, 8)));
+  // nor can another session or user expand the handle
+  assert.equal((await client(db, { session: "a" })("expand", { handle: id })).isError, undefined);
+  assert.equal((await client(db, { session: "b" })("expand", { handle: id })).isError, true);
+  assert.equal((await client(db, { session: "a", user: "ana" })("expand", { handle: id })).isError, true);
 });
 
 test("reads label each line's level, and say so when the call has no known project", async () => {

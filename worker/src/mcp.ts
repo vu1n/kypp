@@ -124,7 +124,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
   const project = resolveOrigin(a.project, names) ?? resolveOrigin(ctx.project, names);
   const user = ctx.caller.user;
   // Why: a read without a known project used to return less with no sign of it.
-  const note = project ? "" : `note: ${origin ? `"${origin}" is not a known project` : "no project given"}, so this shows user and global memory only. Known projects: ${known(projects)}.\n`;
+  const note = project ? "" : `note: ${origin ? `"${origin}" is not a known project` : "no project given"}, so this shows user and global memory only, plus your own session's unsorted claims. Known projects: ${known(projects)}.\n`;
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
@@ -170,7 +170,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
       return `${id}\nunsorted: ${origin ? `"${origin}" is not a known project` : "no project given"}, so ${reach} until the server files it. Known projects: ${known(projects)}.`;
     }
     case "expand": {
-      const c = await store.get(String(a.handle ?? ""), user);
+      const c = await store.get(String(a.handle ?? ""), user, ctx.session);
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
       await store.recordUsage(ctx.session, [c], "expand", c.project);
       return JSON.stringify(claimDict(c), null, 2);

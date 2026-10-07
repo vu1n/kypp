@@ -39,6 +39,7 @@ const UNSORTED = "scope = 'project' AND project IS NULL";
 
 // What a caller sees: this project's scope, their own user scope, the global scope, and the unsorted
 // claims their own session wrote; never superseded/rejected history. `t` is the table alias.
+// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
 function visible(t: string, project: string | null, user: string | null, includeCandidates: boolean, session: string | null): [string, unknown[]] {
   const status = includeCandidates ? `${t}.status IN ('candidate','accepted')` : `${t}.status = 'accepted'`;
   const scopes = [`${t}.scope = 'global'`];
@@ -117,11 +118,13 @@ export class D1Store {
   // A handle is a claim id or its 8+ char prefix; returns any status (a handle may point into history).
   // Another user's user-scope claims are invisible here exactly as in recall, including to the
   // ambiguity check, so a prefix can't probe for them.
-  async get(handle: string, user: string | null): Promise<Claim | null> {
+  // An unsorted claim resolves only for the session and user that wrote it, as in recall.
+  async get(handle: string, user: string | null, session: string | null = null): Promise<Claim | null> {
     if (!/^[0-9a-f]{8,32}$/.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
     const { results } = await this.db.prepare(
-      "SELECT * FROM memory_claims WHERE id LIKE ? AND (scope != 'user' OR user IS ?) LIMIT 2",
-    ).bind(`${handle}%`, user).all();
+      "SELECT * FROM memory_claims WHERE id LIKE ? AND (scope != 'user' OR user IS ?)"
+      + " AND NOT (scope = 'project' AND project IS NULL AND NOT (session IS ? AND user IS ?)) LIMIT 2",
+    ).bind(`${handle}%`, user, session, user).all();
     if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
     return results.length ? hydrate(results[0]) : null;
   }
