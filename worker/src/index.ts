@@ -18,8 +18,10 @@ export interface Env extends S1Env {
   KYPP_API_TOKENS?: string;
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
   KYPP_CORRECT?: string;            // "off" hides the trust-based `correct` tool
-  AUTH_LIMIT?: { limit(o: { key: string }): Promise<{ success: boolean }> }; // passphrase attempts
+  AUTH_LIMIT?: RateLimit;     // passphrase attempts
+  REGISTER_LIMIT?: RateLimit; // OAuth client registrations, which anyone can attempt
 }
+type RateLimit = { limit(o: { key: string }): Promise<{ success: boolean }> };
 
 // Promotion is automatic in every scope; memory is for agents, so nothing waits on a person.
 export function policyFrom(env: Pick<Env, "KYPP_RECUR_GAP_MINUTES">): Policy {
@@ -28,10 +30,10 @@ export function policyFrom(env: Pick<Env, "KYPP_RECUR_GAP_MINUTES">): Policy {
 }
 
 // False when this caller has used up its passphrase attempts (no binding configured = no limit).
-async function allowAttempt(request: Request, env: Env): Promise<boolean> {
-  if (!env.AUTH_LIMIT) return true;
+async function allowAttempt(request: Request, env: Env, limiter = env.AUTH_LIMIT, kind = "pass"): Promise<boolean> {
+  if (!limiter) return true;
   const ip = request.headers.get("CF-Connecting-IP") ?? "local";
-  return (await env.AUTH_LIMIT.limit({ key: `pass:${ip}` })).success;
+  return (await limiter.limit({ key: `${kind}:${ip}` })).success;
 }
 const tooMany = () => new Response("Too many attempts. Wait a minute and try again.", { status: 429 });
 
@@ -148,7 +150,10 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
 }
 
 export default {
-  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    // Registration is open by design (MCP clients self-register), so throttle it before it writes to KV.
+    if (request.method === "POST" && new URL(request.url).pathname === "/oauth/register"
+      && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "register"))) return tooMany();
     return oauthProvider(env).fetch(request, env, ctx);
   },
 

@@ -114,6 +114,8 @@ cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `
 - The S1 agreement check (`consolidate.ts`) can only hold a promotion back, never cause one.
 - `correct` bypasses the S1 gate and the two-session rule. `KYPP_CORRECT=off` (set in
   `wrangler.jsonc`) hides and refuses it; `.dev.vars` turns it back on for the smoke test.
+- `/oauth/register` is open by design (MCP clients self-register), so `REGISTER_LIMIT` throttles it
+  per IP in `index.ts` before the OAuth provider writes the client to KV.
 - The cron pass is the only writer that changes existing rows. Keep status edits there (and in
   `correct`, which consolidates one subject) so concurrent sessions only ever insert.
 
