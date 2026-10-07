@@ -12,9 +12,18 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   registered, else by a confident System One choice among the registered projects. Every move is
   written to `defrag_log`. The agent's one choice is `scope: "user"` for how the signed-in person
   works, in every repo; `global` is not agent-writable.
-- **Reads** cover the caller's project, their user scope and global. Each line carries its level
-  (`@kypp`, `@user`, `@global`, `@unsorted`), and a call with no known project says so instead of
-  quietly returning less. The writing agent is a label you can filter recall by (`agent`).
+- **Reads** cascade from the caller's project through the groups it rolls up to, then their user
+  scope and global, nearest first on a relevance tie. Each line carries its level (`@kypp`,
+  `@group:tools`, `@user`, `@global`, `@unsorted`), and a call with no known project says so instead
+  of quietly returning less. The writing agent is a label you can filter recall by (`agent`).
+- **Multiplayer:** recall also shows other sessions' unconfirmed (`?`) claims in the caller's own
+  project, ranked below settled ones; the briefing lists the newest few apart, under "recent from
+  other agents". A session that was shown another's candidate and then claims the same subject is
+  recorded as an echo (`metadata.echo_of`, no source session), so repeating what you read never
+  counts toward accepting it.
+- **Groups** are rows in `project_parents` (a project and a group it belongs to; a group can have
+  parents too, up to three levels). Only defrag places claims at a group; agents never write there:
+  `npx wrangler d1 execute kypp --remote --command "INSERT INTO project_parents(project, parent, created_at) VALUES ('kypp', 'tools', datetime('now'))"`.
 - **Projects** are rows you add; `description` is what the filing model reads to tell them apart:
   `npx wrangler d1 execute kypp --remote --command "INSERT INTO projects(name, description, created_at) VALUES ('myrepo', 'one line on what it is', datetime('now'))"`.
 - **Categories:** the claim types (pitfall, decision, procedure, preference, fact, artifact,
