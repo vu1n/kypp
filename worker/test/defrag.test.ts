@@ -20,8 +20,9 @@ async function setup() {
 }
 
 // One MCP client: its own session, optional project header, optional S1.
-function client(db: D1Database, opts: { header?: string; s1?: S1Client | null; session?: string; user?: string } = {}) {
-  const headers: Record<string, string> = { "Mcp-Session-Id": opts.session ?? "s1" };
+function client(db: D1Database, opts: { header?: string; s1?: S1Client | null; session?: string | null; user?: string } = {}) {
+  const headers: Record<string, string> = {};
+  if (opts.session !== null) headers["Mcp-Session-Id"] = opts.session ?? "s1";
   if (opts.header) headers["X-Kypp-Project"] = opts.header;
   return async (name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> => {
     const req = new Request("https://k/mcp", { method: "POST", headers,
@@ -149,6 +150,9 @@ test("only the writing session sees its unsorted claims", async () => {
   assert.equal((await client(db, { session: "a" })("expand", { handle: id })).isError, undefined);
   assert.equal((await client(db, { session: "b" })("expand", { handle: id })).isError, true);
   assert.equal((await client(db, { session: "a", user: "ana" })("expand", { handle: id })).isError, true);
+  // a claim written with no session can't be expanded by another session-less caller
+  const bare = idOf((await client(db, { session: null })("claim", { subject: "yak", content: "yak lesson" })).text);
+  assert.equal((await client(db, { session: null })("expand", { handle: bare })).isError, true);
 });
 
 test("reads label each line's level, and say so when the call has no known project", async () => {
