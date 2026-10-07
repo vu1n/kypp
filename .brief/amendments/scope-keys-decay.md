@@ -26,6 +26,12 @@ deterministic background pass, not in the agent's call.
    status. Relevance ranks first, as the compose contract and today's Worker query do; nearness to the
    origin is a boost and tie-break after relevance, so an exact shared match is never crowded out by
    weak local ones. No scope argument; origin only affects ranking.
+   *System One reranks.* Search (FTS today) pulls a wide candidate set across all levels; the S1
+   model (Clef on Workers AI, the same client as the write gate) scores each candidate's relevance to
+   the query, and the top `limit` are returned. Nearness and status adjust that score after it. This
+   lives inside the compose contract's selection step, same signature and caller. If S1 is off, slow
+   or fails, the FTS order stands, as the write gate degrades today. Ranking never changes what a
+   caller may see, only the order.
    **Multiplayer:** other sessions' candidates at the caller's origin are returned too, labelled
    unconfirmed and ranked below accepted claims, so agents in one repo see each other's lessons
    (close to agent messaging). Other sessions see unsorted claims once they are filed, so nothing
