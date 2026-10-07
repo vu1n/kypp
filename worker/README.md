@@ -21,7 +21,8 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   other agents". A session that was shown another's candidate and then claims the same subject is
   recorded as an echo (`metadata.echo_of`, no source session), so repeating what you read never
   counts toward accepting it. The write gate also holds back text that reads as instructions aimed
-  at other agents (override instructions, send credentials somewhere) rather than a lesson.
+  at other agents (override instructions, send credentials somewhere) rather than a lesson; a claim
+  written while the model was down is judged by the next defrag pass instead.
 - **Groups** are rows in `project_parents` (a project and a group it belongs to; a group can have
   parents too, up to three levels). Only defrag places claims at a group; agents never write there:
   `npx wrangler d1 execute kypp --remote --command "INSERT INTO project_parents(project, parent, created_at) VALUES ('kypp', 'tools', datetime('now'))"`.

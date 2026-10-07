@@ -117,6 +117,9 @@ defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It
 - Recall shows other sessions' candidates in the caller's project by default (`candidates: "origin"`).
   The echo guard (`store.shownCandidate`) relies on `claim_usages` rows for what a session was shown,
   so every read path that renders claims must keep calling `recordUsage`.
+- The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
+  (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
+  re-judged every pass until one sticks, so new write paths must keep recording the verdict.
 - `origin` is what the writer said and is never updated; `project` is where the claim is filed.
   Change placement only through `store.file()`, which also writes `defrag_log`.
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;

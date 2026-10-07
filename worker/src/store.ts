@@ -210,6 +210,35 @@ export class D1Store {
     await this.db.prepare(`UPDATE memory_claims SET file_tried_at = ? WHERE id = ? AND ${UNSORTED}`).bind(now(), id).run();
   }
 
+  // Agent claims the write gate had no verdict on (S1 off, erroring or slow when they were written),
+  // never-retried first, so defrag can judge them late.
+  async unjudged(limit: number): Promise<Claim[]> {
+    const { results } = await this.db.prepare(
+      "SELECT * FROM memory_claims WHERE status IN ('candidate','accepted') AND authority = 'agent'"
+      + " AND json_extract(metadata, '$.s1') IS NULL"
+      + " ORDER BY json_extract(metadata, '$.s1_tried') IS NOT NULL, json_extract(metadata, '$.s1_tried'), created_at LIMIT ?",
+    ).bind(limit).all();
+    return results.map(hydrate);
+  }
+
+  // Records a late verdict, or (verdict null) that the model still had no opinion, for rotation.
+  async judged(id: string, verdict: Record<string, unknown> | null): Promise<void> {
+    await (verdict
+      ? this.db.prepare("UPDATE memory_claims SET metadata = json_set(metadata, '$.s1', json(?)) WHERE id = ?").bind(JSON.stringify(verdict), id)
+      : this.db.prepare("UPDATE memory_claims SET metadata = json_set(metadata, '$.s1_tried', ?) WHERE id = ?").bind(now(), id)).run();
+  }
+
+  // Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim.
+  // Takes a live claim out of memory with the reason in its metadata; bumps updated_at so a plan
+  // already made for its group goes stale.
+  async reject(id: string, reason: string): Promise<boolean> {
+    const r = await this.db.prepare(
+      "UPDATE memory_claims SET status = 'rejected', updated_at = ?, metadata = json_set(metadata, '$.rejected', ?)"
+      + " WHERE id = ? AND status IN ('candidate','accepted')",
+    ).bind(now(), reason, id).run();
+    return r.meta.changes > 0;
+  }
+
   // Files one unsorted claim and logs the move. False if it was already filed (a concurrent pass).
   // Why: updated_at is left alone. It dates the lesson, and planGroup treats a newer candidate as an
   // update to an accepted answer; the group guard still notices the move because the count changes.

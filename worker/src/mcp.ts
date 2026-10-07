@@ -155,7 +155,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
       if (v.control !== null && v.control > CONTROL_ABOVE) {
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson about the code or the person (p_control=${v.control.toFixed(2)}).`;
       }
-      const s1 = v.keep === null ? undefined : { keep: v.keep, general: v.general, type: v.type };
+      const s1 = v.keep === null && v.control === null ? undefined : { keep: v.keep, general: v.general, type: v.type, control: v.control };
       // Why: the agent picks who a lesson is about (user), never how widely it applies, so global is refused.
       if (a.scope !== undefined && a.scope !== "project" && a.scope !== "user") {
         throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
