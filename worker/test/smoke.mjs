@@ -134,5 +134,9 @@ mock.close();
 const statuses = [];
 for (let i = 0; i < 6; i++) statuses.push((await post("nope")).status);
 assert.ok(statuses.includes(429), `no rate limit: ${statuses}`);
+const regs = [];
+for (let i = 0; i < 4; i++) regs.push((await fetch(`${BASE}/oauth/register`, { method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ client_name: "flood", redirect_uris: ["http://localhost:9/cb"] }) })).status);
+assert.ok(regs.includes(429), `no registration limit: ${regs}`);
 
-console.log("OK — static token, promotion, correct, S1 gate, user scope + expand isolation, signed sessions, 401, OAuth, S1 hold on conflict, rate limit");
+console.log("OK — static token, promotion, correct, S1 gate, user scope + expand isolation, signed sessions, 401, OAuth, S1 hold on conflict, rate limits");
