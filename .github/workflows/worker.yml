@@ -25,6 +25,6 @@ jobs:
         run: |
           cp .dev.vars.example .dev.vars
           npx wrangler d1 migrations apply kypp --local
-          npx wrangler dev --test-scheduled --port 8787 > /tmp/wrangler.log 2>&1 &
+          npm run dev:local -- --test-scheduled --port 8787 > /tmp/wrangler.log 2>&1 &
           for i in $(seq 1 60); do curl -sf localhost:8787/ >/dev/null && break; sleep 1; done
           node test/smoke.mjs || { cat /tmp/wrangler.log; exit 1; }

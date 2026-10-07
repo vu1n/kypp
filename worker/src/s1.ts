@@ -1,7 +1,7 @@
-// s1.ts — the optional System One write gate (Jev, Clef) over the TypeSafe API, the Worker's twin of
-// kypp/s1.py. A System One model returns calibrated probabilities, never text. It filters and labels
+// s1.ts — the optional System One write gate (Jev, Clef) over the TypeSafe API or Workers AI, the
+// Worker's twin of kypp/s1.py. A System One model returns calibrated probabilities, never text. It filters and labels
 // what enters memory and can hold back a promotion it finds conflicted; it never accepts a claim or
-// changes its scope. No key → no gate.
+// changes its scope. No key and no AI binding → no gate.
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { TYPES, type ClaimType } from "./memory.ts";
 
@@ -10,6 +10,8 @@ export interface S1Env {
   TYPESAFE_BASE_URL?: string;
   TYPESAFE_DEFAULT_MODEL?: string;
   KYPP_S1?: string;
+  KYPP_S1_MODEL?: string; // Workers AI decision model: "clef" (default) or "clef-flash"
+  AI?: Ai;
 }
 
 // The slice of TypeSafeClient the gate uses, so tests can pass a fake.
@@ -17,8 +19,15 @@ export interface S1Client {
   systemOne(req: { state: unknown; questions: Record<string, unknown> }): PromiseLike<{ answers: Record<string, any> }>;
 }
 
+// A TypeSafe key wins; otherwise Clef on the Worker's own AI binding (same System One request and
+// answer shape, billed to the Cloudflare account, no key to manage).
 export function s1Client(env: S1Env): S1Client | null {
-  if (!env.TYPESAFE_API_KEY || ["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
+  if (["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
+  if (!env.TYPESAFE_API_KEY) {
+    if (!env.AI) return null;
+    const ai = env.AI, model = env.KYPP_S1_MODEL || "clef";
+    return { systemOne: ({ state, questions }) => ai.run(`@cf/cloudflare/${model}` as any, { model, state, questions } as any) as any };
+  }
   // A slow gate stalls the agent's claim call, so cap it; a timeout fails open like any error.
   return new TypeSafeClient({ apiKey: env.TYPESAFE_API_KEY, baseURL: env.TYPESAFE_BASE_URL, defaultModel: env.TYPESAFE_DEFAULT_MODEL,
     timeout: DEADLINE_MS, retry: { maxRetries: 0 } });

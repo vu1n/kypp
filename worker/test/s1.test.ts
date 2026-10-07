@@ -5,9 +5,20 @@ import { type S1Client, judge, s1Client } from "../src/s1.ts";
 const draft = { subject: "s", content: "c", project: "p" };
 const fake = (answers: Record<string, unknown>): S1Client => ({ systemOne: async () => ({ answers }) });
 
-test("no key means no gate", () => {
+test("no key and no AI binding means no gate", () => {
   assert.equal(s1Client({}), null);
   assert.equal(s1Client({ TYPESAFE_API_KEY: "k", KYPP_S1: "off" }), null);
+});
+
+test("without a key the gate runs Clef on the AI binding", async () => {
+  const calls: [string, any][] = [];
+  const AI = { run: async (m: string, input: any) => (calls.push([m, input]), { model: input.model, answers: { keep: { type: "noul", noul: 0.03 } }, usage: {} }) } as any;
+  assert.equal((await judge(s1Client({ AI }), draft)).keep, 0.03);
+  assert.equal(calls[0][0], "@cf/cloudflare/clef");
+  assert.deepEqual(calls[0][1].state, draft);
+  await s1Client({ AI, KYPP_S1_MODEL: "clef-flash" })!.systemOne({ state: draft, questions: {} });
+  assert.equal(calls[1][0], "@cf/cloudflare/clef-flash");
+  assert.equal(s1Client({ AI, KYPP_S1: "off" }), null);
 });
 
 test("reads keep, a confident type and generality", async () => {

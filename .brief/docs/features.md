@@ -101,6 +101,9 @@ cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `
   stored. Don't add a Durable Object to hold sessions.
 - The `user` scope exists only in the Worker; local `vocab.Scope` is still project/global. On the
   user scope the `user` column is the owner, so a static token's name decides whose user scope it reads.
+- The S1 gate runs Clef on the `AI` binding unless `TYPESAFE_API_KEY` is set. Workers AI is always
+  remote, so plain `wrangler dev` fails without a Cloudflare login; `npm run dev:local` (and CI's
+  smoke) strips the binding and uses the TypeSafe mock from `.dev.vars`.
 - The S1 gate fails open and only filters or labels. It must never accept a claim or change its
   scope (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;
