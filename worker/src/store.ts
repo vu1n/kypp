@@ -45,7 +45,9 @@ function visible(t: string, project: string | null, user: string | null, include
   const params: unknown[] = [];
   if (project) { scopes.push(`(${t}.scope = 'project' AND ${t}.project = ?)`); params.push(project); }
   if (user) { scopes.push(`(${t}.scope = 'user' AND ${t}.user = ?)`); params.push(user); }
-  if (session) { scopes.push(`(${t}.scope = 'project' AND ${t}.project IS NULL AND ${t}.session = ?)`); params.push(session); }
+  // Session ids aren't bound to a caller, so the row's user must match too: a replayed session
+  // header can't read someone else's unsorted claims.
+  if (session) { scopes.push(`(${t}.scope = 'project' AND ${t}.project IS NULL AND ${t}.session = ? AND ${t}.user IS ?)`); params.push(session, user); }
   return [`${status} AND (${scopes.join(" OR ")})`, params];
 }
 

@@ -20,13 +20,13 @@ async function setup() {
 }
 
 // One MCP client: its own session, optional project header, optional S1.
-function client(db: D1Database, opts: { header?: string; s1?: S1Client | null; session?: string } = {}) {
+function client(db: D1Database, opts: { header?: string; s1?: S1Client | null; session?: string; user?: string } = {}) {
   const headers: Record<string, string> = { "Mcp-Session-Id": opts.session ?? "s1" };
   if (opts.header) headers["X-Kypp-Project"] = opts.header;
   return async (name: string, args: Record<string, unknown>): Promise<{ text: string; isError?: boolean }> => {
     const req = new Request("https://k/mcp", { method: "POST", headers,
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
-    const { result } = await (await handleMcp(req, db, { user: "owner", agent: "t" }, { s1: opts.s1 ?? null })).json() as any;
+    const { result } = await (await handleMcp(req, db, { user: opts.user ?? "owner", agent: "t" }, { s1: opts.s1 ?? null })).json() as any;
     return { text: result.content[0].text, isError: result.isError };
   };
 }
@@ -51,6 +51,12 @@ test("an origin resolves to a known project by name, ignoring case, owner prefix
   assert.equal(resolveOrigin("vu1n/kypp", ["kypp", "vu1n/kypp"]), "vu1n/kypp");
   assert.equal(resolveOrigin("kypp", ["vu1n/kypp"]), "vu1n/kypp");
   assert.equal(resolveOrigin("kypp", ["Kypp", "kypp"]), "kypp");
+  // a fallback must name exactly one project: the owner path decides, or the claim stays unsorted
+  const twins = ["org1/foo", "org2/foo"];
+  assert.equal(resolveOrigin("https://github.com/org2/foo.git", twins), "org2/foo");
+  assert.equal(resolveOrigin("org1/foo", twins), "org1/foo");
+  assert.equal(resolveOrigin("foo", twins), null);
+  assert.equal(resolveOrigin("org3/foo", twins), null);
 });
 
 test("an unknown project argument falls back to a known header", async () => {
@@ -137,6 +143,8 @@ test("only the writing session sees its unsorted claims", async () => {
   assert.ok((await client(db, { session: "a" })("recall", q)).text.includes(id.slice(0, 8)));
   assert.ok((await client(db, { session: "a", header: "kypp" })("recall", q)).text.includes(id.slice(0, 8)));
   assert.ok(!(await client(db, { session: "b", header: "kypp" })("recall", q)).text.includes(id.slice(0, 8)));
+  // the same session id under another signed-in user doesn't see them either
+  assert.ok(!(await client(db, { session: "a", user: "ana" })("recall", q)).text.includes(id.slice(0, 8)));
 });
 
 test("reads label each line's level, and say so when the call has no known project", async () => {

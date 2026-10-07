@@ -11,13 +11,20 @@ export const SCOPES = ["project", "user", "global"] as const;
 export type Scope = (typeof SCOPES)[number];
 
 // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
-// An exact name wins; otherwise both sides compare by last path segment, so "vu1n/Kypp" and a clone
-// URL resolve to "kypp", and a project registered as "vu1n/kypp" is still reachable.
-const repoName = (s: string) => s.trim().replace(/\.git$/i, "").split("/").filter(Boolean).pop()?.toLowerCase();
+// An exact name wins; then a registered path the origin ends with ("https://github.com/vu1n/kypp.git"
+// → "vu1n/kypp"); then the last path segment, so "vu1n/Kypp" resolves to "kypp". Each fallback
+// counts only when it names exactly one project: two registered "foo"s leave the claim unsorted.
+const path = (s: string) => s.trim().replace(/\.git$/i, "").toLowerCase().split("/").filter(Boolean);
+const only = (xs: string[]) => (xs.length === 1 ? xs[0] : null);
 export function resolveOrigin(origin: string | null | undefined, known: string[]): string | null {
-  const given = (origin ?? "").trim(), name = repoName(given);
-  if (!name) return null;
-  return known.find((k) => k === given) ?? known.find((k) => repoName(k) === name) ?? null;
+  const given = (origin ?? "").trim(), segs = path(given);
+  if (!segs.length) return null;
+  if (known.includes(given)) return given;
+  const suffix = only(known.filter((k) => {
+    const ks = path(k);
+    return ks.length > 1 && ks.length <= segs.length && ks.every((x, i) => x === segs[segs.length - ks.length + i]);
+  }));
+  return suffix ?? only(known.filter((k) => path(k).at(-1) === segs.at(-1)));
 }
 
 // Where a claim sits, as shown on every read line.
