@@ -47,7 +47,7 @@ test("briefing puts pitfalls, then decisions, then procedures first", () => {
 test("compact line carries handle, marks and a clipped body", () => {
   const c = claim({ status: "accepted", authority: "human", content: "x".repeat(300), code_refs: [{ path: "a.py" }] });
   const line = compactLine(c);
-  assert.ok(line.startsWith(`${c.id.slice(0, 8)} [fact ✓0.7 👤]`), line);
+  assert.ok(line.startsWith(`${c.id.slice(0, 8)} [fact ✓0.7 👤 @p]`), line);
   assert.ok(line.includes("expand") && line.endsWith("→ a.py"), line);
 });
 

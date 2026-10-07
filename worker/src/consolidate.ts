@@ -4,7 +4,7 @@ import { type Claim, type GroupPlan, type Policy, groupClaims, hasWork, planGrou
 import { HOLD_BELOW, type S1Client, agrees } from "./s1.ts";
 import type { D1Store } from "./store.ts";
 
-// Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — the model can only hold a promotion back; recurrence is what accepts.
+// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — the model can only hold a promotion back; recurrence is what accepts.
 export async function planWithJudge(live: Claim[], policy: Policy, s1: S1Client | null): Promise<GroupPlan[]> {
   const plans: GroupPlan[] = [];
   for (const members of groupClaims(live)) {
@@ -21,5 +21,5 @@ export async function planWithJudge(live: Claim[], policy: Policy, s1: S1Client 
 
 export async function consolidate(store: D1Store, policy: Policy, s1: S1Client | null,
   filter?: Parameters<D1Store["liveClaims"]>[0]) {
-  return store.apply(await planWithJudge(await store.liveClaims(filter), policy, s1));
+  return store.apply(await planWithJudge(await store.liveClaims({ ...filter, filed: true }), policy, s1));
 }

@@ -10,6 +10,28 @@ export type Authority = (typeof AUTHORITIES)[number];
 export const SCOPES = ["project", "user", "global"] as const;
 export type Scope = (typeof SCOPES)[number];
 
+// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
+// An exact name wins; then a registered path the origin ends with ("https://github.com/vu1n/kypp.git"
+// → "vu1n/kypp"); then the last path segment, so "vu1n/Kypp" resolves to "kypp". Each fallback
+// counts only when it names exactly one project: two registered "foo"s leave the claim unsorted.
+const path = (s: string) => s.trim().replace(/\.git$/i, "").toLowerCase().split("/").filter(Boolean);
+const only = (xs: string[]) => (xs.length === 1 ? xs[0] : null);
+export function resolveOrigin(origin: string | null | undefined, known: string[]): string | null {
+  const given = (origin ?? "").trim(), segs = path(given);
+  if (!segs.length) return null;
+  if (known.includes(given)) return given;
+  const suffix = only(known.filter((k) => {
+    const ks = path(k);
+    return ks.length > 1 && ks.length <= segs.length && ks.every((x, i) => x === segs[segs.length - ks.length + i]);
+  }));
+  return suffix ?? only(known.filter((k) => path(k).at(-1) === segs.at(-1)));
+}
+
+// Where a claim sits, as shown on every read line.
+export function level(c: Pick<Claim, "scope" | "project">): string {
+  return c.scope === "project" ? c.project ?? "unsorted" : c.scope;
+}
+
 // Same value as vocab.HUMAN_CORRECTION_CONFIDENCE.
 export const HUMAN_CORRECTION_CONFIDENCE = 0.95;
 
@@ -19,7 +41,9 @@ export interface Claim {
   subject: string;
   content: string;
   scope: Scope;
-  project: string | null;
+  project: string | null; // where it is filed; null on a project-scope claim means unsorted
+  origin?: string | null; // what the writer said it was working in; never changes
+  session?: string | null;
   agent: string | null;
   user: string | null;
   status: "candidate" | "accepted" | "superseded" | "rejected";
@@ -144,7 +168,7 @@ export function compactLine(c: Claim): string {
   const mark = c.status === "accepted" ? "✓" : "?";
   const auth = c.authority === "human" ? " 👤" : c.authority === "verified" ? " ☑" : "";
   const body = c.content.split(/\s+/).filter(Boolean).join(" ");
-  let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth}] ${c.subject} — ${body.slice(0, CLIP)}`;
+  let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth} @${level(c)}] ${c.subject} — ${body.slice(0, CLIP)}`;
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
   const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
   if (path) line += ` → ${path}`;

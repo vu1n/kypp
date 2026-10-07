@@ -88,7 +88,7 @@ paths:
 The optional hosted store: a Cloudflare Worker over D1 serving `briefing`, `recall`, `claim`,
 `expand` and `correct` as a remote MCP server behind OAuth, so cloud sessions share one memory.
 `worker/src/memory.ts` ports the arbiter's ranking and promotion rules; an hourly cron runs the
-cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `project` and
+defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It adds a `user` scope (the signed-in person, every repo) beside `project` and
 `global`, and an optional System One write gate (`worker/src/s1.ts`, TypeSafe JS SDK).
 
 ### Gotchas
@@ -104,8 +104,15 @@ cleanup pass. It adds a `user` scope (the signed-in person, every repo) beside `
 - The S1 gate runs Clef on the `AI` binding unless `TYPESAFE_API_KEY` is set. Workers AI is always
   remote, so plain `wrangler dev` fails without a Cloudflare login; `npm run dev:local` (and CI's
   smoke) strips the binding and uses the TypeSafe mock from `.dev.vars`.
-- The S1 gate fails open and only filters or labels. It must never accept a claim or change its
-  scope (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
+- The S1 model fails open. It filters and labels writes and files unsorted claims into a registered
+  project; it must never accept or widen a claim
+  (`doc://kypp/memory-scope-decay@latest#scope-keys-decay`).
+- A project exists only as a row in `projects`. A name from a header or argument is resolved
+  against it (`resolveOrigin`) and never inserted, so tests and the smoke run must register theirs.
+  A project-scope claim with `project IS NULL` is unsorted: only its own session reads it, and
+  consolidation skips it (`liveClaims({ filed: true })`) so it can't be promoted before it is filed.
+- `origin` is what the writer said and is never updated; `project` is where the claim is filed.
+  Change placement only through `store.file()`, which also writes `defrag_log`.
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;
   a group that changed since is skipped (CHECK on `consolidation_guard` rolls its batch back).
   Any new writer of claim status must go through `apply()` or bump `updated_at`.

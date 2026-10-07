@@ -1,9 +1,10 @@
 // mcp.ts — kypp's agent tools as a stateless streamable-HTTP MCP endpoint (JSON responses, no SSE,
 // no Durable Object). The same contract as kypp/mcp_server.py's briefing / recall / claim / expand /
 // correct; consolidation is the scheduled pass in index.ts, not an agent tool.
-import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, SCOPES, TYPES, briefingOrder, ftsQuery, renderBriefing, renderClaims } from "./memory.ts";
+import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, ftsQuery, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
 import { consolidate } from "./consolidate.ts";
-import { DROP_BELOW, type S1Client, judge } from "./s1.ts";
+import { fileClaim } from "./defrag.ts";
+import { DROP_BELOW, type ProjectInfo, type S1Client, judge } from "./s1.ts";
 import { D1Store } from "./store.ts";
 
 export interface Caller {
@@ -16,16 +17,16 @@ const SESSION_HEADER = "Mcp-Session-Id";
 
 const INSTRUCTIONS = `kypp is shared memory for coding agents — durable lessons governed by status
 (candidate → accepted), authority (human > verified > agent) and provenance.
-1. SESSION START — call \`briefing\` once. Pass \`project\` (the repo name) on every call.
+1. SESSION START — call \`briefing\` once. Pass \`project\` (the repo you are working in) on every call.
 2. BEFORE non-trivial work — \`recall("<what you're about to touch>")\`; \`expand(handle)\` for the full claim.
 3. WHEN YOU LEARN SOMETHING DURABLE — \`claim\` a distilled, model-agnostic lesson. \`subject\` is its
    identity: reuse a subject to update it. Claims land as candidates; one is accepted once a second
    session claims the same subject. Don't store status ("shipped", "PR merged") — git holds that.
-   SCOPE: project = this repo; user = how this person works, in every repo; global = true
-   for everyone.
+   WHERE IT GOES: you don't choose. Say which repo you are in and the server files and shares the
+   lesson. Set \`scope: "user"\` only for how this person works, in every repo.
 4. A HUMAN GAVE YOU THE RIGHT ANSWER — \`correct(subject, content)\`.`;
 
-const projectProp = { type: "string", description: "Repo name. Optional when the client sends an X-Kypp-Project header." };
+const projectProp = { type: "string", description: "The repo you are working in. Optional when the client sends an X-Kypp-Project header. An unknown name is not an error: reads then cover user and global memory only, and a claim lands unsorted until the server files it." };
 const TOOLS = [
   {
     name: "briefing",
@@ -34,7 +35,7 @@ const TOOLS = [
   },
   {
     name: "recall",
-    description: "Search shared memory by keywords across the project, user and global scopes. One compact line per hit: `handle [type ✓conf] subject — content`. ✓ accepted, ? candidate. Accepted only unless include_candidates. `agent` limits hits to one client's claims.",
+    description: "Search shared memory by keywords across the project, user and global scopes. One compact line per hit: `handle [type ✓conf @level] subject — content`. ✓ accepted, ? candidate; level is the project, `user`, `global`, or `unsorted` (your own claim, not yet filed). Accepted only unless include_candidates. `agent` limits hits to one client's claims.",
     inputSchema: {
       type: "object", required: ["query"],
       properties: {
@@ -54,7 +55,7 @@ const TOOLS = [
         subject: { type: "string" }, content: { type: "string" },
         type: { type: "string", enum: TYPES, description: "Omit to let the server label it (defaults to fact)." },
         confidence: { type: "number", default: 0.7 },
-        scope: { type: "string", enum: SCOPES, default: "project", description: "project = this repo; user = how this person works, in every repo; global = true for everyone." },
+        scope: { type: "string", enum: ["project", "user"], default: "project", description: "Leave as project for anything about a repo; the server decides how widely it is shared. user = how this person works, in every repo." },
         project: projectProp,
         code_refs: { type: "array", items: { type: "object" }, description: "[{symbol, path, query}] anchors" },
       },
@@ -112,46 +113,71 @@ export async function verifySession(key: string | undefined, header: string | nu
   return id && sig && sig === (await mac(key, id)) ? id : null;
 }
 
+const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
+
 async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
-  const project: string | null = a.project || ctx.project;
+  // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
+  const origin: string | null = a.project || ctx.project || null;
+  const projects = name === "expand" ? [] : await store.projects();
+  const names = projects.map((p) => p.name);
+  // Why: the header is set in config and the argument by the model, so a wrong argument falls back to the header.
+  const project = resolveOrigin(a.project, names) ?? resolveOrigin(ctx.project, names);
   const user = ctx.caller.user;
+  // Why: a read without a known project used to return less with no sign of it.
+  const note = project ? "" : `note: ${origin ? `"${origin}" is not a known project` : "no project given"}, so this shows user and global memory only, plus your own session's unsorted claims. Known projects: ${known(projects)}.\n`;
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
       const claims = briefingOrder(await store.recall("", project, user, { limit: limit * 3 }), limit);
       await store.recordUsage(ctx.session, claims, "briefing", project);
-      return renderBriefing(claims);
+      return note + renderBriefing(claims);
     }
     case "recall": {
       const claims = await store.recall(ftsQuery(String(a.query ?? "")), project, user,
-        { includeCandidates: !!a.include_candidates, types: a.types, agent: a.agent, limit: a.limit });
+        { includeCandidates: !!a.include_candidates, types: a.types, agent: a.agent, limit: a.limit, session: ctx.session });
       await store.recordUsage(ctx.session, claims, "recall", project, a.query || null);
-      return renderClaims(claims);
+      return note + renderClaims(claims);
     }
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
-      // Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — a cheap model gates writes; it filters and labels, never accepts or moves a claim.
+      // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — a cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
       const v = await judge(ctx.s1, { subject, content, project });
       if (v.keep !== null && v.keep < DROP_BELOW) {
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
       }
       const s1 = v.keep === null ? undefined : { keep: v.keep, general: v.general, type: v.type };
+      // Why: the agent picks who a lesson is about (user), never how widely it applies, so global is refused.
+      if (a.scope !== undefined && a.scope !== "project" && a.scope !== "user") {
+        throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
+      }
+      const scope: "project" | "user" = a.scope ?? "project";
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement.
-      return store.claim({
+      const id = await store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,
-        scope: a.scope ?? "project", project, confidence: a.confidence ?? 0.7,
+        scope, project, origin, session: ctx.session, confidence: a.confidence ?? 0.7,
         sourceIds: ctx.session ? [`session:${ctx.session}`] : [], codeRefs: a.code_refs,
         accept: false, agent: ctx.caller.agent, user, metadata: s1 ? { s1 } : {},
       });
+      // Why: clients that can't send a header shouldn't wait an hour for defrag to file their claim.
+      if (scope === "user" || project) return id;
+      try {
+        if (await fileClaim(store, ctx.s1, { id, subject, content, origin }, projects)) return id;
+      } catch (e) {
+        // The claim is stored; defrag retries the filing, so report the id rather than an error the agent would retry.
+        console.error(`kypp: write-time filing of ${id} failed`, e);
+      }
+      const reach = ctx.session ? "only this session can recall it (with include_candidates)" : "it can't be recalled";
+      return `${id}\nunsorted: ${origin ? `"${origin}" is not a known project` : "no project given"}, so ${reach} until the server files it. Known projects: ${known(projects)}.`;
     }
     case "expand": {
-      const c = await store.get(String(a.handle ?? ""), user);
+      const c = await store.get(String(a.handle ?? ""), user, ctx.session);
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
       await store.recordUsage(ctx.session, [c], "expand", c.project);
       return JSON.stringify(claimDict(c), null, 2);
     }
     case "correct": {
       if (!ctx.correct) throw new Error("correct is turned off on this server; use claim instead");
+      if (!project) throw new Error(`correct needs a known project (${known(projects)})`);
       const subject = String(a.subject ?? "");
       const id = await store.claim({
         type: a.type ?? "fact", subject, content: String(a.content ?? ""), scope: "project", project,
