@@ -52,7 +52,7 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **System One for other tools:** `POST /v1/systemone` speaks the TypeSafe API's System One
   route and answers with Clef on the same `AI` binding, so a TypeSafe client works unchanged against
   this Worker. `brief triage` in CI sets `TYPESAFE_BASE_URL=https://<worker>`,
-  `TYPESAFE_API_KEY=<a token from KYPP_API_TOKENS>` and `TYPESAFE_DEFAULT_MODEL=clef` (or
+  `TYPESAFE_API_KEY=<a token from KYPP_S1_TOKENS>` and `TYPESAFE_DEFAULT_MODEL=clef` (or
   `clef-flash`; other models get 400). Only static API tokens are accepted (401 otherwise); no `AI`
   binding means 503. It is a pure proxy and never touches the claims store.
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
@@ -76,6 +76,7 @@ npx wrangler deploy                          # prints https://kypp.<subdomain>.w
 npx wrangler secret put KYPP_OWNER_SECRET    # the passphrase you type on the sign-in page; make it long
 npx wrangler secret put CONSENT_SECRET       # 32+ random chars
 npx wrangler secret put KYPP_API_TOKENS      # optional: "huddles:<long random token>" for headless clients
+npx wrangler secret put KYPP_S1_TOKENS       # optional: "brief-ci:<long random token>" for /v1/systemone only
 npx wrangler secret put TYPESAFE_API_KEY     # optional: route the gate to TypeSafe instead of Clef on Workers AI
 npx wrangler deploy
 ```

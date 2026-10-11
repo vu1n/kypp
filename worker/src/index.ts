@@ -17,6 +17,7 @@ export interface Env extends S1Env {
   KYPP_OWNER_SECRET: string;
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
+  KYPP_S1_TOKENS?: string; // "name:token,..." for /v1/systemone only; never accepted on /mcp
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
   KYPP_CORRECT?: string;            // "off" hides the trust-based `correct` tool
   AUTH_LIMIT?: RateLimit;     // passphrase attempts
@@ -108,9 +109,9 @@ async function authorize(request: Request, env: Env): Promise<Response> {
 }
 
 // Static tokens for clients that can't do the browser flow. "name:token,name:token".
-function apiTokens(env: Env): Map<string, string> {
+function apiTokens(list: string | undefined): Map<string, string> {
   const m = new Map<string, string>();
-  for (const pair of (env.KYPP_API_TOKENS ?? "").split(",")) {
+  for (const pair of (list ?? "").split(",")) {
     const i = pair.indexOf(":");
     if (i > 0 && pair.length - i > 16) m.set(pair.slice(i + 1).trim(), pair.slice(0, i).trim());
   }
@@ -118,8 +119,8 @@ function apiTokens(env: Env): Map<string, string> {
 }
 
 // The name of the static token presented as `token`, or null.
-async function tokenName(token: string, env: Env): Promise<string | null> {
-  for (const [secret, name] of apiTokens(env)) if (await sameSecret(token, secret)) return name;
+async function tokenName(token: string, list: string | undefined): Promise<string | null> {
+  for (const [secret, name] of apiTokens(list)) if (await sameSecret(token, secret)) return name;
   return null;
 }
 
@@ -147,7 +148,7 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
     resourceMetadata: { resource: `${base}/mcp`, authorization_servers: [base], resource_name: "kypp memory" },
     clientIdMetadataDocumentEnabled: true,
     resolveExternalToken: async ({ token, env }) => {
-      const name = await tokenName(token, env);
+      const name = await tokenName(token, env.KYPP_API_TOKENS);
       return name ? { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` } : null as any;
     },
   });
@@ -160,8 +161,9 @@ export default {
     const path = new URL(request.url).pathname;
     if (request.method === "POST" && path === "/oauth/register"
       && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "register"))) return tooMany();
-    // TypeSafe-compatible System One for headless tools (brief triage in CI): static API tokens only.
-    if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => tokenName(token, env));
+    // TypeSafe-compatible System One for headless tools (brief triage in CI). Its own tokens, so a CI
+    // secret that leaks can call the model but can't read or write memory over /mcp.
+    if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => tokenName(token, env.KYPP_S1_TOKENS));
     return oauthProvider(env).fetch(request, env, ctx);
   },
 

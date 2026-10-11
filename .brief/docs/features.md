@@ -129,7 +129,7 @@ TypeSafe API's shape, for static API tokens only.
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.
 - `/v1/systemone` is routed in `index.ts` before the OAuth provider, so it checks the
-  `KYPP_API_TOKENS` bearer itself. typesafe-sdk needs `model` and `usage` in every reply, so the
+  `KYPP_S1_TOKENS` bearer itself (a separate secret from `KYPP_API_TOKENS`, so a CI key can't reach memory). typesafe-sdk needs `model` and `usage` in every reply, so the
   proxy fills them when Workers AI leaves them out; the SDK always sends a model (`jev-latest` if
   `TYPESAFE_DEFAULT_MODEL` is unset), which this route refuses with 400.
 - `origin` is what the writer said and is never updated; `project` is where the claim is filed.

@@ -9,7 +9,7 @@ const json = (body: unknown, status = 200) =>
 const fail = (status: number, error: string) => json({ error }, status);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-// `tokenName` maps a bearer to its KYPP_API_TOKENS name, or null; OAuth tokens are not accepted here.
+// `tokenName` maps a bearer to its KYPP_S1_TOKENS name, or null; OAuth tokens are not accepted here.
 export async function handleSystemOne(request: Request, ai: Ai | undefined,
   tokenName: (token: string) => Promise<string | null>): Promise<Response> {
   const bearer = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("Authorization") ?? "")?.[1];
