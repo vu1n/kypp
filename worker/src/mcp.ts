@@ -32,7 +32,7 @@ const projectProp = { type: "string", description: "The repo you are working in.
 const TOOLS = [
   {
     name: "briefing",
-    description: "Session-start digest — call ONCE before working: accepted memory from this project, the groups it rolls up to, your user scope and global, pitfalls first, then a short list of other agents' recent unconfirmed claims here. Lines carry handles; `expand` any you act on.",
+    description: "Session-start digest — call ONCE before working: accepted memory from this project, the groups it rolls up to, your user scope and global, pitfalls first, then your own unconfirmed process from other sessions, and a short list of other agents' recent unconfirmed claims here. Lines carry handles; `expand` any you act on.",
     inputSchema: { type: "object", properties: { project: projectProp, limit: { type: "integer", default: 12 } } },
   },
   {
@@ -116,6 +116,7 @@ export async function verifySession(key: string | undefined, header: string | nu
 }
 
 const RECENT = 3; // other agents' unconfirmed claims shown at the end of a briefing
+const RECENT_USER = 5; // the user's own unconfirmed process and preferences, from their other sessions
 const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
 
 async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
@@ -135,8 +136,12 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
       const claims = briefingOrder(await store.recall("", project, user, { candidates: "none", groups, limit: limit * 3 }), limit);
       // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
       const recent = project ? await store.recentCandidates(project, ctx.session, RECENT) : [];
-      await store.recordUsage(ctx.session, [...claims, ...recent], "briefing", project);
-      return note + renderBriefing(claims) + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
+      // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — user scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
+      const yours = user ? await store.recentUserCandidates(user, ctx.session, RECENT_USER) : [];
+      await store.recordUsage(ctx.session, [...claims, ...recent, ...yours], "briefing", project);
+      return note + renderBriefing(claims)
+        + (yours.length ? `\n# how you work, from your other sessions (unconfirmed)\n${renderClaims(yours)}` : "")
+        + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
     }
     case "recall": {
       const claims = await store.recall(ftsQuery(String(a.query ?? "")), project, user,
@@ -162,7 +167,8 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
       }
       const scope: "project" | "user" = a.scope ?? "project";
       // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
-      const echoOf = ctx.session && scope === "project" && project ? await store.shownCandidate(ctx.session, subject, project) : [];
+      const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
+      const echoOf = ctx.session && at ? await store.shownCandidate(ctx.session, subject, at) : [];
       const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}) };
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement; an echo gets none.
       const id = await store.claim({

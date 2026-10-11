@@ -148,6 +148,28 @@ test("repeating a candidate you were shown doesn't count toward accepting it", a
   assert.equal(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote).length, 1);
 });
 
+test("the briefing shows your unconfirmed process from other sessions in every repo", async () => {
+  const db = await setup();
+  await client(db, "wade", "a")("claim", { subject: "ci", content: "open PRs as drafts first", type: "procedure", scope: "user" });
+  await client(db, "onoda", "b")("claim", { subject: "own", content: "my own process note", scope: "user" });
+  const out = await client(db, "onoda", "b")("briefing");
+  const [, yours] = out.split("# how you work, from your other sessions (unconfirmed)");
+  assert.match(yours, /\? ?0\.7 @user\] ci — open PRs as drafts first/);
+  assert.ok(!yours.includes("own process"), "your own claims aren't news to you");
+});
+
+test("repeating a process claim the briefing showed you doesn't accept it", async () => {
+  const db = await setup();
+  const store = new D1Store(db);
+  await client(db, "wade", "a")("claim", { subject: "ci", content: "open PRs as drafts first", scope: "user" });
+  const b = client(db, "onoda", "b");
+  await b("briefing");
+  await b("claim", { subject: "ci", content: "open PRs as drafts first", scope: "user" });
+  assert.deepEqual(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote), []);
+  await client(db, "kypp", "c")("claim", { subject: "ci", content: "draft PRs first so CI waits", scope: "user" });
+  assert.equal(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote).length, 1);
+});
+
 test("defrag judges claims written while the gate was down, and rejects control text", async () => {
   const db = await setup();
   const store = new D1Store(db);

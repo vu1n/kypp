@@ -171,6 +171,16 @@ export class D1Store {
   }
 
   // Other sessions' newest unconfirmed claims in this project, for the briefing's "recent" section.
+  // The user's own way of working, written by their other sessions and not yet accepted. A process
+  // lesson is learned once per repo at most, so waiting for a second session would hide it for long.
+  async recentUserCandidates(user: string, session: string | null, limit: number): Promise<Claim[]> {
+    const { results } = await this.db.prepare(
+      "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = 'user' AND user = ? AND session IS NOT ?"
+      + " ORDER BY created_at DESC LIMIT ?",
+    ).bind(user, session, limit).all();
+    return results.map(hydrate);
+  }
+
   async recentCandidates(project: string, session: string | null, limit: number): Promise<Claim[]> {
     const { results } = await this.db.prepare(
       "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = 'project' AND project = ? AND session IS NOT ?"
@@ -182,12 +192,14 @@ export class D1Store {
   // Echo guard: was this session shown another session's unconfirmed claim on `subject` in `project`?
   // Repeating what it was shown is not independent evidence, so such a claim doesn't count toward
   // accepting the subject.
-  async shownCandidate(session: string, subject: string, project: string): Promise<string[]> {
+  // `at` is the claim's level: a project, or the user's own scope.
+  async shownCandidate(session: string, subject: string, at: { project: string } | { user: string }): Promise<string[]> {
+    const [level, key] = "project" in at ? ["c.scope = 'project' AND c.project = ?", at.project] : ["c.scope = 'user' AND c.user = ?", at.user];
     const { results } = await this.db.prepare(
       "SELECT DISTINCT c.id FROM claim_usages u JOIN memory_claims c ON c.id = u.claim_id"
-      + " WHERE u.consumer = ? AND c.subject = ? AND c.scope = 'project' AND c.project = ? AND c.status = 'candidate'"
+      + ` WHERE u.consumer = ? AND c.subject = ? AND ${level} AND c.status = 'candidate'`
       + " AND c.session IS NOT ?",
-    ).bind(session, subject, project, session).all();
+    ).bind(session, subject, key, session).all();
     return results.map((r) => r.id as string);
   }
 
