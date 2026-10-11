@@ -299,9 +299,12 @@ class MemoryStore:
     def claims_with_verifier(self, project: str | None = None, subject: str | None = None) -> list[Claim]:
         """Every claim carrying a `verify` command — REGARDLESS of status, so `kypp verify` is
         bidirectional: a claim it rejected last run revives if its check passes again. Not status-gated
-        like recall/live_claims; this is the verifier's own view (it owns these claims' freshness)."""
+        like recall/live_claims; this is the verifier's own view (it owns these claims' freshness).
+        Except a SUPERSEDED human claim: a newer correction replaced it and `mark_verified` never
+        revives it, so running its command again would only spend a shell call on a dead answer."""
         where, params = self._base_where(project, live_only=False)  # include rejected → revival is bidirectional
         where.append("verify IS NOT NULL")
+        where.append("NOT (authority = 'human' AND status = 'superseded')")
         if subject:
             where.append("subject = ?"); params.append(subject)
         cur = self.db.cursor()
@@ -656,6 +659,7 @@ if __name__ == "__main__":
     m.mark_verified(hv, True)
     assert (m.get(hv).authority, m.get(hv).status) == ("human", "accepted"), m.get(hv)
     m.set_status(hv, "superseded")  # a newer human correction replaced it
+    assert not any(c.id == hv for c in m.claims_with_verifier("pillbox")), "superseded human skipped by sweeps"
     for passed in (True, False, True):  # neither verdict, nor fail → pass, revives it
         m.mark_verified(hv, passed)
         assert (m.get(hv).authority, m.get(hv).status) == ("human", "superseded"), (passed, m.get(hv))
