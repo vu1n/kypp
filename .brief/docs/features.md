@@ -90,6 +90,8 @@ The optional hosted store: a Cloudflare Worker over D1 serving `briefing`, `reca
 `worker/src/memory.ts` ports the arbiter's ranking and promotion rules; an hourly cron runs the
 defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It adds a `user` scope (the signed-in person, every repo) beside `project` and
 `global`, and an optional System One write gate (`worker/src/s1.ts`, TypeSafe JS SDK).
+`worker/src/systemone.ts` serves the same Clef model to other tools at `POST /v1/systemone` in the
+TypeSafe API's shape, for static API tokens only.
 
 ### Gotchas
 - `memory.ts` mirrors `arbiter.py` and `view.py` by hand. A ranking or promotion change lands in
@@ -126,6 +128,10 @@ defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.
+- `/v1/systemone` is routed in `index.ts` before the OAuth provider, so it checks the
+  `KYPP_API_TOKENS` bearer itself. typesafe-sdk needs `model` and `usage` in every reply, so the
+  proxy fills them when Workers AI leaves them out; the SDK always sends a model (`jev-latest` if
+  `TYPESAFE_DEFAULT_MODEL` is unset), which this route refuses with 400.
 - `origin` is what the writer said and is never updated; `project` is where the claim is filed.
   Change placement only through `store.file()`, which also writes `defrag_log`.
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;

@@ -7,6 +7,7 @@ import { defrag } from "./defrag.ts";
 import { type Policy } from "./memory.ts";
 import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
+import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
 
 export interface Env extends S1Env {
   DB: D1Database;
@@ -116,6 +117,12 @@ function apiTokens(env: Env): Map<string, string> {
   return m;
 }
 
+// The name of the static token presented as `token`, or null.
+async function tokenName(token: string, env: Env): Promise<string | null> {
+  for (const [secret, name] of apiTokens(env)) if (await sameSecret(token, secret)) return name;
+  return null;
+}
+
 let provider: OAuthProvider<Env> | null = null;
 function oauthProvider(env: Env): OAuthProvider<Env> {
   const base = env.KYPP_PUBLIC_URL.replace(/\/+$/, "");
@@ -140,10 +147,8 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
     resourceMetadata: { resource: `${base}/mcp`, authorization_servers: [base], resource_name: "kypp memory" },
     clientIdMetadataDocumentEnabled: true,
     resolveExternalToken: async ({ token, env }) => {
-      for (const [secret, name] of apiTokens(env)) {
-        if (await sameSecret(token, secret)) return { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` };
-      }
-      return null as any;
+      const name = await tokenName(token, env);
+      return name ? { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` } : null as any;
     },
   });
   return provider;
@@ -152,8 +157,11 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     // Registration is open by design (MCP clients self-register), so throttle it before it writes to KV.
-    if (request.method === "POST" && new URL(request.url).pathname === "/oauth/register"
+    const path = new URL(request.url).pathname;
+    if (request.method === "POST" && path === "/oauth/register"
       && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "register"))) return tooMany();
+    // TypeSafe-compatible System One for headless tools (brief triage in CI): static API tokens only.
+    if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => tokenName(token, env));
     return oauthProvider(env).fetch(request, env, ctx);
   },
 

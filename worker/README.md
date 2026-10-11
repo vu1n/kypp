@@ -49,6 +49,12 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   general the lesson looks is recorded. The model never accepts or widens a claim; filing an
   unsorted claim is its only placement. `KYPP_S1=off`, a 5-second timeout or an error all mean no gate. Each claim's subject and
   content go to Workers AI in your Cloudflare account, or to the TypeSafe API when a key is set.
+- **System One for other tools:** `POST /v1/systemone` speaks the TypeSafe API's System One
+  route and answers with Clef on the same `AI` binding, so a TypeSafe client works unchanged against
+  this Worker. `brief triage` in CI sets `TYPESAFE_BASE_URL=https://<worker>`,
+  `TYPESAFE_API_KEY=<a token from KYPP_API_TOKENS>` and `TYPESAFE_DEFAULT_MODEL=clef` (or
+  `clef-flash`; other models get 400). Only static API tokens are accepted (401 otherwise); no `AI`
+  binding means 503. It is a pure proxy and never touches the claims store.
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
   logged per session. A subject two sessions claim is promoted by the hourly cleanup pass.
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
