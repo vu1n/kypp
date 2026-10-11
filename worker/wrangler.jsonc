@@ -17,7 +17,7 @@
   // two-session rule. Off for the alpha; set "on" once agents should be trusted with it.
   // KYPP_OIDC_OWNERS: GitHub owners (comma list, e.g. "vu1n") whose Actions may call /v1/systemone
   // with an OIDC token whose audience is KYPP_PUBLIC_URL (no trailing slash). Empty refuses OIDC.
-  "vars": { "KYPP_PUBLIC_URL": "https://kypp.example.workers.dev", "KYPP_RECUR_GAP_MINUTES": "60", "KYPP_CORRECT": "off", "KYPP_OIDC_OWNERS": "" },
+  "vars": { "KYPP_PUBLIC_URL": "https://kypp.vu1n.dev", "KYPP_RECUR_GAP_MINUTES": "60", "KYPP_CORRECT": "off", "KYPP_OIDC_OWNERS": "vu1n" },
   // The System One gate runs Clef here when no TYPESAFE_API_KEY is set (KYPP_S1_MODEL picks clef-flash).
   "ai": { "binding": "AI" },
   // Passphrase attempts on the sign-in page: 5 a minute per IP. Client registrations: 3 a minute per IP.
