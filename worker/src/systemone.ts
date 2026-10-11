@@ -31,7 +31,8 @@ export async function handleSystemOne(request: Request, ai: Ai | undefined,
   let out: unknown;
   try {
     out = await ai.run(`@cf/cloudflare/${model}` as any, { model, state: body.state, questions: body.questions } as any);
-  } catch {
+  } catch (err) {
+    console.error("systemone: model call failed", err);
     return fail(502, "the model call failed");
   }
   if (!isObject(out) || !isObject(out.answers)) return fail(502, "the model returned no answers");

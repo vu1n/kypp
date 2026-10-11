@@ -58,7 +58,8 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
   logged per session. A subject two sessions claim is promoted by the hourly cleanup pass.
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
-  operator's `kypp correct`.
+  operator's `kypp correct` (authority-order@0004 also allows a ratified-decision `POST /sync`, not
+  built yet).
 - **No Durable Objects.** The MCP endpoint is stateless JSON over HTTP.
 
 ## Deploy

@@ -134,15 +134,21 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
-      const settled = await store.recall("", project, user, { candidates: "none", groups, limit: limit * 3 });
+      const [settled, orgs, recent, yours] = await Promise.all([
+        store.recall("", project, user, { candidates: "none", groups, limit: limit * 3 }),
+        store.orgs(groups),
+        // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
+        project ? store.recentCandidates(project, ctx.session, RECENT) : [],
+        // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — user scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
+        user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
+      ]);
       // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — an org's rules apply to every contributor, so they come first under their own heading.
-      const orgs = await store.orgs(groups);
-      const org = settled.filter((c) => c.scope === "group" && orgs.has(c.project ?? "")).slice(0, ORG_RULES);
-      const claims = briefingOrder(settled.filter((c) => !org.includes(c)), limit);
-      // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
-      const recent = project ? await store.recentCandidates(project, ctx.session, RECENT) : [];
-      // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — user scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
-      const yours = user ? await store.recentUserCandidates(user, ctx.session, RECENT_USER) : [];
+      // Why a read of its own: recall ranks the org (the farthest group) last, so a busy repo's capped list would crowd it out.
+      const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
+      const org = orgs.size
+        ? (await store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit: ORG_RULES })).filter(isOrg)
+        : [];
+      const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       await store.recordUsage(ctx.session, [...org, ...claims, ...recent, ...yours], "briefing", project);
       return note + (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
         + (yours.length ? `\n# how you work, from your other sessions (unconfirmed)\n${renderClaims(yours)}` : "")
