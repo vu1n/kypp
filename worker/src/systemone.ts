@@ -9,11 +9,13 @@ const json = (body: unknown, status = 200) =>
 const fail = (status: number, error: string) => json({ error }, status);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-// `tokenName` maps a bearer to its KYPP_S1_TOKENS name, or null; OAuth tokens are not accepted here.
+// `authenticate` maps a bearer (a GitHub Actions OIDC token or a KYPP_S1_TOKENS token) to a label
+// naming the caller, or null; OAuth tokens are not accepted here. The label never holds the token.
 export async function handleSystemOne(request: Request, ai: Ai | undefined,
-  tokenName: (token: string) => Promise<string | null>): Promise<Response> {
+  authenticate: (token: string) => Promise<string | null>): Promise<Response> {
   const bearer = /^Bearer\s+(\S+)\s*$/i.exec(request.headers.get("Authorization") ?? "")?.[1];
-  if (!bearer || !(await tokenName(bearer))) return fail(401, "a kypp API token is required as the bearer");
+  const caller = bearer ? await authenticate(bearer) : null;
+  if (!caller) return fail(401, "a GitHub Actions OIDC token or a kypp System One token is required as the bearer");
   if (request.method !== "POST") return fail(405, "use POST");
   if (!ai) return fail(503, "this Worker has no AI binding");
   let body: unknown;
@@ -32,10 +34,13 @@ export async function handleSystemOne(request: Request, ai: Ai | undefined,
   try {
     out = await ai.run(`@cf/cloudflare/${model}` as any, { model, state: body.state, questions: body.questions } as any);
   } catch (err) {
-    console.error("systemone: model call failed", err);
+    console.error("systemone: model call failed", caller, String(err));
     return fail(502, "the model call failed");
   }
-  if (!isObject(out) || !isObject(out.answers)) return fail(502, "the model returned no answers");
+  if (!isObject(out) || !isObject(out.answers)) {
+    console.error("systemone: model returned no answers", caller);
+    return fail(502, "the model returned no answers");
+  }
   // The SDK requires `model` and `usage`; Workers AI may leave either out.
   return json({ model: typeof out.model === "string" && out.model ? out.model : model, usage: isObject(out.usage) ? out.usage : {}, answers: out.answers });
 }

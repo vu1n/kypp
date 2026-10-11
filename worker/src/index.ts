@@ -7,6 +7,7 @@ import { defrag } from "./defrag.ts";
 import { type Policy } from "./memory.ts";
 import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
+import { looksLikeJwt, oidcVerifier, owners } from "./oidc.ts";
 import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
 
 export interface Env extends S1Env {
@@ -18,6 +19,7 @@ export interface Env extends S1Env {
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
   KYPP_S1_TOKENS?: string; // "name:token,..." for /v1/systemone only; never accepted on /mcp
+  KYPP_OIDC_OWNERS?: string; // "owner,owner": GitHub owners whose Actions OIDC tokens may call /v1/systemone; unset refuses OIDC
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
   KYPP_CORRECT?: string;            // "off" hides the trust-based `correct` tool
   AUTH_LIMIT?: RateLimit;     // passphrase attempts
@@ -124,6 +126,19 @@ async function tokenName(token: string, list: string | undefined): Promise<strin
   return null;
 }
 
+const oidc = oidcVerifier();
+
+// /v1/systemone callers: a GitHub Actions OIDC token for <KYPP_PUBLIC_URL> from a listed owner, or
+// a KYPP_S1_TOKENS token for callers outside Actions. Returns a label for logs, never the token.
+async function systemOneCaller(token: string, env: Env): Promise<string | null> {
+  if (looksLikeJwt(token)) {
+    const c = await oidc.verify(token, { audience: env.KYPP_PUBLIC_URL.replace(/\/+$/, ""), owners: owners(env.KYPP_OIDC_OWNERS) });
+    if (c) return `oidc ${c.repository} ${c.workflow}`;
+  }
+  const name = await tokenName(token, env.KYPP_S1_TOKENS);
+  return name ? `token ${name}` : null;
+}
+
 let provider: OAuthProvider<Env> | null = null;
 function oauthProvider(env: Env): OAuthProvider<Env> {
   const base = env.KYPP_PUBLIC_URL.replace(/\/+$/, "");
@@ -161,9 +176,9 @@ export default {
     const path = new URL(request.url).pathname;
     if (request.method === "POST" && path === "/oauth/register"
       && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "register"))) return tooMany();
-    // TypeSafe-compatible System One for headless tools (brief triage in CI). Its own tokens, so a CI
-    // secret that leaks can call the model but can't read or write memory over /mcp.
-    if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => tokenName(token, env.KYPP_S1_TOKENS));
+    // TypeSafe-compatible System One for headless tools (brief triage in CI). GitHub Actions OIDC or
+    // its own tokens, never KYPP_API_TOKENS or OAuth, so a CI caller can reach the model but not memory.
+    if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => systemOneCaller(token, env));
     return oauthProvider(env).fetch(request, env, ctx);
   },
 
