@@ -32,3 +32,8 @@ already earned.
 
 The sync token can write org rules for every repo under the org, so it lives in `wrangler secret` and
 the org's CI secrets, never in a repo, a claim or an agent's environment.
+
+
+---
+ratified_rev: 0004
+ratified_by: Vu

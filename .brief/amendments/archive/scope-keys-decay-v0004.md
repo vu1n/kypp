@@ -33,3 +33,8 @@ Agents still never write to the org: an agent can draft a decision PR, but only 
 reversals or high-impact rules, a person) ratifies it. The model's power grows from "can hold a
 proposal back" to "can ratify a low-impact rule", which is the owner's decision; its rules land at
 `verified`, below anything a person ratified.
+
+
+---
+ratified_rev: 0004
+ratified_by: Vu

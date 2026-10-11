@@ -12,7 +12,7 @@ export type Authority = (typeof AUTHORITIES)[number];
 export const SCOPES = ["project", "group", "user", "global"] as const;
 export type Scope = (typeof SCOPES)[number];
 
-// Context: doc://kypp/memory-scope-decay@0003#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
+// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
 // An exact name wins; then a registered path the origin ends with ("https://github.com/vu1n/kypp.git"
 // → "vu1n/kypp"); then the last path segment, so "vu1n/Kypp" resolves to "kypp". Each fallback
 // counts only when it names exactly one project: two registered "foo"s leave the claim unsorted.
@@ -58,7 +58,7 @@ export interface Claim {
   updated_at: string;
 }
 
-// Context: doc://kypp/authority-order@0003#authority-dominates — rank survivors by authority first; agent < verified < human.
+// Context: doc://kypp/authority-order@0004#authority-dominates — rank survivors by authority first; agent < verified < human.
 export function rank(c: Claim): [number, number, number, number, string] {
   return [AUTHORITIES.indexOf(c.authority), c.status === "accepted" ? 1 : 0, c.confidence ?? 0,
     c.source_ids.length, c.updated_at];

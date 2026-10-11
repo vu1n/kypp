@@ -44,8 +44,8 @@ export type Candidates = "none" | "origin" | "all";
 // What a caller sees: this project, the groups it rolls up to, their own user scope, the global
 // scope, and the unsorted claims their own session wrote; never superseded/rejected history.
 // `t` is the table alias.
-// Context: doc://kypp/memory-scope-decay@0003#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
-// Context: doc://kypp/memory-scope-decay@0003#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
+// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
+// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
 function visible(t: string, project: string | null, groups: string[], user: string | null, candidates: Candidates,
   session: string | null): [string, unknown[]] {
   const levels = [`${t}.scope = 'global'`];
@@ -89,7 +89,7 @@ export class D1Store {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
-  // Context: doc://kypp/authority-order@0003#authority-dominates — the Worker only ever writes agent authority; human comes from the operator's local `kypp correct`.
+  // Context: doc://kypp/authority-order@0004#authority-dominates — the Worker only ever writes agent authority; human comes from the operator's local `kypp correct`.
   async claim(c: ClaimInput): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
