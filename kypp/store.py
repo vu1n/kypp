@@ -310,11 +310,14 @@ class MemoryStore:
 
     def mark_verified(self, claim_id: str, passed: bool) -> None:
         """Record a deterministic check's verdict: pass → accepted + `verified` authority (so the
-        confirmed fact outranks any agent guess); fail → rejected (the claim is currently FALSE, drop
-        it from recall — a later passing check revives it). The verifier's only write."""
+        confirmed fact outranks any agent guess) — a `human` claim keeps `human`, since a pass only
+        confirms it; fail → rejected (the claim is currently FALSE, drop it from recall — a later
+        passing check revives it, authority intact). The verifier's only write."""
+        # Context: doc://kypp/authority-order@0002#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
-            self._write([("UPDATE memory_claims SET status='accepted', authority='verified', updated_at=? WHERE id=?",
-                          (_now(), claim_id))])
+            self._write([("UPDATE memory_claims SET status='accepted', "
+                          "authority=CASE WHEN authority='human' THEN 'human' ELSE 'verified' END, "
+                          "updated_at=? WHERE id=?", (_now(), claim_id))])
         else:
             self._write([("UPDATE memory_claims SET status='rejected', updated_at=? WHERE id=?",
                           (_now(), claim_id))])
@@ -634,6 +637,15 @@ if __name__ == "__main__":
     vid = m.claim("fact", "verifiable cfg", "x", scope="project", project="pillbox", verify="true")
     assert m.get(vid).verify == "true", m.get(vid).verify
     assert any(c.id == vid for c in m.claims_with_verifier("pillbox")), "verifier claim queryable"
+    # mark_verified: pass lifts agent → verified, but never demotes a human claim; fail → reject keeps authority
+    m.mark_verified(vid, True)
+    assert (m.get(vid).authority, m.get(vid).status) == ("verified", "accepted"), m.get(vid)
+    hv = m.claim("fact", "human verifiable cfg", "y", scope="project", project="pillbox",
+                 authority="human", verify="true")
+    m.mark_verified(hv, False)
+    assert (m.get(hv).authority, m.get(hv).status) == ("human", "rejected"), m.get(hv)
+    m.mark_verified(hv, True)
+    assert (m.get(hv).authority, m.get(hv).status) == ("human", "accepted"), m.get(hv)
     # reject: outcome-driven demote BY HANDLE → drops out of recall, row preserved, reason in metadata
     rj = m.claim("pitfall", "bad lesson", "a lesson that correlated with failed runs",
                  scope="project", project="pillbox", accept=True)
