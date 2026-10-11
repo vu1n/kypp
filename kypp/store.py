@@ -315,7 +315,8 @@ class MemoryStore:
         passing check revives it, authority intact). A SUPERSEDED human claim stays superseded on
         BOTH verdicts: a newer human correction replaced it, and reviving it at equal authority with a
         fresh timestamp (directly, or via fail → rejected → pass) would let the stale answer win the
-        next consolidation. The verifier's only write."""
+        next consolidation (`reject` keeps a superseded claim superseded for the same reason). The
+        verifier's only write."""
         # Context: doc://kypp/authority-order@0002#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
             self._write([("UPDATE memory_claims SET "
@@ -332,17 +333,20 @@ class MemoryStore:
         recording WHY in `metadata.rejected_reason` (audit). Distinct from supersede (a stronger claim
         on the SAME subject won) and from `correct` (asserts a new value for a subject) — reject is
         "this specific claim is bad," keyed by handle. Not deletion: the row stays (history preserved),
-        and a verifier-carrying claim a later `verify` pass can still revive."""
-        if reason is None:
-            self.set_status(claim_id, "rejected")
-            return
+        and a verifier-carrying claim a later `verify` pass can still revive. A SUPERSEDED claim stays
+        superseded (only the reason is recorded): it is already out of recall, and turning it into
+        `rejected` would make it revivable by `verify`, letting a stale answer compete again with the
+        claim that replaced it."""
         cur = self.db.cursor()
         row = cur.execute("SELECT metadata FROM memory_claims WHERE id = ?", (claim_id,)).fetchone()
         meta = json.loads(row[0]) if row and row[0] else {}
-        meta["rejected_reason"] = reason
+        if reason is not None:
+            meta["rejected_reason"] = reason
         # status + reason in ONE write (don't split into set_status()+a metadata update — that could
         # half-apply, leaving a rejected claim with no recorded reason).
-        self._write([("UPDATE memory_claims SET status='rejected', metadata=?, updated_at=? WHERE id=?",
+        self._write([("UPDATE memory_claims SET "
+                      "status=CASE WHEN status='superseded' THEN status ELSE 'rejected' END, "
+                      "metadata=?, updated_at=? WHERE id=?",
                       (json.dumps(meta), _now(), claim_id))])
 
     # --- usage = the run -> claims-consumed link (memory credit-assignment foundation) ---
@@ -655,6 +659,19 @@ if __name__ == "__main__":
     for passed in (True, False, True):  # neither verdict, nor fail → pass, revives it
         m.mark_verified(hv, passed)
         assert (m.get(hv).authority, m.get(hv).status) == ("human", "superseded"), (passed, m.get(hv))
+    # superseded → explicit reject → verify pass: the revived old correction keeps its old
+    # timestamp, so the newer human correction still wins the next consolidation.
+    from .arbiter import consolidate
+    old = m.claim("fact", "human cfg ordering", "old", scope="project", project="pillbox",
+                  authority="human", verify="true")
+    new = m.claim("fact", "human cfg ordering", "new", scope="project", project="pillbox",
+                  authority="human")
+    consolidate(m, project="pillbox", subject="human cfg ordering")
+    assert m.get(old).status == "superseded" and m.get(new).status == "accepted", (m.get(old), m.get(new))
+    m.reject(old, reason="outcome attribution")
+    m.mark_verified(old, True)
+    consolidate(m, project="pillbox", subject="human cfg ordering")
+    assert m.get(new).status == "accepted" and m.get(old).status == "superseded", (m.get(old), m.get(new))
     # reject: outcome-driven demote BY HANDLE → drops out of recall, row preserved, reason in metadata
     rj = m.claim("pitfall", "bad lesson", "a lesson that correlated with failed runs",
                  scope="project", project="pillbox", accept=True)
