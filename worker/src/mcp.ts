@@ -32,7 +32,7 @@ const projectProp = { type: "string", description: "The repo you are working in.
 const TOOLS = [
   {
     name: "briefing",
-    description: "Session-start digest — call ONCE before working: accepted memory from this project, the groups it rolls up to, your user scope and global, pitfalls first, then a short list of other agents' recent unconfirmed claims here. Lines carry handles; `expand` any you act on.",
+    description: "Session-start digest — call ONCE before working: accepted memory from this project, the groups it rolls up to, your user scope and global, pitfalls first, then your own unconfirmed process from other sessions, and a short list of other agents' recent unconfirmed claims here. Lines carry handles; `expand` any you act on.",
     inputSchema: { type: "object", properties: { project: projectProp, limit: { type: "integer", default: 12 } } },
   },
   {
@@ -116,10 +116,12 @@ export async function verifySession(key: string | undefined, header: string | nu
 }
 
 const RECENT = 3; // other agents' unconfirmed claims shown at the end of a briefing
+const ORG_RULES = 8; // accepted claims at the caller's org, listed first in a briefing
+const RECENT_USER = 5; // the user's own unconfirmed process and preferences, from their other sessions
 const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
 
 async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
-  // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
+  // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
   const origin: string | null = a.project || ctx.project || null;
   const projects = name === "expand" ? [] : await store.projects();
   const names = projects.map((p) => p.name);
@@ -132,11 +134,25 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
-      const claims = briefingOrder(await store.recall("", project, user, { candidates: "none", groups, limit: limit * 3 }), limit);
-      // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
-      const recent = project ? await store.recentCandidates(project, ctx.session, RECENT) : [];
-      await store.recordUsage(ctx.session, [...claims, ...recent], "briefing", project);
-      return note + renderBriefing(claims) + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
+      const [settled, orgs, recent, yours] = await Promise.all([
+        store.recall("", project, user, { candidates: "none", groups, limit: limit * 3 }),
+        store.orgs(groups),
+        // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
+        project ? store.recentCandidates(project, ctx.session, RECENT) : [],
+        // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — user scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
+        user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
+      ]);
+      // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — an org's rules apply to every contributor, so they come first under their own heading.
+      // Why a read of its own: recall ranks the org (the farthest group) last, so a busy repo's capped list would crowd it out.
+      const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
+      const org = orgs.size
+        ? (await store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit: ORG_RULES })).filter(isOrg)
+        : [];
+      const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
+      await store.recordUsage(ctx.session, [...org, ...claims, ...recent, ...yours], "briefing", project);
+      return note + (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
+        + (yours.length ? `\n# how you work, from your other sessions (unconfirmed)\n${renderClaims(yours)}` : "")
+        + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
     }
     case "recall": {
       const claims = await store.recall(ftsQuery(String(a.query ?? "")), project, user,
@@ -146,12 +162,12 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
     }
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
-      // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — a cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
+      // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — a cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
       const v = await judge(ctx.s1, { subject, content, project });
       if (v.keep !== null && v.keep < DROP_BELOW) {
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
       }
-      // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — reads are a channel between agents, so the gate holds back control text aimed at them.
+      // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — reads are a channel between agents, so the gate holds back control text aimed at them.
       if (v.control !== null && v.control > CONTROL_ABOVE) {
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson about the code or the person (p_control=${v.control.toFixed(2)}).`;
       }
@@ -161,8 +177,9 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
         throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
       }
       const scope: "project" | "user" = a.scope ?? "project";
-      // Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
-      const echoOf = ctx.session && scope === "project" && project ? await store.shownCandidate(ctx.session, subject, project) : [];
+      // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
+      const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
+      const echoOf = ctx.session && at ? await store.shownCandidate(ctx.session, subject, at) : [];
       const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}) };
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement; an echo gets none.
       const id = await store.claim({

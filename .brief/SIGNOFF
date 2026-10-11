@@ -17,3 +17,7 @@ compose-surface conforms: mcp consolidate tool passes the agreement judge; no to
 operator-only-verify conforms: mcp_server only wires the judge into consolidate; no tool accepts or runs a verify command
 scope-keys-decay amend-proposed: agents write at origin with no scope; the defrag pass files, dedupes and widens (model may hold back, never cause), replacing 'the model never moves a claim between scopes'
 operator-only-verify conforms: shell.py only changes the reject CLI message to print the real post-reject status; no verify argument or command path is touched
+scope-keys-decay amend-proposed: add an org level (a group at the top of the roll-up) that only a person fills, by ratifying cross-user recurrence or syncing a ratified org decision; agents still never write to it
+authority-dominates amend-proposed: synced Brief decisions land at the authority of their ratifier (person → human, model → verified) via one CI-only sync route; replaces the operator-route draft
+scope-keys-decay amend-proposed: §9 org rules are ratified in Brief (merge, model by default) and kypp only syncs them; drop operator ratify/promote
+authority-dominates conforms: comment-only; shell.py and worker store.ts Context lines now name the @0004 ratified-decision sync as the other human writer; no authority write path changed

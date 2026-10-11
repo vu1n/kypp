@@ -168,7 +168,7 @@ write time an agent knows where it learned something, not how general it is.
      from two or more origins under that parent (recurrence, the rule that already accepts claims,
      applied one level up). The S1 `general` score may hold a widening back, never cause one.
      Widening goes one level at a time, never across a person or org boundary and never to global;
-     those stay with a human. The origin is kept forever, so any move can be undone.
+     those stay with a human (§9 is the only route to an org: a decision ratified in Brief). The origin is kept forever, so any move can be undone.
    - *Decay:* runs the event clocks of §4 and the judge of §5 unchanged.
    - Works per changed subject, not a full rescan, and logs every move with its reason and score.
 5. **What the model may do.** The S1 model never accepts or widens anything by itself. Recurrence
@@ -187,6 +187,52 @@ Order of work:
 1. Add the roll-up table and cascading reads.
 2. Cross-subject dedupe and recurrence-based widening in the cron, once real multi-repo lessons exist
    to tune on.
+
+### 9. An org level for how an org should work
+
+Amended 2026-10-11 (ratified by Vu), and again the same day: org rules are ratified in Brief and kypp
+only syncs them. The `user` axis holds how one person works and reaches only that person's sessions. A
+practice an org expects of everyone in its repos ("open PRs as drafts and run checks in the session
+first, because private CI minutes are capped") had no home: project claims can't cross a person
+boundary, and `user` claims never widen.
+
+1. **An org is a group at the top of the roll-up.** It is a row in `project_parents` named for the
+   GitHub owner (for example `vu1n`), with every repo under that owner as a child. No new scope value:
+   an org claim is `scope='group'` with the org's name in `project`, so cascading reads already return
+   it to every session whose project rolls up to the org, whoever the user is.
+2. **Brief is the only door to the org.** An org rule is a Brief decision in the org's decisions repo
+   (one repo per org). It is ratified the Brief way: merging its PR ratifies it, and a System One
+   model ratifies by default, escalating reversals and high-impact rules to a person. Agents never
+   write to the org: the `claim` tool keeps `project` and `user` only, and an agent may at most draft
+   a decision PR.
+   - *Cross-user recurrence opens a PR.* When defrag finds the same `user` lesson from two or more
+     distinct users under one org, it opens a draft decision PR in the org's decisions repo citing the
+     claims. The S1 "same lesson?" scorer can hold a proposal back but never cause one.
+   - *One-person orgs* use the same path: promoting a `user` claim to the org is opening that PR.
+3. **Sync is the only kypp write.** After `brief ratify` publishes a revision, the org's CI calls the
+   Worker's sync route (`authority-order`). The claim holds the pinned `doc://` ref and the one-line
+   rule, never the decision body, so Brief stays the source of truth. A person-ratified revision lands
+   at `human`, a model-ratified one at `verified`; a new revision re-syncs, and a retired or
+   superseded doc supersedes its claim.
+4. **Reads.** The briefing lists accepted org claims under their own heading ("how this org
+   works"), ahead of the user's own process, because an org rule applies to every contributor.
+   Recall labels org lines with the group's level. A conflict between an org claim and a user claim
+   on one subject is settled by `authority-order`, as today.
+5. **Decay.** Org claims run the `sessions` clock of §4 like other process claims. A synced decision
+   claim is superseded when its doc is retired or superseded, never by the clock alone.
+
+Unchanged: agents pick only `project` (implicitly) or `user`; widening stays one level at a time and
+never reaches global automatically; history stays append-only.
+
+Open: how org membership is known (the repos a user's sessions write in, which needs no new access,
+or the GitHub org's members via the OAuth identity); the proposal threshold (two distinct users to
+start).
+
+Order of work for §9:
+
+0. The "how this org works" briefing section (done).
+1. Decision sync.
+2. Defrag opening cross-user decision PRs, once two users' process claims exist to tune on.
 
 ## Considered and rejected
 

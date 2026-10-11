@@ -323,7 +323,7 @@ class MemoryStore:
         it, and since recency breaks ties between equal human claims, a sweep landing between
         `kypp correct`'s insert and its consolidate must not make the old answer look newest. The
         verifier's only write."""
-        # Context: doc://kypp/authority-order@0002#authority-dominates — verify raises agent → verified, never lowers human.
+        # Context: doc://kypp/authority-order@0004#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
             self._write([("UPDATE memory_claims SET "
                           "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'accepted' END, "

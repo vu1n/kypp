@@ -148,6 +148,56 @@ test("repeating a candidate you were shown doesn't count toward accepting it", a
   assert.equal(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote).length, 1);
 });
 
+test("the briefing shows your unconfirmed process from other sessions in every repo", async () => {
+  const db = await setup();
+  await client(db, "wade", "a")("claim", { subject: "ci", content: "open PRs as drafts first", type: "procedure", scope: "user" });
+  await client(db, "onoda", "b")("claim", { subject: "own", content: "my own process note", scope: "user" });
+  const out = await client(db, "onoda", "b")("briefing");
+  const [, yours] = out.split("# how you work, from your other sessions (unconfirmed)");
+  assert.match(yours, /\? ?0\.7 @user\] ci — open PRs as drafts first/);
+  assert.ok(!yours.includes("own process"), "your own claims aren't news to you");
+});
+
+test("repeating a process claim the briefing showed you doesn't accept it", async () => {
+  const db = await setup();
+  const store = new D1Store(db);
+  await client(db, "wade", "a")("claim", { subject: "ci", content: "open PRs as drafts first", scope: "user" });
+  const b = client(db, "onoda", "b");
+  await b("briefing");
+  await b("claim", { subject: "ci", content: "open PRs as drafts first", scope: "user" });
+  assert.deepEqual(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote), []);
+  await client(db, "kypp", "c")("claim", { subject: "ci", content: "draft PRs first so CI waits", scope: "user" });
+  assert.equal(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote).length, 1);
+});
+
+test("the briefing lists the org's rules first, apart from nearer groups", async () => {
+  const db = await setup();
+  await parent(db, "kypp", "tools");
+  await parent(db, "tools", "vu1n");
+  await placed(db, "group", "vu1n", "draft PRs");
+  await placed(db, "group", "tools", "tool lesson");
+  await placed(db, "project", "kypp", "local trap");
+  const out = await client(db, "kypp", "a")("briefing");
+  const [org, rest] = out.split("\n# fact\n");
+  assert.match(org, /^# how this org works\n.*@group:vu1n\] draft PRs/);
+  assert.ok(!org.includes("tool lesson"), "a nearer group is not the org");
+  assert.match(rest, /tool lesson/);
+  assert.ok(!rest.includes("draft PRs"), "listed once");
+  assert.match(await client(db, "onoda", "b")("briefing"), /^\(no accepted memory yet\)/, "a repo outside the org doesn't see it");
+});
+
+test("a busy repo still gets its org's rules, and every org rule stays out of the per-type sections", async () => {
+  const db = await setup();
+  await parent(db, "kypp", "vu1n");
+  for (let i = 0; i < 4; i++) await placed(db, "project", "kypp", `local ${i}`);
+  for (let i = 0; i < 10; i++) await placed(db, "group", "vu1n", `org rule ${i}`);
+  const out = await client(db, "kypp", "a")("briefing", { limit: 1 });
+  const [org, rest] = out.split("\n# fact\n");
+  assert.equal(org.match(/@group:vu1n\]/g)?.length, 8);
+  assert.match(rest, /local/);
+  assert.ok(!rest.includes("org rule"), "org rules past the cap don't fall into the per-type sections");
+});
+
 test("defrag judges claims written while the gate was down, and rejects control text", async () => {
   const db = await setup();
   const store = new D1Store(db);
