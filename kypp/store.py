@@ -318,18 +318,23 @@ class MemoryStore:
         passing check revives it, authority intact). A SUPERSEDED human claim stays superseded on
         BOTH verdicts: a newer human correction replaced it, and reviving it at equal authority with a
         fresh timestamp (directly, or via fail → rejected → pass) would let the stale answer win the
-        next consolidation (`reject` keeps a superseded claim superseded for the same reason). The
+        next consolidation (`reject` keeps a superseded claim superseded for the same reason). A
+        human claim's `updated_at` is never refreshed either: a check confirms it, nobody re-asserted
+        it, and since recency breaks ties between equal human claims, a sweep landing between
+        `kypp correct`'s insert and its consolidate must not make the old answer look newest. The
         verifier's only write."""
         # Context: doc://kypp/authority-order@0002#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
             self._write([("UPDATE memory_claims SET "
                           "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'accepted' END, "
                           "authority=CASE WHEN authority='human' THEN 'human' ELSE 'verified' END, "
-                          "updated_at=? WHERE id=?", (_now(), claim_id))])
+                          "updated_at=CASE WHEN authority='human' THEN updated_at ELSE ? END "
+                          "WHERE id=?", (_now(), claim_id))])
         else:
             self._write([("UPDATE memory_claims SET "
                           "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'rejected' END, "
-                          "updated_at=? WHERE id=?", (_now(), claim_id))])
+                          "updated_at=CASE WHEN authority='human' THEN updated_at ELSE ? END "
+                          "WHERE id=?", (_now(), claim_id))])
 
     def reject(self, claim_id: str, reason: str | None = None) -> None:
         """Outcome-driven demote: set a claim to `rejected` so recall/briefing drop it, optionally
@@ -663,6 +668,20 @@ if __name__ == "__main__":
     for passed in (True, False, True):  # neither verdict, nor fail → pass, revives it
         m.mark_verified(hv, passed)
         assert (m.get(hv).authority, m.get(hv).status) == ("human", "superseded"), (passed, m.get(hv))
+    # a sweep between `correct`'s insert and its consolidate: the old human claim's check passes,
+    # but its timestamp stays put, so the just-entered correction still wins by recency.
+    race_old = m.claim("fact", "human cfg race", "old", scope="project", project="pillbox",
+                       authority="human", verify="true")
+    stamp = m.get(race_old).updated_at
+    race_new = m.claim("fact", "human cfg race", "new", scope="project", project="pillbox",
+                       authority="human")
+    m.mark_verified(race_old, False)
+    m.mark_verified(race_old, True)
+    assert m.get(race_old).updated_at == stamp, (stamp, m.get(race_old).updated_at)
+    from .arbiter import consolidate
+    consolidate(m, project="pillbox", subject="human cfg race")
+    assert m.get(race_new).status == "accepted" and m.get(race_old).status == "superseded", \
+        (m.get(race_old), m.get(race_new))
     # superseded → explicit reject → verify pass: the revived old correction keeps its old
     # timestamp, so the newer human correction still wins the next consolidation.
     from .arbiter import consolidate
