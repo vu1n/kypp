@@ -299,9 +299,12 @@ class MemoryStore:
     def claims_with_verifier(self, project: str | None = None, subject: str | None = None) -> list[Claim]:
         """Every claim carrying a `verify` command — REGARDLESS of status, so `kypp verify` is
         bidirectional: a claim it rejected last run revives if its check passes again. Not status-gated
-        like recall/live_claims; this is the verifier's own view (it owns these claims' freshness)."""
+        like recall/live_claims; this is the verifier's own view (it owns these claims' freshness).
+        Except a SUPERSEDED human claim: a newer correction replaced it and `mark_verified` never
+        revives it, so running its command again would only spend a shell call on a dead answer."""
         where, params = self._base_where(project, live_only=False)  # include rejected → revival is bidirectional
         where.append("verify IS NOT NULL")
+        where.append("NOT (authority = 'human' AND status = 'superseded')")
         if subject:
             where.append("subject = ?"); params.append(subject)
         cur = self.db.cursor()
@@ -310,31 +313,48 @@ class MemoryStore:
 
     def mark_verified(self, claim_id: str, passed: bool) -> None:
         """Record a deterministic check's verdict: pass → accepted + `verified` authority (so the
-        confirmed fact outranks any agent guess); fail → rejected (the claim is currently FALSE, drop
-        it from recall — a later passing check revives it). The verifier's only write."""
+        confirmed fact outranks any agent guess) — a `human` claim keeps `human`, since a pass only
+        confirms it; fail → rejected (the claim is currently FALSE, drop it from recall — a later
+        passing check revives it, authority intact). A SUPERSEDED human claim stays superseded on
+        BOTH verdicts: a newer human correction replaced it, and reviving it at equal authority with a
+        fresh timestamp (directly, or via fail → rejected → pass) would let the stale answer win the
+        next consolidation (`reject` keeps a superseded claim superseded for the same reason). A
+        human claim's `updated_at` is never refreshed either: a check confirms it, nobody re-asserted
+        it, and since recency breaks ties between equal human claims, a sweep landing between
+        `kypp correct`'s insert and its consolidate must not make the old answer look newest. The
+        verifier's only write."""
+        # Context: doc://kypp/authority-order@0002#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
-            self._write([("UPDATE memory_claims SET status='accepted', authority='verified', updated_at=? WHERE id=?",
-                          (_now(), claim_id))])
+            self._write([("UPDATE memory_claims SET "
+                          "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'accepted' END, "
+                          "authority=CASE WHEN authority='human' THEN 'human' ELSE 'verified' END, "
+                          "updated_at=CASE WHEN authority='human' THEN updated_at ELSE ? END "
+                          "WHERE id=?", (_now(), claim_id))])
         else:
-            self._write([("UPDATE memory_claims SET status='rejected', updated_at=? WHERE id=?",
-                          (_now(), claim_id))])
+            self._write([("UPDATE memory_claims SET "
+                          "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'rejected' END, "
+                          "updated_at=CASE WHEN authority='human' THEN updated_at ELSE ? END "
+                          "WHERE id=?", (_now(), claim_id))])
 
     def reject(self, claim_id: str, reason: str | None = None) -> None:
         """Outcome-driven demote: set a claim to `rejected` so recall/briefing drop it, optionally
         recording WHY in `metadata.rejected_reason` (audit). Distinct from supersede (a stronger claim
         on the SAME subject won) and from `correct` (asserts a new value for a subject) — reject is
         "this specific claim is bad," keyed by handle. Not deletion: the row stays (history preserved),
-        and a verifier-carrying claim a later `verify` pass can still revive."""
-        if reason is None:
-            self.set_status(claim_id, "rejected")
-            return
+        and a verifier-carrying claim a later `verify` pass can still revive. A SUPERSEDED claim stays
+        superseded (only the reason is recorded): it is already out of recall, and turning it into
+        `rejected` would make it revivable by `verify`, letting a stale answer compete again with the
+        claim that replaced it."""
         cur = self.db.cursor()
         row = cur.execute("SELECT metadata FROM memory_claims WHERE id = ?", (claim_id,)).fetchone()
         meta = json.loads(row[0]) if row and row[0] else {}
-        meta["rejected_reason"] = reason
+        if reason is not None:
+            meta["rejected_reason"] = reason
         # status + reason in ONE write (don't split into set_status()+a metadata update — that could
         # half-apply, leaving a rejected claim with no recorded reason).
-        self._write([("UPDATE memory_claims SET status='rejected', metadata=?, updated_at=? WHERE id=?",
+        self._write([("UPDATE memory_claims SET "
+                      "status=CASE WHEN status='superseded' THEN status ELSE 'rejected' END, "
+                      "metadata=?, updated_at=? WHERE id=?",
                       (json.dumps(meta), _now(), claim_id))])
 
     # --- usage = the run -> claims-consumed link (memory credit-assignment foundation) ---
@@ -634,6 +654,47 @@ if __name__ == "__main__":
     vid = m.claim("fact", "verifiable cfg", "x", scope="project", project="pillbox", verify="true")
     assert m.get(vid).verify == "true", m.get(vid).verify
     assert any(c.id == vid for c in m.claims_with_verifier("pillbox")), "verifier claim queryable"
+    # mark_verified: pass lifts agent → verified, but never demotes a human claim; fail → reject keeps authority
+    m.mark_verified(vid, True)
+    assert (m.get(vid).authority, m.get(vid).status) == ("verified", "accepted"), m.get(vid)
+    hv = m.claim("fact", "human verifiable cfg", "y", scope="project", project="pillbox",
+                 authority="human", verify="true")
+    m.mark_verified(hv, False)
+    assert (m.get(hv).authority, m.get(hv).status) == ("human", "rejected"), m.get(hv)
+    m.mark_verified(hv, True)
+    assert (m.get(hv).authority, m.get(hv).status) == ("human", "accepted"), m.get(hv)
+    m.set_status(hv, "superseded")  # a newer human correction replaced it
+    assert not any(c.id == hv for c in m.claims_with_verifier("pillbox")), "superseded human skipped by sweeps"
+    for passed in (True, False, True):  # neither verdict, nor fail → pass, revives it
+        m.mark_verified(hv, passed)
+        assert (m.get(hv).authority, m.get(hv).status) == ("human", "superseded"), (passed, m.get(hv))
+    # a sweep between `correct`'s insert and its consolidate: the old human claim's check passes,
+    # but its timestamp stays put, so the just-entered correction still wins by recency.
+    race_old = m.claim("fact", "human cfg race", "old", scope="project", project="pillbox",
+                       authority="human", verify="true")
+    stamp = m.get(race_old).updated_at
+    race_new = m.claim("fact", "human cfg race", "new", scope="project", project="pillbox",
+                       authority="human")
+    m.mark_verified(race_old, False)
+    m.mark_verified(race_old, True)
+    assert m.get(race_old).updated_at == stamp, (stamp, m.get(race_old).updated_at)
+    from .arbiter import consolidate
+    consolidate(m, project="pillbox", subject="human cfg race")
+    assert m.get(race_new).status == "accepted" and m.get(race_old).status == "superseded", \
+        (m.get(race_old), m.get(race_new))
+    # superseded → explicit reject → verify pass: the revived old correction keeps its old
+    # timestamp, so the newer human correction still wins the next consolidation.
+    from .arbiter import consolidate
+    old = m.claim("fact", "human cfg ordering", "old", scope="project", project="pillbox",
+                  authority="human", verify="true")
+    new = m.claim("fact", "human cfg ordering", "new", scope="project", project="pillbox",
+                  authority="human")
+    consolidate(m, project="pillbox", subject="human cfg ordering")
+    assert m.get(old).status == "superseded" and m.get(new).status == "accepted", (m.get(old), m.get(new))
+    m.reject(old, reason="outcome attribution")
+    m.mark_verified(old, True)
+    consolidate(m, project="pillbox", subject="human cfg ordering")
+    assert m.get(new).status == "accepted" and m.get(old).status == "superseded", (m.get(old), m.get(new))
     # reject: outcome-driven demote BY HANDLE → drops out of recall, row preserved, reason in metadata
     rj = m.claim("pitfall", "bad lesson", "a lesson that correlated with failed runs",
                  scope="project", project="pillbox", accept=True)

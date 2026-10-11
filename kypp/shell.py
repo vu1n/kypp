@@ -169,7 +169,8 @@ def reject_main():
     store = store_from_env()
     c = _resolve_handle(store, args.handle)
     store.reject(c.id, reason=args.reason)
-    print(f"{c.id[:8]} [rejected {c.type}] {c.subject}" + (f" — {args.reason}" if args.reason else ""))
+    status = store.get(c.id).status  # a superseded claim stays superseded (reason still recorded)
+    print(f"{c.id[:8]} [{status} {c.type}] {c.subject}" + (f" — {args.reason}" if args.reason else ""))
 
 
 def usage_main():
