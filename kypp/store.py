@@ -312,9 +312,10 @@ class MemoryStore:
         """Record a deterministic check's verdict: pass → accepted + `verified` authority (so the
         confirmed fact outranks any agent guess) — a `human` claim keeps `human`, since a pass only
         confirms it; fail → rejected (the claim is currently FALSE, drop it from recall — a later
-        passing check revives it, authority intact). A SUPERSEDED human claim stays superseded: a
-        newer human correction replaced it, and reviving it at equal authority with a fresh
-        timestamp would let the stale answer win the next consolidation. The verifier's only write."""
+        passing check revives it, authority intact). A SUPERSEDED human claim stays superseded on
+        BOTH verdicts: a newer human correction replaced it, and reviving it at equal authority with a
+        fresh timestamp (directly, or via fail → rejected → pass) would let the stale answer win the
+        next consolidation. The verifier's only write."""
         # Context: doc://kypp/authority-order@0002#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
             self._write([("UPDATE memory_claims SET "
@@ -322,8 +323,9 @@ class MemoryStore:
                           "authority=CASE WHEN authority='human' THEN 'human' ELSE 'verified' END, "
                           "updated_at=? WHERE id=?", (_now(), claim_id))])
         else:
-            self._write([("UPDATE memory_claims SET status='rejected', updated_at=? WHERE id=?",
-                          (_now(), claim_id))])
+            self._write([("UPDATE memory_claims SET "
+                          "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'rejected' END, "
+                          "updated_at=? WHERE id=?", (_now(), claim_id))])
 
     def reject(self, claim_id: str, reason: str | None = None) -> None:
         """Outcome-driven demote: set a claim to `rejected` so recall/briefing drop it, optionally
@@ -650,8 +652,9 @@ if __name__ == "__main__":
     m.mark_verified(hv, True)
     assert (m.get(hv).authority, m.get(hv).status) == ("human", "accepted"), m.get(hv)
     m.set_status(hv, "superseded")  # a newer human correction replaced it
-    m.mark_verified(hv, True)
-    assert (m.get(hv).authority, m.get(hv).status) == ("human", "superseded"), m.get(hv)
+    for passed in (True, False, True):  # neither verdict, nor fail → pass, revives it
+        m.mark_verified(hv, passed)
+        assert (m.get(hv).authority, m.get(hv).status) == ("human", "superseded"), (passed, m.get(hv))
     # reject: outcome-driven demote BY HANDLE → drops out of recall, row preserved, reason in metadata
     rj = m.claim("pitfall", "bad lesson", "a lesson that correlated with failed runs",
                  scope="project", project="pillbox", accept=True)
