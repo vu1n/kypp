@@ -170,6 +170,22 @@ test("repeating a process claim the briefing showed you doesn't accept it", asyn
   assert.equal(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote).length, 1);
 });
 
+test("the briefing lists the org's rules first, apart from nearer groups", async () => {
+  const db = await setup();
+  await parent(db, "kypp", "tools");
+  await parent(db, "tools", "vu1n");
+  await placed(db, "group", "vu1n", "draft PRs");
+  await placed(db, "group", "tools", "tool lesson");
+  await placed(db, "project", "kypp", "local trap");
+  const out = await client(db, "kypp", "a")("briefing");
+  const [org, rest] = out.split("\n# fact\n");
+  assert.match(org, /^# how this org works\n.*@group:vu1n\] draft PRs/);
+  assert.ok(!org.includes("tool lesson"), "a nearer group is not the org");
+  assert.match(rest, /tool lesson/);
+  assert.ok(!rest.includes("draft PRs"), "listed once");
+  assert.match(await client(db, "onoda", "b")("briefing"), /^\(no accepted memory yet\)/, "a repo outside the org doesn't see it");
+});
+
 test("defrag judges claims written while the gate was down, and rejects control text", async () => {
   const db = await setup();
   const store = new D1Store(db);

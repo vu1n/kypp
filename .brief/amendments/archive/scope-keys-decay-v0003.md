@@ -61,3 +61,8 @@ stays append-only.
 - **Proposal threshold.** Two distinct users is the starting value; measure on real claims.
 - **Where org decisions live.** Each repo's `.brief/docs` with an `org: true` flag, or one org repo
   (such as `vu1n/dev`) that holds org-wide decisions only.
+
+
+---
+ratified_rev: 0003
+ratified_by: Vu

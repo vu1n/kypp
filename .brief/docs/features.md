@@ -117,6 +117,8 @@ defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It
 - Recall shows other sessions' candidates in the caller's project by default (`candidates: "origin"`).
   The echo guard (`store.shownCandidate`) relies on `claim_usages` rows for what a session was shown,
   so every read path that renders claims must keep calling `recordUsage`.
+- The briefing lists accepted claims at the caller's org (a group with no parent of its own) first,
+  under "how this org works", and leaves nearer groups in the usual per-type sections.
 - The briefing also lists the user's own unconfirmed `user`-scope claims from their other sessions
   (process and preferences), in every repo. A process lesson is often learned once per repo, so
   waiting for acceptance hid it. The echo guard covers user scope too: re-claiming a lesson the

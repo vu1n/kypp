@@ -23,6 +23,9 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   counts toward accepting it. The write gate also holds back text that reads as instructions aimed
   at other agents (override instructions, send credentials somewhere) rather than a lesson; a claim
   written while the model was down is judged by the next defrag pass instead.
+- **Orgs** are groups at the top of the roll-up (no parent of their own), such as the GitHub owner
+  above all its repos. The briefing lists an org's accepted claims first, under "how this org
+  works". Agents never write there (memory-scope-decay §9).
 - **Groups** are rows in `project_parents` (a project and a group it belongs to; a group can have
   parents too, up to three levels). Only defrag places claims at a group; agents never write there:
   `npx wrangler d1 execute kypp --remote --command "INSERT INTO project_parents(project, parent, created_at) VALUES ('kypp', 'tools', datetime('now'))"`.

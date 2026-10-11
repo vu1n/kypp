@@ -44,8 +44,8 @@ export type Candidates = "none" | "origin" | "all";
 // What a caller sees: this project, the groups it rolls up to, their own user scope, the global
 // scope, and the unsorted claims their own session wrote; never superseded/rejected history.
 // `t` is the table alias.
-// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
-// Context: doc://kypp/memory-scope-decay@0002#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
+// Context: doc://kypp/memory-scope-decay@0003#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
+// Context: doc://kypp/memory-scope-decay@0003#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
 function visible(t: string, project: string | null, groups: string[], user: string | null, candidates: Candidates,
   session: string | null): [string, unknown[]] {
   const levels = [`${t}.scope = 'global'`];
@@ -168,6 +168,16 @@ export class D1Store {
       + " SELECT name, MIN(depth) AS d FROM up WHERE name != ? GROUP BY name ORDER BY d, name",
     ).bind(project, project).all();
     return results.map((r) => r.name as string);
+  }
+
+  // The orgs among `groups`: the ones at the top of the roll-up, with no parent of their own.
+  async orgs(groups: string[]): Promise<Set<string>> {
+    if (!groups.length) return new Set();
+    const { results } = await this.db.prepare(
+      `SELECT DISTINCT project FROM project_parents WHERE project IN (${groups.map(() => "?").join(",")})`,
+    ).bind(...groups).all();
+    const nested = new Set(results.map((r) => r.project as string));
+    return new Set(groups.filter((g) => !nested.has(g)));
   }
 
   // Other sessions' newest unconfirmed claims in this project, for the briefing's "recent" section.

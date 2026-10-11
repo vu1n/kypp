@@ -18,3 +18,4 @@ operator-only-verify conforms: mcp_server only wires the judge into consolidate;
 scope-keys-decay amend-proposed: agents write at origin with no scope; the defrag pass files, dedupes and widens (model may hold back, never cause), replacing 'the model never moves a claim between scopes'
 operator-only-verify conforms: shell.py only changes the reject CLI message to print the real post-reject status; no verify argument or command path is touched
 scope-keys-decay amend-proposed: add an org level (a group at the top of the roll-up) that only a person fills, by ratifying cross-user recurrence or syncing a ratified org decision; agents still never write to it
+authority-dominates amend-proposed: let a secret-gated operator route on the hosted Worker (never /mcp) write human authority for memory-scope-decay §9's org ratify, promote and sync
