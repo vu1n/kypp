@@ -26,9 +26,9 @@ export async function handleSystemOne(request: Request, ai: Ai | undefined,
     return fail(400, "the body needs state and at least one question");
   }
   // typesafe-sdk always sends a model (its own default is jev-latest), so a missing one is clef.
-  const model = body.model === undefined || body.model === null || body.model === "" ? "clef" : body.model;
+  const model = (body.model ?? "") === "" ? "clef" : body.model;
   if (typeof model !== "string" || !MODELS.has(model)) return fail(400, `unknown model; use one of: ${[...MODELS].join(", ")}`);
-  let out: any;
+  let out: unknown;
   try {
     out = await ai.run(`@cf/cloudflare/${model}` as any, { model, state: body.state, questions: body.questions } as any);
   } catch {

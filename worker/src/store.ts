@@ -180,7 +180,6 @@ export class D1Store {
     return new Set(groups.filter((g) => !nested.has(g)));
   }
 
-  // Other sessions' newest unconfirmed claims in this project, for the briefing's "recent" section.
   // The user's own way of working, written by their other sessions and not yet accepted. A process
   // lesson is learned once per repo at most, so waiting for a second session would hide it for long.
   async recentUserCandidates(user: string, session: string | null, limit: number): Promise<Claim[]> {
@@ -191,6 +190,7 @@ export class D1Store {
     return results.map(hydrate);
   }
 
+  // Other sessions' newest unconfirmed claims in this project, for the briefing's "recent" section.
   async recentCandidates(project: string, session: string | null, limit: number): Promise<Claim[]> {
     const { results } = await this.db.prepare(
       "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = 'project' AND project = ? AND session IS NOT ?"
