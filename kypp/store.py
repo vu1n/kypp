@@ -312,10 +312,13 @@ class MemoryStore:
         """Record a deterministic check's verdict: pass → accepted + `verified` authority (so the
         confirmed fact outranks any agent guess) — a `human` claim keeps `human`, since a pass only
         confirms it; fail → rejected (the claim is currently FALSE, drop it from recall — a later
-        passing check revives it, authority intact). The verifier's only write."""
+        passing check revives it, authority intact). A SUPERSEDED human claim stays superseded: a
+        newer human correction replaced it, and reviving it at equal authority with a fresh
+        timestamp would let the stale answer win the next consolidation. The verifier's only write."""
         # Context: doc://kypp/authority-order@0002#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
-            self._write([("UPDATE memory_claims SET status='accepted', "
+            self._write([("UPDATE memory_claims SET "
+                          "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'accepted' END, "
                           "authority=CASE WHEN authority='human' THEN 'human' ELSE 'verified' END, "
                           "updated_at=? WHERE id=?", (_now(), claim_id))])
         else:
@@ -646,6 +649,9 @@ if __name__ == "__main__":
     assert (m.get(hv).authority, m.get(hv).status) == ("human", "rejected"), m.get(hv)
     m.mark_verified(hv, True)
     assert (m.get(hv).authority, m.get(hv).status) == ("human", "accepted"), m.get(hv)
+    m.set_status(hv, "superseded")  # a newer human correction replaced it
+    m.mark_verified(hv, True)
+    assert (m.get(hv).authority, m.get(hv).status) == ("human", "superseded"), m.get(hv)
     # reject: outcome-driven demote BY HANDLE → drops out of recall, row preserved, reason in metadata
     rj = m.claim("pitfall", "bad lesson", "a lesson that correlated with failed runs",
                  scope="project", project="pillbox", accept=True)
