@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+.speccheck-cache/
 *.db
 *.db-log
 *.db-wal

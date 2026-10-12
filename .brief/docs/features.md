@@ -273,3 +273,26 @@ paths:
 
 `kypp <command>` dispatches to each module's `main()`. Imports are lazy, so `serve` never
 loads the capture stack.
+
+<!-- brief:anchor spec-consistency -->
+## Spec consistency
+
+```yaml
+paths:
+  - "speccheck/**"
+  - ".github/workflows/spec-consistency.yml"
+```
+
+`python -m speccheck check` compares head code to a pinned baseline spec and writes an advisory
+report. CI uploads that report and exits 0 when the checker itself finishes, findings included.
+
+### Gotchas
+- The checker never writes `.brief/` or `.brief/SIGNOFF`. A report path under `.brief/` is refused.
+- Rule text comes from the baseline commit. `--baseline HEAD` is ignored when that commit's spec
+  differs from `origin/main` or `main`, so a change is not judged against its own rules.
+- A `conforms` verdict needs a covered scope. `**kwargs` on a decorated MCP tool, or `mcp.add_tool`,
+  leaves `mcp-no-verify-argument` `unresolved`.
+- The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
+  following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
+- `authority-rank-order` reads `kypp/vocab.py` and `kypp/arbiter.py` only. `worker/src/memory.ts`
+  mirrors the rank and is outside that rule.

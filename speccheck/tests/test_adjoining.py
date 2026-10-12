@@ -1,0 +1,73 @@
+"""The pinned authority-order bullet is not a clean single-writer claim."""
+
+import unittest
+from pathlib import Path
+
+from speccheck.engine import run_check
+from speccheck.evaluate import AUTH_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
+from speccheck.fixtures import clean_tree
+from speccheck.gitio import load_files, rev_parse
+from speccheck.textscan import group_bullets, invariant_bullets, split_front_matter
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _bullets(path: Path) -> list[str]:
+    _, body = split_front_matter(path.read_text())
+    return invariant_bullets(body)
+
+
+class AdjoiningTest(unittest.TestCase):
+    def test_pins_match_ratified_specs(self):
+        self.assertEqual(_bullets(ROOT / ".brief/docs/verify-operator-only/versions/v0002.md"), VERIFY_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/authority-order/versions/v0004.md"), AUTH_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/additive-migrations/versions/v0002.md"), SCHEMA_BULLETS)
+
+    def test_post_sync_not_clean_single_writer(self):
+        bullets = _bullets(ROOT / ".brief/docs/authority-order/versions/v0004.md")
+        isolated = bullets[1]
+        self.assertIn("shell.correct_main", isolated)
+        self.assertNotIn("POST /sync", isolated)
+        groups = group_bullets(bullets, doc_id="authority-order", version="0004", anchor="authority-dominates")
+        hits = [g for g in groups if "shell.correct_main" in g.text]
+        self.assertTrue(hits)
+        for group in hits:
+            self.assertIn("POST /sync", group.text)
+            self.assertIs(group.clean_single_writer, False)
+            self.assertNotEqual(group.text, isolated)
+        self.assertFalse(any(g.clean_single_writer is True for g in groups))
+
+    def test_report_does_not_call_correct_main_the_only_writer(self):
+        files, paths = load_files(ROOT, None)
+        sha = rev_parse(ROOT, "HEAD")
+        report = run_check(files, files, baseline_sha=sha, head_sha=sha + "-head", baseline_paths=paths, head_paths=paths)
+        writer = next(v for v in report.verdicts if v.rule_id == "human-authority-writers")
+        self.assertEqual(writer.status, "unresolved")
+        self.assertIs(writer.clean_single_writer, False)
+        self.assertIn("POST /sync", writer.claim_text)
+        self.assertNotIn("is the only caller that writes", writer.claim_text)
+        self.assertFalse(
+            any(v.clean_single_writer is True and "shell.correct_main" in v.claim_text for v in report.verdicts)
+        )
+
+
+class LiveRepoTest(unittest.TestCase):
+    def test_live_repo_has_no_violations(self):
+        files, paths = load_files(ROOT, None)
+        sha = rev_parse(ROOT, "HEAD")
+        report = run_check(files, files, baseline_sha=sha, head_sha=sha + "-live", baseline_paths=paths, head_paths=paths)
+        self.assertEqual(report.by_status("violates"), [])
+        conforms = {v.rule_id for v in report.by_status("conforms")}
+        self.assertIn("mcp-no-verify-argument", conforms)
+        self.assertIn("mcp-no-human-or-verified-authority", conforms)
+        self.assertIn("authority-rank-order", conforms)
+        self.assertIn("schema-add-column", conforms)
+        self.assertIn("doc-refs", conforms)
+        timeout = next(v for v in report.verdicts if v.rule_id == "verify-timeout-behaviour")
+        self.assertEqual(timeout.status, "unresolved")
+        for verdict in report.verdicts:
+            self.assertNotIn(verdict.severity, {"P0", "P1", "P2"})
+
+
+if __name__ == "__main__":
+    unittest.main()
