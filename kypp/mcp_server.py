@@ -104,7 +104,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
     @mcp.tool()
     def claim(subject: str, content: str, type: ClaimType = "fact", confidence: float = 0.7,
               scope: Scope = "project", source_ids: list[str] | None = None,
-              code_refs: list[dict] | None = None) -> str:
+              code_refs: list[dict] | None = None, verify: str | None = None) -> str:
         """Record a durable memory. `subject` (short noun phrase) is the claim's IDENTITY: write under
         an EXISTING subject to update/correct it (consolidation keeps the strongest version); a new
         subject creates a new memory. Memory is shared across the swarm — keep content MODEL-AGNOSTIC
@@ -116,7 +116,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         sources = list(source_ids or []) + ([f"session:{consumer}"] if consumer else [])
         return store.claim(type, subject, content, scope=scope, project=project,
                            confidence=confidence, source_ids=sources, code_refs=code_refs,
-                           user=user, agent=agent)
+                           verify=verify, user=user, agent=agent)
 
     @mcp.tool()
     def recall(query: str, scope: Scope | None = None, types: list[ClaimType] | None = None,
