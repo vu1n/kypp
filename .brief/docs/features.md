@@ -295,4 +295,10 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
 - The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
   following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
 - `authority-rank-order` reads `kypp/vocab.py` and `kypp/arbiter.py` only. `worker/src/memory.ts`
-  mirrors the rank and is outside that rule.
+  mirrors the rank and is outside that rule. The first element of `_rank` must be proved to
+  increase with `AUTHORITY_RANK`. Negation or `reversed`/`sorted(..., reverse=True)` is a
+  violation; an expression the checker cannot classify stays `unresolved`.
+- A Worker tool whose `inputSchema` is not an inline `properties` object stays `unresolved`
+  unless that name resolves to an inline object in the same file.
+- A reference-index cache hit for the same head SHA is reused only when the dependency hash
+  still matches. A baseline spec change rebuilds the index.

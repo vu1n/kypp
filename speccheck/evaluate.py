@@ -89,6 +89,7 @@ def _ts_authority(source: str) -> dict:
     return {"bad": bad, "dynamic": dynamic}
 
 
+# Context: doc://kypp/verify-operator-only@0002#operator-only-verify — MCP tools never accept a `verify` argument.
 def eval_mcp_no_verify(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None]:
     spec = "doc://kypp/verify-operator-only@0002#operator-only-verify"
     _path, groups = _groups(index, "verify-operator-only", 2, "operator-only-verify")
@@ -177,6 +178,7 @@ def eval_mcp_no_verify(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     )
 
 
+# Context: doc://kypp/authority-order@0004#authority-dominates — No MCP tool passes `authority="human"` or `"verified"`.
 def eval_mcp_authority(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None]:
     spec = "doc://kypp/authority-order@0004#authority-dominates"
     _path, groups = _groups(index, "authority-order", 4, "authority-dominates")
@@ -259,6 +261,7 @@ def eval_mcp_authority(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     )
 
 
+# Context: doc://kypp/authority-order@0004#authority-dominates — shell.correct_main is grouped with POST /sync; it is not the only writer of authority=human.
 def eval_writers(index: SpecIndex) -> tuple[Verdict, ClaimGroup | None]:
     spec = "doc://kypp/authority-order@0004#authority-dominates"
     _path, groups = _groups(index, "authority-order", 4, "authority-dominates")
@@ -292,6 +295,7 @@ def eval_writers(index: SpecIndex) -> tuple[Verdict, ClaimGroup | None]:
     )
 
 
+# Context: doc://kypp/authority-order@0004#authority-dominates — AUTHORITY_RANK is the single ordering, and the arbiter's survivor key uses it first.
 def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None]:
     spec = "doc://kypp/authority-order@0004#authority-dominates"
     _path, groups = _groups(index, "authority-order", 4, "authority-dominates")
@@ -337,11 +341,29 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
         problems.append(f"Authority literal is {facts['literal']}")
     if not facts["rank_from_authorities"]:
         problems.append("AUTHORITY_RANK is not enumerate(AUTHORITIES) derived from Authority")
-    if not facts["rank_fn_first"]:
+    order = facts.get("rank_order")
+    if order == "flipped":
+        problems.append("the first element of _rank negates or reverses AUTHORITY_RANK")
+    elif order == "absent":
         problems.append("_rank does not put AUTHORITY_RANK first")
     if not facts["survivor_uses_rank"]:
         problems.append("_survivor does not use key=_rank")
     coverage = "parsed vocab.Authority, AUTHORITY_RANK, arbiter._rank, and arbiter._survivor"
+    if order == "unknown" and not problems:
+        return (
+            Verdict(
+                rule_id="authority-rank-order",
+                status="unresolved",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=RANK_SCOPE,
+                coverage=coverage + "; the first element of _rank was not proved to order AUTHORITY_RANK ascending",
+                detail="the analysis could not prove the survivor order, so this is not conformance",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
     if problems:
         return (
             Verdict(
@@ -354,6 +376,21 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
                 coverage=coverage,
                 detail="the survivor order does not match the pinned authority ranking",
                 counterexample="; ".join(problems),
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    if order != "ascending":
+        return (
+            Verdict(
+                rule_id="authority-rank-order",
+                status="unresolved",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=RANK_SCOPE,
+                coverage=coverage + "; the first element of _rank was not proved to order AUTHORITY_RANK ascending",
+                detail="the analysis could not prove the survivor order, so this is not conformance",
                 evidence="ast",
                 code_revision=CODE_REVISION,
             ),
@@ -506,6 +543,7 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
     )
 
 
+# Context: doc://kypp/verify-operator-only@0002#operator-only-verify — `kypp verify` treats a timeout or spawn failure as a failed check and never aborts the sweep.
 def eval_verify_timeout(index: SpecIndex) -> tuple[Verdict, ClaimGroup | None]:
     spec = "doc://kypp/verify-operator-only@0002#operator-only-verify"
     _path, groups = _groups(index, "verify-operator-only", 2, "operator-only-verify")

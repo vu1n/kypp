@@ -296,6 +296,32 @@ def holdout_cases() -> list[Case]:
         "MCP tools may accept a `verify` argument.",
         1,
     )
+    negated_rank = _edit(
+        lambda t: t.__setitem__(
+            "kypp/arbiter.py",
+            t["kypp/arbiter.py"].replace(
+                "return (AUTHORITY_RANK.get(c.authority, 0), c.status == \"accepted\")",
+                "return (-AUTHORITY_RANK.get(c.authority, 0), c.status == \"accepted\")",
+                1,
+            ),
+        )
+    )
+    referenced_schema = _edit(
+        lambda t: t.__setitem__(
+            "worker/src/mcp.ts",
+            t["worker/src/mcp.ts"].replace(
+                """    inputSchema: {
+      type: "object",
+      properties: {
+        subject: { type: "string" },
+        content: { type: "string" },
+      },
+    },""",
+                "    inputSchema: claimSchema,",
+                1,
+            ),
+        )
+    )
     return [
         _case(
             "holdout_worker_verify_property",
@@ -394,6 +420,23 @@ def holdout_cases() -> list[Case]:
             expect_status={"mcp-no-verify-argument": "conforms"},
             expect_violation_ids=set(),
             expect_amendments=True,
+        ),
+        _case(
+            "holdout_negated_rank",
+            "holdout",
+            "negating AUTHORITY_RANK in _rank flips the survivor order",
+            negated_rank,
+            expect_status={"authority-rank-order": "violates"},
+            expect_violation_ids={"authority-rank-order"},
+            expect_severity={"authority-rank-order": "medium"},
+        ),
+        _case(
+            "holdout_referenced_input_schema",
+            "holdout",
+            "a Worker inputSchema name that does not resolve to inline properties is not conformance",
+            referenced_schema,
+            expect_status={"mcp-no-verify-argument": "unresolved"},
+            expect_violation_ids=set(),
         ),
     ]
 

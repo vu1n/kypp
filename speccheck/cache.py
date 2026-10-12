@@ -82,12 +82,14 @@ class Cache:
         """Return the reference index for ``head_sha``.
 
         A record whose SHA is ``base_sha`` is never returned when the two
-        SHAs differ. Dependency-hash reuse is allowed only for some other SHA.
+        SHAs differ. A same-SHA hit is returned only when its dependency
+        hash still matches; a baseline change rebuilds the index.
+        Dependency-hash reuse is allowed for some other SHA.
         """
         if base_sha and base_sha != head_sha and base_sha in self._refs:
             self.rejected_base += 1
         own = self._refs.get(head_sha)
-        if own is not None and own.sha == head_sha:
+        if own is not None and own.sha == head_sha and own.dep_hash == dep_hash:
             self.ref_hits += 1
             return own.payload
         for sha, rec in self._refs.items():
