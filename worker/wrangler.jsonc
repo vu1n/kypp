@@ -15,7 +15,9 @@
   // KYPP_RECUR_GAP_MINUTES: how far apart the sessions behind a promotion must be.
   // KYPP_CORRECT: "off" hides `correct`, which lands accepted claims past the gate and the
   // two-session rule. Off for the alpha; set "on" once agents should be trusted with it.
-  "vars": { "KYPP_PUBLIC_URL": "https://kypp.example.workers.dev", "KYPP_RECUR_GAP_MINUTES": "60", "KYPP_CORRECT": "off" },
+  // KYPP_OIDC_OWNERS: GitHub owners (comma list, e.g. "vu1n") whose Actions may call /v1/systemone
+  // with an OIDC token whose audience is KYPP_PUBLIC_URL (no trailing slash). Empty refuses OIDC.
+  "vars": { "KYPP_PUBLIC_URL": "https://kypp.vu1n.dev", "KYPP_RECUR_GAP_MINUTES": "60", "KYPP_CORRECT": "off", "KYPP_OIDC_OWNERS": "vu1n" },
   // The System One gate runs Clef here when no TYPESAFE_API_KEY is set (KYPP_S1_MODEL picks clef-flash).
   "ai": { "binding": "AI" },
   // Passphrase attempts on the sign-in page: 5 a minute per IP. Client registrations: 3 a minute per IP.
@@ -26,7 +28,8 @@
   "triggers": { "crons": ["17 * * * *"] }
   // Secrets (wrangler secret put): KYPP_OWNER_SECRET (sign-in passphrase), CONSENT_SECRET (32+ chars),
   // KYPP_API_TOKENS (optional "name:token,name:token" for headless clients such as huddles; the
-  // name is the token's user, so "owner:<token>" shares your own user scope).
+  // name is the token's user, so "owner:<token>" shares your own user scope), KYPP_S1_TOKENS
+  // (optional "name:token,..." for /v1/systemone callers outside GitHub Actions; never accepted on /mcp).
   // System One gate: Clef on the AI binding by default. A TYPESAFE_API_KEY secret (plus optional
   // TYPESAFE_BASE_URL / TYPESAFE_DEFAULT_MODEL vars) routes it to TypeSafe instead. KYPP_S1=off disables it.
 }

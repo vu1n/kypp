@@ -41,7 +41,7 @@ test("clef-flash is passed through, a missing model is clef, anything else is re
   assert.equal(calls.length, 2);
 });
 
-test("only a kypp API token gets in", async () => {
+test("only an authenticated bearer gets in", async () => {
   const { ai, calls } = stubAI();
   for (const auth of [null, "Bearer wrong-token-0000000000", `Basic ${TOKEN}`, "Bearer "]) {
     assert.equal((await handleSystemOne(req(body, auth), ai, tokenName)).status, 401);
