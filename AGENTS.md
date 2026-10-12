@@ -64,5 +64,7 @@ tools for `kypp` before assuming they're missing; if there are none, carry on wi
 ## Review guidelines
 
 Reviewing a PR here? Read and apply [REVIEW-GUIDELINES.md](./REVIEW-GUIDELINES.md): audit each new
-`conforms` sign-off against the decision it names, and flag governed behaviour changed without an
-`amend-proposed`. A decision violation is P1. Advise only; never ratify.
+`conforms` sign-off against the decision it names, and independently review governed behaviour.
+Flag code that contradicts an active decision even with an amendment proposal; only completed,
+authorized ratification permits reliance on a changed rule. Grade findings by concrete impact.
+Advise only; never ratify. Silence is no evidence of audit, approval or ratification.
