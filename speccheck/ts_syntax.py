@@ -7,6 +7,7 @@ are lazy so the ordinary kypp installation does not need checker dependencies.
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -206,3 +207,375 @@ def typescript_mcp_tools(source: str) -> dict:
     if not tools:
         gaps.append('TOOLS array had no tool objects')
     return {'covered': not gaps, 'error': '; '.join(gaps) or None, 'tools': tools}
+
+def _match_delim(src: str, start: int, open_c: str, close_c: str) -> int | None:
+    depth = 0
+    i = start
+    n = len(src)
+    state = "code"
+    while i < n:
+        c = src[i]
+        nxt = src[i + 1] if i + 1 < n else ""
+        if state == "line":
+            if c == "\n":
+                state = "code"
+            i += 1
+            continue
+        if state == "block":
+            if c == "*" and nxt == "/":
+                state = "code"
+                i += 2
+                continue
+            i += 1
+            continue
+        if state in {"sq", "dq", "bt"}:
+            if c == "\\":
+                i += 2
+                continue
+            quote = {"sq": "'", "dq": '"', "bt": "`"}[state]
+            if c == quote:
+                state = "code"
+            i += 1
+            continue
+        if c == "/" and nxt == "/":
+            state = "line"
+            i += 2
+            continue
+        if c == "/" and nxt == "*":
+            state = "block"
+            i += 2
+            continue
+        if c == "'":
+            state = "sq"
+            i += 1
+            continue
+        if c == '"':
+            state = "dq"
+            i += 1
+            continue
+        if c == "`":
+            state = "bt"
+            i += 1
+            continue
+        if c == open_c:
+            depth += 1
+        elif c == close_c:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+
+def _strip_ts_comments(source: str) -> str:
+    out: list[str] = []
+    i = 0
+    n = len(source)
+    state = "code"
+    while i < n:
+        c = source[i]
+        nxt = source[i + 1] if i + 1 < n else ""
+        if state == "line":
+            if c == "\n":
+                state = "code"
+                out.append(c)
+            else:
+                out.append(" ")
+            i += 1
+            continue
+        if state == "block":
+            if c == "*" and nxt == "/":
+                state = "code"
+                out.append("  ")
+                i += 2
+                continue
+            out.append("\n" if c == "\n" else " ")
+            i += 1
+            continue
+        if state in {"sq", "dq", "bt"}:
+            out.append(c)
+            if c == "\\":
+                if i + 1 < n:
+                    out.append(source[i + 1])
+                i += 2
+                continue
+            if c == {"sq": "'", "dq": '"', "bt": "`"}[state]:
+                state = "code"
+            i += 1
+            continue
+        if c == "/" and nxt == "/":
+            state = "line"
+            out.append("  ")
+            i += 2
+            continue
+        if c == "/" and nxt == "*":
+            state = "block"
+            out.append("  ")
+            i += 2
+            continue
+        if c in {"'", '"', "`"}:
+            state = {"'": "sq", '"': "dq", "`": "bt"}[c]
+            out.append(c)
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+
+def _split_top(text: str, sep: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    i = 0
+    depth = 0
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    close_for: dict[str, str] = {}
+    while i < len(text):
+        c = text[i]
+        if c in pairs:
+            depth += 1
+            close_for[str(depth)] = pairs[c]
+            buf.append(c)
+        elif depth and c == close_for.get(str(depth)):
+            depth -= 1
+            buf.append(c)
+        elif c == sep and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def _unwrap_parens(expr: str) -> str:
+    expr = expr.strip()
+    while expr.startswith("(") and _match_delim(expr, 0, "(", ")") == len(expr) - 1:
+        expr = expr[1:-1].strip()
+    return expr
+
+
+def _ts_rank_polarity(expr: str) -> str:
+    expr = _unwrap_parens(expr)
+    if expr.startswith("+") and not expr.startswith("+="):
+        return _ts_rank_polarity(expr[1:])
+    if expr.startswith("-"):
+        inner = _ts_rank_polarity(expr[1:])
+        return {"ascending": "flipped", "flipped": "ascending"}.get(inner, "unknown" if inner == "unknown" else "absent")
+    compact = re.sub(r"\s+", "", expr)
+    if re.fullmatch(r"AUTHORITIES\.length(?:-1)?-AUTHORITIES\.indexOf\(.*\)", compact):
+        return "flipped"
+    if "AUTHORITIES" in compact and ".reverse()" in compact and ".indexOf(" in compact:
+        return "flipped"
+    if re.fullmatch(r"AUTHORITIES\.indexOf\(.*\)", compact):
+        return "ascending"
+    if "AUTHORITIES" in compact:
+        return "unknown"
+    return "absent"
+
+
+def _ts_return_first(body: str) -> str | None:
+    match = re.search(r"\breturn\b", body)
+    if not match:
+        return None
+    rest = body[match.end() :].lstrip()
+    if rest.startswith("["):
+        end = _match_delim(rest, 0, "[", "]")
+        if end is None:
+            return None
+        return _split_top(rest[1:end], ",")[0]
+    if rest.startswith("("):
+        end = _match_delim(rest, 0, "(", ")")
+        if end is None:
+            return None
+        return _split_top(rest[1:end], ",")[0]
+    return None
+
+
+def _ts_string_array(source: str, name: str) -> list[str] | None:
+    match = re.search(rf"\b{name}\b(?:\s*:\s*[^=;\n]+)?\s*=\s*\[", source)
+    if not match:
+        return None
+    end = _match_delim(source, match.end() - 1, "[", "]")
+    if end is None:
+        return None
+    body = source[match.end() : end]
+    values = re.findall(r"""['"]([^'"]+)['"]""", body)
+    if not values or re.search(r"\.\.\.|\b\w+\s*\(", body):
+        return None
+    return values
+
+
+def _ts_comparator(body: str) -> str:
+    flat = re.sub(r"\s+", " ", body)
+    if "rank(" not in flat:
+        return "unknown"
+    natural = "if (ra[i] < rb[i]) return -1" in flat and "if (ra[i] > rb[i]) return 1" in flat
+    inverted = "if (ra[i] < rb[i]) return 1" in flat and "if (ra[i] > rb[i]) return -1" in flat
+    if natural and not inverted:
+        return "natural"
+    if inverted and not natural:
+        return "inverted"
+    return "unknown"
+
+
+def _ts_survivor_picks(body: str, comparator: str) -> str:
+    """with_rank if the greater rank number wins; against_rank if the lesser wins; else unknown."""
+    flat = re.sub(r"\s+", " ", body)
+    match = re.search(
+        r"compareRank\s*\(\s*([A-Za-z_$][\w$]*)\s*,\s*([A-Za-z_$][\w$]*)\s*\)\s*(>=|>|<=|<)\s*0\s*\?\s*([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)",
+        flat,
+    )
+    if match is None or comparator == "unknown":
+        return "unknown"
+    first, _second, op, kept, _other = match.groups()
+    keeps_first = kept == first
+    greater_op = op in {">", ">="}
+    # natural comparator: positive means the first argument ranks higher.
+    first_is_greater = (greater_op and keeps_first) or (not greater_op and not keeps_first)
+    if comparator == "inverted":
+        first_is_greater = not first_is_greater
+    return "with_rank" if first_is_greater else "against_rank"
+
+
+
+
+def _function_body(root, name: str) -> str | None:
+    for node in _walk(root):
+        if node.type != "function_declaration":
+            continue
+        ident = node.child_by_field_name("name")
+        if ident is None or _text(ident) != name:
+            continue
+        body = node.child_by_field_name("body")
+        return None if body is None else _text(body)
+    return None
+
+
+def _authorities_array(root) -> list[str] | None:
+    for node in _walk(root):
+        if node.type != "variable_declarator":
+            continue
+        ident = node.child_by_field_name("name")
+        if ident is None or _text(ident) != "AUTHORITIES":
+            continue
+        value = _unwrap(node.child_by_field_name("value"))
+        if value is None or value.type != "array":
+            return None
+        out = []
+        for child in _children(value):
+            text = _string(child)
+            if text is None:
+                return None
+            out.append(text)
+        return out or None
+    return None
+
+
+def typescript_authority_rank(source: str) -> dict:
+    """Effective low-to-high authority order in worker/src/memory.ts, or unknown."""
+    try:
+        parser = _parser()
+    except (ImportError, OSError, ValueError, TypeError) as exc:
+        return {"covered": True, "order": "unknown", "error": f"TypeScript parser unavailable: {exc}"}
+    tree = parser.parse(source.encode("utf8"))
+    root = tree.root_node
+    if root.has_error:
+        return {"covered": True, "order": "unknown", "error": "TypeScript parse error"}
+    array = _authorities_array(root)
+    rank_body = _function_body(root, "rank")
+    compare_body = _function_body(root, "compareRank")
+    survivor_body = _function_body(root, "survivor")
+    if array is None or rank_body is None:
+        return {"covered": True, "order": "unknown", "error": "AUTHORITIES or rank() was not recognized"}
+    rank_body = _strip_ts_comments(rank_body)
+    first = _ts_return_first(rank_body)
+    polarity = _ts_rank_polarity(first or "")
+    if polarity in {"unknown", "absent"}:
+        return {"covered": True, "order": polarity, "error": None}
+    if compare_body is None or survivor_body is None:
+        return {"covered": True, "order": "unknown", "error": "compareRank or survivor was not recognized"}
+    direction = _ts_survivor_picks(_strip_ts_comments(survivor_body), _ts_comparator(_strip_ts_comments(compare_body)))
+    if direction == "unknown":
+        return {"covered": True, "order": "unknown", "error": "survivor direction was not proved"}
+    order = list(array)
+    if polarity == "flipped":
+        order.reverse()
+    if direction == "against_rank":
+        order.reverse()
+    return {"covered": True, "order": order, "error": None}
+
+
+_SQL_DELETE_TARGET = re.compile(r"\bDELETE\s+FROM\s+[\"'`]?(memory_claims|observations)\b", re.I)
+_SQL_DELETE_WORD = re.compile(r"\bDELETE\b", re.I)
+_SQL_VERIFIED = re.compile(
+    r"\b(?:UPDATE|INSERT)\b[\s\S]*?(?:"
+    r"\bauthority\s*=\s*['\"]verified['\"]"
+    r"|\bauthority\b[\s\S]{0,160}?ELSE\s+['\"]verified['\"]"
+    r")",
+    re.I,
+)
+
+
+def _note_sql(text: str | None, fragments: str, dynamic: bool, where: str) -> tuple[list[str], list[str]]:
+    bad: list[str] = []
+    gaps: list[str] = []
+    shown = text if text is not None else fragments
+    if shown and _SQL_DELETE_TARGET.search(shown):
+        bad.append(f"DELETE {where}")
+    elif dynamic and _SQL_DELETE_WORD.search(fragments):
+        gaps.append(f"dynamic DELETE {where}")
+    if shown and _SQL_VERIFIED.search(shown):
+        bad.append(f"verified SQL {where}")
+    elif dynamic and re.search(r"\bauthority\s*=\s*['\"]?\s*$", fragments) and re.search(r"\b(?:UPDATE|INSERT)\b", fragments, re.I):
+        gaps.append(f"dynamic authority SQL {where}")
+    return bad, gaps
+
+
+def _sql_file(path: str, source: str) -> tuple[list[str], list[str]]:
+    cleaned = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)
+    cleaned = re.sub(r"--.*?$", " ", cleaned, flags=re.M)
+    return _note_sql(cleaned, cleaned, False, f"{path}:1")
+
+
+def typescript_sql_findings(path: str, source: str) -> tuple[list[str], list[str]]:
+    if path.endswith(".sql"):
+        return _sql_file(path, source)
+    try:
+        parser = _parser()
+    except (ImportError, OSError, ValueError, TypeError) as exc:
+        return [], [f"dynamic DELETE {path} TypeScript parser unavailable: {exc}"]
+    tree = parser.parse(source.encode("utf8"))
+    if tree.root_node.has_error:
+        return [], [f"dynamic DELETE {path} TypeScript parse error"]
+    bad: list[str] = []
+    gaps: list[str] = []
+    for node in _walk(tree.root_node):
+        line = node.start_point.row + 1
+        where = f"{path}:{line}"
+        if node.type == "string":
+            text = _string(node)
+            if text is None:
+                raw = _text(node)
+                if _SQL_DELETE_WORD.search(raw) or _SQL_VERIFIED.search(raw):
+                    gaps.append(f"dynamic DELETE {where}" if _SQL_DELETE_WORD.search(raw) else f"dynamic authority SQL {where}")
+                continue
+            found, holes = _note_sql(text, text, False, where)
+            bad.extend(found)
+            gaps.extend(holes)
+        elif node.type == "template_string":
+            fragments = []
+            dynamic = False
+            for child in node.named_children:
+                if child.type == "template_substitution":
+                    dynamic = True
+                elif child.type == "string_fragment":
+                    fragments.append(_text(child))
+            static = "".join(fragments)
+            found, holes = _note_sql(None if dynamic else static, static, dynamic, where)
+            bad.extend(found)
+            gaps.extend(holes)
+    return list(dict.fromkeys(bad)), list(dict.fromkeys(gaps))

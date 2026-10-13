@@ -24,6 +24,8 @@ class Case:
     expect_severity: dict[str, str] = field(default_factory=dict)
     expect_amendments: bool | None = None
     expect_advisory: str | None = None
+    expect_advisory_count: int | None = None
+    expect_advisory_contains: tuple[str, ...] = ()
     expect_not_clean_single_writer: bool = False
 
 
@@ -407,9 +409,9 @@ def regression_cases() -> list[Case]:
         _case(
             "holdout_add_tool_abstains",
             "regression",
-            "mcp.add_tool is outside the decorator scope, so a clean decorator list is not conformance",
+            "mcp.add_tool(claim) resolves to the decorated claim, which has no verify parameter",
             add_tool,
-            expect_status={"mcp-no-verify-argument": "unresolved"},
+            expect_status={"mcp-no-verify-argument": "conforms"},
             expect_violation_ids=set(),
         ),
         _case(
@@ -489,6 +491,7 @@ def smoke_cases() -> list[Case]:
 
 
 def all_cases() -> list[Case]:
+    from .gap_cases import gap_cases
     from .holdout_cases import holdout_cases
 
-    return tuning_cases() + regression_cases() + holdout_cases() + smoke_cases()
+    return tuning_cases() + gap_cases() + regression_cases() + holdout_cases() + smoke_cases()

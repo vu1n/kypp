@@ -15,6 +15,10 @@ s1 = ["typesafe-sdk>=0.7"]
 
 [project.scripts]
 kypp = "kypp.cli:main"
+speccheck = "speccheck.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kypp", "speccheck"]
 
 [build-system]
 requires = ["hatchling"]

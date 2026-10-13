@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from speccheck.engine import run_check
-from speccheck.evaluate import AUTH_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
+from speccheck.evaluate import AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
 from speccheck.fixtures import clean_tree
 from speccheck.gitio import load_files, rev_parse
 from speccheck.textscan import group_bullets, invariant_bullets, split_front_matter
@@ -22,6 +22,8 @@ class AdjoiningTest(unittest.TestCase):
         self.assertEqual(_bullets(ROOT / ".brief/docs/verify-operator-only/versions/v0002.md"), VERIFY_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/authority-order/versions/v0004.md"), AUTH_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/additive-migrations/versions/v0002.md"), SCHEMA_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/append-only-history/versions/v0001.md"), DELETE_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/no-grader-leak/versions/v0001.md"), GRADER_BULLETS)
 
     def test_post_sync_not_clean_single_writer(self):
         bullets = _bullets(ROOT / ".brief/docs/authority-order/versions/v0004.md")
@@ -63,6 +65,13 @@ class LiveRepoTest(unittest.TestCase):
         self.assertIn("authority-rank-order", conforms)
         self.assertIn("schema-add-column", conforms)
         self.assertIn("doc-refs", conforms)
+        self.assertIn("no-delete-claims", conforms)
+        self.assertIn("verified-authority-writer", conforms)
+        grader = next(v for v in report.verdicts if v.rule_id == "no-grader-verbatim")
+        self.assertEqual(grader.status, "unresolved")
+        stale = [a for a in report.advisories if a.code == "stale-pin"]
+        pins = [a.detail.split(" resolves", 1)[0] for a in stale]
+        self.assertEqual(len(pins), len(set(pins)))
         timeout = next(v for v in report.verdicts if v.rule_id == "verify-timeout-behaviour")
         self.assertEqual(timeout.status, "unresolved")
         for verdict in report.verdicts:

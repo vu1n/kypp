@@ -63,6 +63,16 @@ def _check_case(case: Case, report: Report, failures: list[str]) -> None:
         failures.append(f"{case.id}: amendments present={bool(report.amendments)} expected {case.expect_amendments}")
     if case.expect_advisory and not any(a.code == case.expect_advisory for a in report.advisories):
         failures.append(f"{case.id}: missing advisory {case.expect_advisory}")
+    if case.expect_advisory_count is not None:
+        matched = [a for a in report.advisories if a.code == case.expect_advisory]
+        if len(matched) != case.expect_advisory_count:
+            failures.append(
+                f"{case.id}: {case.expect_advisory} count {len(matched)} != {case.expect_advisory_count}"
+            )
+        detail = "\n".join(a.detail for a in matched)
+        for needle in case.expect_advisory_contains:
+            if needle not in detail:
+                failures.append(f"{case.id}: advisory detail missing {needle}")
     if case.expect_not_clean_single_writer:
         writer = next((v for v in report.verdicts if v.rule_id == "human-authority-writers"), None)
         if writer is None or writer.clean_single_writer is not False or "POST /sync" not in writer.claim_text:

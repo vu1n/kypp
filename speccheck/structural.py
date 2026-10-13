@@ -108,9 +108,9 @@ def build_reference_index(baseline: dict[str, str], head: dict[str, str]) -> dic
     index = load_spec(baseline)
     refs = []
     for tree, path, text in _scanned_pairs(baseline, head):
-        for raw, project, doc, rev, anchor in iter_doc_refs(text):
+        for raw, project, doc, rev, anchor, line in iter_doc_refs(text):
             resolved = resolve_ref(index, project, doc, rev, anchor)
-            refs.append({"tree": tree, "path": path, "ref": raw, **resolved})
+            refs.append({"tree": tree, "path": path, "line": line, "ref": raw, "doc": doc, "anchor": anchor, "rev": rev, **resolved})
     return {"refs": refs}
 
 
@@ -125,15 +125,34 @@ def doc_ref_verdicts(payload: dict) -> tuple[Verdict, list[Advisory]]:
         Advisory(code="foreign-ref", detail=f"{r['path']}: {r['ref']} ({r['detail']})", path=r["path"])
         for r in foreign
     ]
+    stale_groups: dict[str, list[dict]] = {}
     for ref in kypp:
-        if ref.get("stale"):
-            advisories.append(
-                Advisory(
-                    code="stale-pin",
-                    detail=f"{ref['path']}: {ref['ref']} resolves, and a newer version is latest; version lag is advisory",
-                    path=ref["path"],
-                )
+        if not ref.get("stale"):
+            continue
+        version = ref.get("version")
+        pin = f"doc://kypp/{ref.get('doc')}@{int(version):04d}#{ref.get('anchor')}" if isinstance(version, int) else ref["ref"]
+        stale_groups.setdefault(pin, []).append(ref)
+    for pin in sorted(stale_groups):
+        rows = stale_groups[pin]
+        occurrences = []
+        seen: set[tuple[str, int]] = set()
+        for ref in rows:
+            key = (ref["path"], int(ref.get("line") or 0))
+            if key in seen:
+                continue
+            seen.add(key)
+            occurrences.append(f"{ref['path']}:{ref.get('line')}")
+        occurrences.sort()
+        advisories.append(
+            Advisory(
+                code="stale-pin",
+                detail=(
+                    f"{pin} resolves, and a newer version is latest; version lag is advisory. "
+                    f"Occurrences: {', '.join(occurrences)}"
+                ),
+                path=occurrences[0].split(":", 1)[0] if len({item.split(":", 1)[0] for item in occurrences}) == 1 else None,
             )
+        )
     if bad:
         example = "; ".join(f"{r['path']}: {r['ref']} ({r['detail']})" for r in bad[:8])
         return (

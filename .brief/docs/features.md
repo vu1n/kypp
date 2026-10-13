@@ -290,14 +290,33 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
 - The checker never writes `.brief/` or `.brief/SIGNOFF`. A report path under `.brief/` is refused.
 - Rule text comes from the baseline commit. `--baseline HEAD` is ignored when that commit's spec
   differs from `origin/main` or `main`, so a change is not judged against its own rules.
-- A `conforms` verdict needs a covered scope. `**kwargs` on a decorated MCP tool, or `mcp.add_tool`,
-  leaves `mcp-no-verify-argument` `unresolved`.
+- A `conforms` verdict needs a covered scope. `mcp.add_tool` counts when the callable resolves
+  to one function in the file; an unknown or ambiguous callable stays `unresolved`. Bare `**kwargs`
+  or `*args` stays `unresolved`. `Unpack[TypedDict]` and a pydantic/TypedDict parameter are checked
+  when that model is defined in the tree with a closed field list; an open, inherited, or imported
+  model that does not resolve stays `unresolved`.
 - The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
   following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
-- `authority-rank-order` reads `kypp/vocab.py` and `kypp/arbiter.py` only. `worker/src/memory.ts`
-  mirrors the rank and is outside that rule. The first element of `_rank` must be proved to
-  increase with `AUTHORITY_RANK`. Negation or `reversed`/`sorted(..., reverse=True)` is a
-  violation; an expression the checker cannot classify stays `unresolved`.
+- `authority-rank-order` reads `kypp/vocab.py`, `kypp/arbiter.py`, and the `worker/src/memory.ts`
+  mirror. The TypeScript order has to be proved equal to the Python order (`agent` < `verified` <
+  `human`, higher rank wins). Divergence is a violation. A missing file, a parse failure, or an
+  expression the checker cannot classify stays `unresolved`. Negation or `reversed` on the Python
+  `_rank` is a violation.
+- Stale `doc://` pins are one advisory per pin. The detail lists every path and line.
+- `no-delete-claims` checks constant SQL for `DELETE` against `memory_claims` or `observations`
+  in `kypp/**/*.py` and `worker/**/*.{ts,sql}`. Adjacent literals, `+`, and `"".join` of string
+  literals are one constant, including a name bound to one of those in the same function.
+  A dynamic `DELETE` whose target is not a constant stays `unresolved`. Docstrings are not SQL.
+  The recall/briefing exclusion bullet and the consolidation bullet stay unsupported: they are
+  query and runtime behaviour, not a SQL literal.
+- `verified-authority-writer` allows `authority='verified'` SQL inside `MemoryStore.mark_verified`
+  and constant `claim()` authority arguments other than `verified`. The same SQL in any other
+  Python file, or in a worker `.ts` or `.sql` string, is a violation. A non-constant `authority=`
+  on `claim()` stays `unresolved`. A one-step local bound to `"verified"` is a violation.
+- `no-grader-verbatim` checks `ClaimDraft` subject and content. A proved read of a criterion
+  `name` or `feedback` is a violation. Text copied from model JSON stays `unresolved`.
+- `memory-scope-decay` and `agent-mcp-surface-compose` have no `### Invariant` list, so their
+  prose stays unsupported. Do not rewrite the stale `@0001` pins on `main` to silence that.
 - Worker signatures use tree-sitter with the optional `speccheck` dependencies. From this checkout,
   install `.[speccheck]` or run `uv run --extra speccheck python -m speccheck check`.
 - Worker evidence covers the module-level `const TOOLS` initializer's literal schema keys, not
