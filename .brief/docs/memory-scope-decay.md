@@ -10,6 +10,11 @@ related_code:
   - "kypp/distill.py"
   - "kypp/arbiter.py"
   - "kypp/view.py"
+  - "worker/src/mcp.ts"
+  - "worker/src/cooperation.ts"
+  - "worker/src/cooperation-store.ts"
+  - "worker/src/cooperation-query.ts"
+  - "worker/migrations/*cooperation*"
 ---
 
 <!-- brief:anchor scope-keys-decay -->
@@ -234,6 +239,52 @@ Order of work for §9:
 1. Decision sync.
 2. Defrag opening cross-user decision PRs, once two users' process claims exist to tune on.
 
+### 10. Short-lived cooperation records are not claims
+
+Amended 2026-10-13 (ratified by Vu). This resolves the Open item that left short-lived notes out of
+scope. Two record kinds, `handoff` and `evidence_reference`, are permitted. They are not memory
+claims. The sections above still govern durable claims, including WIP, cross-session candidates,
+event clocks, claim promotion, org rules and human authority. Cooperation records use their own
+wall-clock expiry, and that expiry does not revive the rejected wall-clock TTL for durable claims.
+
+1. **Clients author, the server stamps.** Clients author concise handoffs and evidence references.
+   The server stamps the authenticated principal, resolved origin, creation time and expiry.
+   Client labels and session identifiers are provenance, never independent identity or permission
+   grants.
+2. **v1 is hosted-only, authenticated-principal-private and exact-origin-filtered.** The current
+   authenticated Kypp principal is the whole audience. A project label is not an ACL. Clients
+   cannot widen to groups, global or another principal. Unknown origins are rejected for this
+   record surface without changing unsorted durable-claim behavior.
+3. **Records are append-only.** Corrections, replies and supersessions append links to accessible
+   records. Retry keys are idempotent. Expiry excludes records from normal retrieval, but exact-ID
+   historical access retains content and provenance under current authorization. Expiry means not
+   fresh. It never implies failure, revocation or task completion.
+4. **Explicit wall-clock expiry, not claim decay.** Initially default 24 hours, minimum 60 seconds
+   and maximum 7 days. This is not the decay policy of durable claims. No automatic row deletion,
+   defrag acceptance, widening, promotion or corroboration. A durable lesson requires an explicit
+   separate claim through the existing pipeline.
+5. **Evidence references keep their provenance.** They retain the original producer identity, run,
+   tested requirement, spec/evaluator/candidate revisions and an immutable artifact or positioned
+   log reference. They distinguish `valid_result` (including non-improvement), `invalid_candidate`,
+   `inconclusive_execution` and `assertion`. Timeout or spawn failure is inconclusive. An
+   unqualified legacy false is not a valid experimental negative.
+6. **No authority is minted.** Storing or repeating a reported result cannot mint `verified` or
+   `human` authority or independent corroboration. No measured boolean, verifier command,
+   capability or approval field is added. `append_context` and `query_context` take no authority
+   parameter. `/sync`, `correct` and `mark_verified` are unchanged under `authority-order@0006`.
+7. **Store references, not bodies.** Store references and concise client-authored observations,
+   never full transcripts, raw logs, sealed HCP bodies, credentials or signed access URLs. Source
+   references do not confer access. Huddles contributors must establish disclosure permission for
+   the entire Kypp audience.
+8. **One principal boundary.** Normal and exact-ID retrieval enforce the same principal boundary.
+   Authorization precedes filtering, ranking and model use. The response and candidate window are
+   bounded and explicitly non-exhaustive when capped. The calling harness retains invocation
+   composition and task authority.
+9. **Bounds.** 8 KiB per record, 16 source references and 16 lineage references, 30 returned
+   records, 100 candidates, 32 KiB response, and 10,000 retained records per principal and origin.
+   Quota exhaustion refuses append without deleting history. Any later retention or archive policy
+   is a separate reviewed change.
+
 ## Considered and rejected
 
 - **Wall-clock TTL** (Copilot's 28-day expiry). A quiet repo would lose good memory for no reason.
@@ -254,6 +305,6 @@ Order of work for §9:
   decided here.
 - Similarity for cross-subject dedupe: S1 pairwise "same lesson?" within an origin, or embeddings
   (Workers AI plus Vectorize). Measure on real claims first.
-- Short-lived notes ("deploy is broken right now") are out of scope. The gate rejects them as status.
-  If agents want them, they become their own kind with an expiry that defrag never promotes.
+- Short-lived notes ("deploy is broken right now") are cooperation records under §10, not claims.
+  The gate still rejects them as durable-claim status, and defrag never promotes them.
 - Tags for topical recall boost, never for visibility. Deferred until search misses show the need.

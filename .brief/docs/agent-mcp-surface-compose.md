@@ -7,6 +7,10 @@ title: "Agent MCP surface: trim to compose / claim / expand / correct"
 supersedes: docs/decisions/2026-06-21-agent-mcp-surface-compose.md
 related_code:
   - "kypp/mcp_server.py"
+  - "worker/src/mcp.ts"
+  - "worker/src/cooperation.ts"
+  - "worker/src/cooperation-store.ts"
+  - "worker/src/cooperation-query.ts"
 ---
 
 <!-- brief:anchor compose-surface -->
@@ -116,6 +120,43 @@ tolerate a rich surface). Optionally leave `recall` / `briefing` / `decide` / `r
 deprecated MCP aliases for one release. The only thing to *build* is `compose`'s bounded, task-conditioned
 selection — which the `kypp-recall` arm in the pillbox eval is already hand-rolling against the embedded
 claim store.
+
+## Hosted cooperation surface
+
+Amended 2026-10-13 (ratified by Vu). A separate, narrow hosted cooperation surface is permitted
+alongside durable memory. This does not claim `compose` is already implemented, and it does not
+require the four-verb migration above to land with cooperation records. The Python backend and
+the local MCP surface are not expanded in this first slice. Existing durable claim tooling and
+authority stay intact.
+
+- `append_context` appends one versioned client-authored handoff or evidence-reference record.
+- `query_context` returns bounded, source-linked records selected under current authorization.
+  Exact-ID historical access is a bounded mode of this same operation.
+
+These operations supplement today's briefing, recall, claim, expand and correct implementation.
+`append_context` and `query_context` take no authority parameter. `/sync`, `correct` and
+`mark_verified` are unchanged under `authority-order@0006`.
+
+Kypp may filter, rank and retrieve by task relevance, including semantic selection later. Its
+output is a memory contribution. It does not own role profiles, required human intent, invocation
+construction, a sealed HCP, task assignments, task completion, approvals or agent execution. The
+caller authors the handoff and assembles its own final context. Future role bias or compression
+in `compose` remains a retrieval design question, not a Kypp invocation-compiler mandate.
+
+For v1, the record, privacy and lifecycle contract is `memory-scope-decay` §10. Enforce input
+bounds, a maximum 100-record authorized candidate window, at most 30 returned records and at most
+32 KiB of serialized contribution including its selection manifest. Record selected IDs and
+revisions, cutoff, selector version and safe bounded omission information. Never dump the whole
+store, truncate away provenance, or rank inaccessible records. The wire document is a later
+freeze; it is not this revision.
+
+The initial implementation uses deterministic exact and lexical selection and no paid model.
+Semantic selection can improve ranking later without changing authority, source visibility or
+response bounds. It must never silently widen the audience.
+
+Not on this surface: inbox delivery guarantees, presence, acknowledgments, locks, a workboard
+task database, scheduler, background wake loop, automatic status synchronization or an Advisor.
+A workflow reference points to the system that owns its task state.
 
 ## Considered and rejected
 
