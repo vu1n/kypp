@@ -49,3 +49,19 @@ using the existing metric conventions. Expectations must remain unchanged after
 outcomes are observed. Once exposed and evaluated, these cases are regression
 confirmation, not a reusable blind accuracy holdout. Small targeted sampling and
 shared task requirements limit broader accuracy claims.
+
+## First evaluation and exposure
+
+First scoring used the settled, combined checker at
+`6716f88f6561e83102dcdc4f8ab42d808c6fd924`, after integrating the separately
+published PR24 merge. The 22 column verdicts had zero false conformance among
+14 expected nonconforming rows, abstention 6/22 (27.3%), and coverage 16/22 (72.7%).
+Across all 25 labeled rows, abstention was 8/25 (32%) and coverage 17/25 (68%).
+Twenty-one cases matched all expected labels.
+
+`sc13` expected a violation for a literal ADD COLUMN followed by DROP INDEX, but
+the bounded parser returned unresolved. That missed counterexample motivated
+recognition of DROP INDEX's statement shape. Expected labels and inputs were not
+changed. `sc13` is now regression evidence. All other cases are also exposed;
+subsequent passing runs are regression confirmation, not blind holdout accuracy.
+No general error rate can be inferred from this small targeted corpus.

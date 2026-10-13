@@ -1,8 +1,11 @@
 """SQL evidence regressions, independent of engine acceptance."""
 import unittest
+import tempfile
+from pathlib import Path
 
+from speccheck.cache import Cache
 from speccheck.sqlsyntax import analyze_migration
-from speccheck.syntax import classify_migration
+from speccheck.syntax import cached_python_migrations, classify_migration
 from speccheck.engine import run_check
 from speccheck.fixtures import clean_tree
 
@@ -41,8 +44,26 @@ class SQLSyntaxTest(unittest.TestCase):
                 self.assertTrue(analyze_migration(sql).reasons)
 
     def test_bounds(self):
-        self.assertEqual(classify_migration(' ' * 100001), 'unknown')
-        self.assertEqual(classify_migration('SELECT ' + '(' * 33 + '1' + ')' * 33), 'unknown')
+        large = 'ALTER TABLE t ADD COLUMN c TEXT /*' + 'x' * 100001 + '*/'
+        self.assertEqual(classify_migration(large), 'unknown')
+        nested = analyze_migration('ALTER TABLE t ADD COLUMN c TEXT DEFAULT ' + '(' * 33 + '1' + ')' * 33)
+        self.assertEqual(nested.kind, 'unknown')
+        self.assertIn('deeply nested', ' '.join(nested.reasons))
+
+    def test_statement_budget_includes_final_statement_without_semicolon(self):
+        statement = 'ALTER TABLE t ADD COLUMN c TEXT'
+        self.assertEqual(classify_migration(';'.join([statement] * 128)), 'ok')
+        self.assertEqual(classify_migration(';'.join([statement] * 129)), 'unknown')
+
+    def test_old_migration_cache_cannot_hide_partial_literals(self):
+        source = '_MIGRATIONS = [dynamic(), "DROP TABLE t"]'
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Cache(Path(directory))
+            cache.syntax(source, 'py-migrations', lambda: {'covered': False, 'error': 'nonliteral', 'entries': []})
+            fresh = Cache(Path(directory))
+            facts = cached_python_migrations(fresh, source)
+            self.assertEqual(facts['entries'], [None, 'DROP TABLE t'])
+            self.assertEqual(fresh.syntax_hits, 0)
 
     def verdicts(self, declaration):
         baseline = clean_tree()

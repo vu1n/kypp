@@ -126,6 +126,12 @@ gate: "Required local tests/governance and frozen evaluation pass; exact pushed 
   obsolete SQL regexes. PLAN now describes this increment; PR24's plan remains in
   Git history and its evidence documents remain in the combined tree.
 - SQL implementation commit: `a92939f`; corpus freeze: `22f68268b268d3d52133ed88c98bb9a1f44831c1`.
+- First evaluation at `6716f88` found zero false conformance, 27.3% column
+  abstention and 72.7% coverage, with one missed DROP INDEX counterexample.
+  Added its structural shape without changing labels; all cases are now exposed.
+- Added meaningful migration-cache and budget checks. A red-first boundary test
+  found that a final statement without a semicolon escaped the 128-statement
+  limit; it now abstains. No SQL is executed by these checks.
 
 ## Graph
 

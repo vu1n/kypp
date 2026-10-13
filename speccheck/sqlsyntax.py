@@ -86,6 +86,8 @@ def _lex(sql: str) -> list[list[tuple[str, str]]]:
     if depth:
         raise ValueError('unbalanced parentheses')
     if tokens:
+        if len(statements) >= 128:
+            raise ValueError('SQL token/statement bound exceeded')
         statements.append(tokens)
     return statements
 
@@ -114,13 +116,13 @@ def _statement(t: list[tuple[str, str]]) -> Analysis:
     def prefix(*words: str) -> bool:
         return len(t) >= len(words) and all(_word(t[i], w) for i, w in enumerate(words))
 
-    if prefix('DROP', 'TABLE'):
+    if prefix('DROP', 'TABLE') or prefix('DROP', 'INDEX'):
         i = 2
         if len(t) >= 4 and _word(t[2], 'IF') and _word(t[3], 'EXISTS'):
             i = 4
         _, i = _name(t, i)
         if i == len(t):
-            return Analysis('not_add_column', ('DROP TABLE is non-additive',))
+            return Analysis('not_add_column', (f'DROP {t[1][1].upper()} is non-additive',))
     if prefix('CREATE', 'TABLE') or prefix('CREATE', 'TEMP', 'TABLE') or prefix('CREATE', 'TEMPORARY', 'TABLE'):
         i = 2 if _word(t[1], 'TABLE') else 3
         if len(t) >= i + 3 and all(_word(t[i + j], w) for j, w in enumerate(('IF', 'NOT', 'EXISTS'))):
