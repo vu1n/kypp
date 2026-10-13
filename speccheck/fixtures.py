@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import copy
 
-from .evaluate import AUTH_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
+from .evaluate import AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
 
 
 def _doc(doc_id: str, anchor: str, status: str, related: list[str], bullets: list[str], title: str) -> str:
@@ -103,6 +103,28 @@ def _survivor(members):
     return max(members, key=_rank)
 '''
 
+MEMORY_TS = '''\
+export const AUTHORITIES = ["agent", "verified", "human"] as const;
+
+export function rank(c: Claim): [number, number, number, number, string] {
+  return [AUTHORITIES.indexOf(c.authority), c.status === "accepted" ? 1 : 0, c.confidence ?? 0,
+    c.source_ids.length, c.updated_at];
+}
+
+function compareRank(a: Claim, b: Claim): number {
+  const ra = rank(a), rb = rank(b);
+  for (let i = 0; i < ra.length; i++) {
+    if (ra[i] < rb[i]) return -1;
+    if (ra[i] > rb[i]) return 1;
+  }
+  return 0;
+}
+
+export function survivor(members: Claim[]): Claim {
+  return members.reduce((best, c) => (compareRank(c, best) > 0 ? c : best));
+}
+'''
+
 
 def clean_tree() -> dict[str, str]:
     verify = _doc(
@@ -142,7 +164,37 @@ def clean_tree() -> dict[str, str]:
         "kypp/store.py": STORE_PY,
         "kypp/vocab.py": VOCAB_PY,
         "kypp/arbiter.py": ARBITER_PY,
+        "worker/src/memory.ts": MEMORY_TS,
     }
+
+
+def with_structural_specs(tree: dict[str, str]) -> dict[str, str]:
+    """Baseline copies of the append-only and no-grader decisions, so those rules run."""
+    out = copy.deepcopy(tree)
+    delete = _doc(
+        "append-only-history",
+        "never-delete",
+        "active",
+        ["kypp/store.py"],
+        DELETE_BULLETS,
+        "Append-only history",
+    )
+    grader = _doc(
+        "no-grader-leak",
+        "signal-only-rubric",
+        "active",
+        ["kypp/distill.py"],
+        GRADER_BULLETS,
+        "No grader leak",
+    )
+    out[".brief/docs/append-only-history.md"] = delete
+    out[".brief/docs/append-only-history/versions/v0001.md"] = delete
+    out[".brief/docs/no-grader-leak.md"] = grader
+    out[".brief/docs/no-grader-leak/versions/v0001.md"] = grader
+    extra = "append-only-history:\n  latest: 1\nno-grader-leak:\n  latest: 1\n"
+    if "append-only-history:" not in out[".brief/aliases.yaml"]:
+        out[".brief/aliases.yaml"] += extra
+    return out
 
 
 def with_pr22(tree: dict[str, str]) -> dict[str, str]:

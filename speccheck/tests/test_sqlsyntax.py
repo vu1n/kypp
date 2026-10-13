@@ -87,7 +87,7 @@ class SQLSyntaxTest(unittest.TestCase):
         for sql in ("ALTER TABLE t ADD COLUMN c TEXT NOT NULL /* DEFAULT 'x' */", 'DROP TABLE t /* ADD COLUMN */'):
             self.assertEqual(self.verdicts(repr([sql]))['schema-add-column'].status, 'violates')
         verdicts = self.verdicts(repr(["ALTER TABLE t ADD COLUMN c TEXT DEFAULT 'NOT NULL schema_version'"]))
-        self.assertEqual(verdicts['schema-add-column'].status, 'conforms')
+        self.assertEqual(verdicts['schema-add-column'].status, 'no_counterexample')
         self.assertEqual(verdicts['schema-idempotence'].status, 'unresolved')
 
     def test_counterexamples_survive_entry_gaps(self):

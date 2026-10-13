@@ -24,7 +24,7 @@ no checker was run to derive or adjust labels.
 | --- | --- | --- |
 | `id` | Unique string | Stable case identity |
 | `sql` | Nonempty tuple of strings | Separate `_MIGRATIONS` entries; each can contain multiple statements |
-| `columns` | `conforms`, `violates`, or `unresolved` | Expected `schema-add-column` status |
+| `columns` | `conforms`, `violates`, or `unresolved` | Frozen `schema-add-column` label. `conforms` is asserted as `no_counterexample` |
 | `idempotence` | Optional status string | Expected `schema-idempotence` status when explicitly labeled |
 
 `case_tree(case)` replaces fixture `kypp/store.py` with a Python literal migration
@@ -45,7 +45,9 @@ merely because their text contains additive keywords.
 At publication this corpus is **unscored**. Non-scoring validation comprised
 Python compilation, static record-shape/uniqueness checks, `git diff --check`, and
 Brief v0.4.2 features/check/pin. The parent evaluates only after SQL-001 settles,
-using the existing metric conventions. Expectations must remain unchanged after
+using the existing metric conventions. The SQL inputs and which rows are violations stayed unchanged. The outcome
+port maps the frozen label `conforms` to `no_counterexample` because the checker
+no longer emits a pass. Expectations must remain unchanged after
 outcomes are observed. Once exposed and evaluated, these cases are regression
 confirmation, not a reusable blind accuracy holdout. Small targeted sampling and
 shared task requirements limit broader accuracy claims.

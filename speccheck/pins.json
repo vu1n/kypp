@@ -14,6 +14,14 @@
     "additive-migrations@0002": [
       "Every `_MIGRATIONS` entry is `ADD COLUMN`, and none is `NOT NULL` without a default.",
       "No schema version table; idempotence comes from swallowing duplicate-column errors only."
+    ],
+    "append-only-history@0001": [
+      "No `DELETE` against `memory_claims` or `observations` in kypp code.",
+      "Recall and briefing exclude `superseded` and `rejected`; `expand`/`get` still returns them.",
+      "Consolidation supersedes losers; it does not drop them."
+    ],
+    "no-grader-leak@0001": [
+      "A distilled claim never contains a grader's verbatim criterion names or feedback."
     ]
   }
 }

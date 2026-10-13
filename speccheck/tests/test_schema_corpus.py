@@ -33,6 +33,12 @@ CASES = (
 )
 
 
+def _outcome(label: str) -> str:
+    if label == "conforms":
+        return "no_counterexample"
+    return label
+
+
 def case_tree(case):
     """Build fixture source without evaluating or executing SQL/Python input."""
     from speccheck.fixtures import clean_tree
@@ -51,9 +57,11 @@ class SchemaCorpusTest(unittest.TestCase):
             with self.subTest(case=case["id"]):
                 report = run_check(clean_tree(), case_tree(case), baseline_sha="schema-corpus-baseline", head_sha=case["id"])
                 statuses = {v.rule_id: v.status for v in report.verdicts}
-                self.assertEqual(statuses["schema-add-column"], case["columns"])
+                # The frozen label "conforms" is a clean scan. The checker records that as
+                # no_counterexample and does not emit a pass.
+                self.assertEqual(statuses["schema-add-column"], _outcome(case["columns"]))
                 if "idempotence" in case:
-                    self.assertEqual(statuses["schema-idempotence"], case["idempotence"])
+                    self.assertEqual(statuses["schema-idempotence"], _outcome(case["idempotence"]))
 
 
 if __name__ == "__main__":

@@ -70,8 +70,11 @@ to one project, derived from `KYPP_REPO_ROOT`.
 
 ### Gotchas
 - `serve --http` has no authentication. Keep it on localhost.
-- The MCP `correct` tool lands at agent authority, not human. Only the operator's `kypp correct`
-  writes human authority (`doc://kypp/authority-order@latest#authority-dominates`).
+- The MCP `correct` tool lands at agent authority, not human. It is not a writer of `human` or
+  `verified`. Local human authority is the operator's `kypp correct`; local verified authority is
+  `MemoryStore.mark_verified`. Authenticated `POST /sync` is not built yet; when it lands, it is the
+  import path for a ratified Brief revision at the archive stamp's authority
+  (`doc://kypp/authority-order@latest#authority-dominates`).
 - No agent call self-accepts. Every MCP `claim`, decisions included, lands as a candidate stamped
   `session:<id>`; it is accepted when a second session claims the subject or an operator accepts it.
   The stamp and usage logging need a session id: stdio mints one per process, `--http` needs
@@ -290,14 +293,57 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
 - The checker never writes `.brief/` or `.brief/SIGNOFF`. A report path under `.brief/` is refused.
 - Rule text comes from the baseline commit. `--baseline HEAD` is ignored when that commit's spec
   differs from `origin/main` or `main`, so a change is not judged against its own rules.
-- A `conforms` verdict needs a covered scope. `**kwargs` on a decorated MCP tool, or `mcp.add_tool`,
-  leaves `mcp-no-verify-argument` `unresolved`.
+- Semantic scanners do not emit `bounded`. `no_counterexample` is not assurance. `mcp.add_tool`
+  counts when the callable resolves to one function in the file; an unknown or ambiguous callable
+  stays `unresolved`. Bare `**kwargs` or `*args` stays `unresolved`. `Unpack[TypedDict]` and a
+  pydantic/TypedDict parameter are checked when that model is defined in the tree with a closed
+  field list; an open, inherited, or imported model that does not resolve stays `unresolved`.
+  A model is closed only when every `extra` or `model_config` setting is absent or a proved
+  literal `forbid` or `ignore`. `extra = Extra.allow`, a non-literal `model_config`, or any other
+  unproved extra policy stays `unresolved`. The only bounded MCP proposition is a fully parsed
+  `TOOLS` initializer that declares no `verify` property.
 - The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
   following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
-- `authority-rank-order` reads `kypp/vocab.py` and `kypp/arbiter.py` only. `worker/src/memory.ts`
-  mirrors the rank and is outside that rule. The first element of `_rank` must be proved to
-  increase with `AUTHORITY_RANK`. Negation or `reversed`/`sorted(..., reverse=True)` is a
-  violation; an expression the checker cannot classify stays `unresolved`.
+- Those writer rules still read frozen `authority-order@0004`. `authority-order@0005` reconciles
+  the verified-writer contradiction, and that row has not been re-evaluated against it. Ratifying
+  the policy does not create positive evidence.
+- `authority-rank-order` reads `kypp/vocab.py`, `kypp/arbiter.py`, and the `worker/src/memory.ts`
+  mirror. The TypeScript order has to be proved equal to the Python order (`agent` < `verified` <
+  `human`, higher rank wins). Divergence is a violation. A missing file, a parse failure, or an
+  expression the checker cannot classify stays `unresolved`. A recognized matching `compareRank`
+  is `no_counterexample`, not assurance. An earlier return, an extra branch, or an incidental
+  `rank(` call stays `unresolved`. Negation or `reversed` on the Python `_rank` is a violation.
+  Runtime order is the survivor oracle in `tests/test_rank_oracle.py` and
+  `worker/test/rank-oracle.test.ts`; an early return on confidence fails that oracle.
+- Stale `doc://` pins are one advisory per pin. The detail lists every path and line.
+- `no-delete-claims` checks SQL for a delete of `memory_claims` or `observations`
+  in `kypp/**/*.py` and `worker/**/*.{ts,sql}`. Bracket, backtick, and double-quoted identifiers
+  count, including a schema prefix (`main.[memory_claims]`). Constant `+`, templates, and `"".join`
+  are folded before the scan, in Python and in TypeScript; the leaves of that fold are not judged
+  on their own. There is no SQL allow-list and no blanket pass. Only DELETE, REPLACE, INSERT OR
+  REPLACE, DROP, and TRUNCATE can be candidates, and only when the target is protected or unproved.
+  A proved `DELETE` is a violation even when a sibling statement is opaque. A parser failure, or a
+  trailing hole on a statement that is not itself delete-like, stays `unresolved` and is named in
+  coverage. CREATE, ALTER, INSERT, and SELECT that only name a protected table produce no delete
+  finding. A `?` placeholder is unknown. Docstrings are not SQL. The recall/briefing exclusion
+  bullet and the consolidation bullet stay unsupported. On the live tree the rule is `unresolved`:
+  `worker/src/store.ts` updates `memory_claims` through a trailing `${UNSORTED}` hole.
+- `verified-authority-writer` stays `unresolved`. `POST /sync` may land a model-ratified revision
+  at `verified`, and the next bullet says only `MemoryStore.mark_verified` sets `verified`. The
+  writer set is not ratified. A proved `authority='verified'` assignment outside `mark_verified`
+  is recorded on that unresolved verdict, including `ON CONFLICT DO UPDATE`. It is not a settled
+  violation and not a pass. A `?` binding is a coverage gap. A `WHERE authority='verified'` filter
+  is not an assignment. A one-step local bound to `"verified"` is recorded the same way.
+- `schema-add-column` does not emit assurance. Comments, strings, and quoted names cannot
+  supply clauses. `NOT NULL` without `DEFAULT`, DROP, RENAME, and a simple `CREATE TABLE`
+  are violations. A `CREATE TABLE` named as a schema-version table also violates
+  `schema-idempotence`. That name inside a string or comment does not. `CHECK`, a
+  parenthesized default, and other unknown syntax stay `unresolved`. A known counterexample
+  survives an opaque sibling. A scan with no counterexample and no gap is `no_counterexample`.
+- `no-grader-verbatim` checks `ClaimDraft` subject and content. A proved read of a criterion
+  `name` or `feedback` is a violation. Text copied from model JSON stays `unresolved`.
+- `memory-scope-decay` and `agent-mcp-surface-compose` have no `### Invariant` list, so their
+  prose stays unsupported. Do not rewrite the stale `@0001` pins on `main` to silence that.
 - Worker signatures use tree-sitter with the optional `speccheck` dependencies. From this checkout,
   install `.[speccheck]` or run `uv run --extra speccheck python -m speccheck check`.
 - Worker evidence covers the module-level `const TOOLS` initializer's literal schema keys, not
@@ -308,13 +354,16 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   another entry is unresolved. Comments and string contents are not tool declarations.
 - Syntax cache keys include the checker parser version and installed runtime/grammar versions.
   Missing parser dependencies abstain without caching a result that could mask a later install.
-- The original PR23 holdout is regression data. Fresh holdout provenance and exposure are recorded
-  in `docs/spec-check-evaluation.md`; smoke controls are not accuracy evidence.
+- The original PR23 holdout is regression data. The frozen nine-case Worker holdout from #24
+  stays in `speccheck/holdout_cases.py` and is not extended. False passes for the later rank,
+  registration, SQL, and grader rules are the separate `gap-holdout` split. Smoke controls are
+  not accuracy evidence. Provenance for the frozen nine is in `docs/spec-check-evaluation.md`.
 - SQL migration evidence covers literal initializer entries and a bounded statement grammar.
-  Comments, strings and quoted names cannot supply clauses. Unknown syntax abstains; a known
-  non-additive statement survives unrelated entry gaps. SQL is never executed by the checker.
-- The additive-migrations@0002 registry bullet is retired. Its syntax verdict is not active
-  governance or proof of database acceptance/default semantics/runtime idempotence. Independent
-  schema evaluation and its exposure are recorded in `docs/spec-check-schema-evaluation.md`.
+  Comments, strings, and quoted names cannot supply clauses. Unknown syntax is `unresolved`.
+  A known non-additive statement is a violation and survives an unrelated gap. The checker
+  does not execute SQL. A clean scan is `no_counterexample`, not assurance. The
+  additive-migrations@0002 bullet is retired. The check is not proof of database acceptance,
+  default semantics, or runtime idempotence. Schema evaluation is in
+  `docs/spec-check-schema-evaluation.md`.
 - A reference-index cache hit for the same head SHA is reused only when the dependency hash
   still matches. A baseline spec change rebuilds the index.

@@ -21,3 +21,5 @@ scope-keys-decay amend-proposed: add an org level (a group at the top of the rol
 authority-dominates amend-proposed: synced Brief decisions land at the authority of their ratifier (person → human, model → verified) via one CI-only sync route; replaces the operator-route draft
 scope-keys-decay amend-proposed: §9 org rules are ratified in Brief (merge, model by default) and kypp only syncs them; drop operator ratify/promote
 authority-dominates conforms: comment-only; shell.py and worker store.ts Context lines now name the @0004 ratified-decision sync as the other human writer; no authority write path changed
+authority-dominates amend-proposed: reconcile @0004 so mark_verified is the only local verified writer and authenticated /sync imports ratified revisions at stamp-derived authority
+authority-dominates amend-proposed: qualify correct as the only local human writer; authenticated /sync, once built, is the sole other (import) writer of human authority

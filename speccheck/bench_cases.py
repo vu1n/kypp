@@ -24,6 +24,8 @@ class Case:
     expect_severity: dict[str, str] = field(default_factory=dict)
     expect_amendments: bool | None = None
     expect_advisory: str | None = None
+    expect_advisory_count: int | None = None
+    expect_advisory_contains: tuple[str, ...] = ()
     expect_not_clean_single_writer: bool = False
 
 
@@ -366,7 +368,7 @@ def regression_cases() -> list[Case]:
             description="a ref pinned to an older baseline version still resolves; that is not a violation",
             baseline=stale,
             head=copy.deepcopy(stale),
-            expect_status={"doc-refs": "conforms"},
+            expect_status={"doc-refs": "bounded"},
             expect_violation_ids=set(),
             expect_advisory="stale-pin",
         ),
@@ -375,7 +377,7 @@ def regression_cases() -> list[Case]:
             "regression",
             "head deletes the verify bullet; clean code still conforms to the baseline",
             deleted,
-            expect_status={"mcp-no-verify-argument": "conforms"},
+            expect_status={"mcp-no-verify-argument": "no_counterexample"},
             expect_violation_ids=set(),
             expect_amendments=True,
         ),
@@ -384,7 +386,7 @@ def regression_cases() -> list[Case]:
             "regression",
             "NOT NULL with a DEFAULT is inside the pinned schema rule",
             not_null_default,
-            expect_status={"schema-add-column": "conforms"},
+            expect_status={"schema-add-column": "no_counterexample"},
             expect_violation_ids=set(),
         ),
         _case(
@@ -392,7 +394,7 @@ def regression_cases() -> list[Case]:
             "regression",
             "a parameter named verify_mode is not the verify argument",
             verify_mode,
-            expect_status={"mcp-no-verify-argument": "conforms"},
+            expect_status={"mcp-no-verify-argument": "no_counterexample"},
             expect_violation_ids=set(),
         ),
         _case(
@@ -407,9 +409,9 @@ def regression_cases() -> list[Case]:
         _case(
             "holdout_add_tool_abstains",
             "regression",
-            "mcp.add_tool is outside the decorator scope, so a clean decorator list is not conformance",
+            "mcp.add_tool(claim) resolves to the decorated claim, which has no verify parameter",
             add_tool,
-            expect_status={"mcp-no-verify-argument": "unresolved"},
+            expect_status={"mcp-no-verify-argument": "no_counterexample"},
             expect_violation_ids=set(),
         ),
         _case(
@@ -417,7 +419,7 @@ def regression_cases() -> list[Case]:
             "regression",
             "head spec allows verify but the code does not add it; baseline still says never",
             relaxed,
-            expect_status={"mcp-no-verify-argument": "conforms"},
+            expect_status={"mcp-no-verify-argument": "no_counterexample"},
             expect_violation_ids=set(),
             expect_amendments=True,
         ),
@@ -489,6 +491,7 @@ def smoke_cases() -> list[Case]:
 
 
 def all_cases() -> list[Case]:
+    from .gap_cases import gap_cases
     from .holdout_cases import holdout_cases
 
-    return tuning_cases() + regression_cases() + holdout_cases() + smoke_cases()
+    return tuning_cases() + gap_cases() + regression_cases() + holdout_cases() + smoke_cases()

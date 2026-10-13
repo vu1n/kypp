@@ -15,7 +15,10 @@ Tests now cover these paths without executing the supplied SQL.
 | NOT NULL with DEFAULT only inside a comment | conforms | violates |
 | DROP TABLE with ADD COLUMN only inside a comment | conforms | violates |
 | CREATE TABLE schema_version with a simple column list | additive rule conforms | both relevant rules violate |
-| ADD COLUMN DEFAULT string containing NOT NULL/schema_version | false version-table violation | conforms to syntax rule; runtime idempotence unresolved |
+| ADD COLUMN DEFAULT string containing NOT NULL/schema_version | false version-table violation | no counterexample on the syntax rule; runtime idempotence unresolved |
+| DROP or CREATE followed by an unsupported `SELECT *` | counterexample suppressed | violation, and the statement gap stays in coverage |
+
+The checker does not emit `conforms`. A known counterexample is a violation. Unknown syntax is unresolved. A scan with neither is `no_counterexample`, which is not assurance. The Before column is the old scanner.
 
 The registry still reads its exact pinned `additive-migrations@0002` bullet from
 the baseline. That rule is retired, not an active governance constraint. This
@@ -52,7 +55,8 @@ denominators, the original commit/hash and limits on accuracy claims.
 
 ## Validation and handoff
 
-- Combined checker suite: 50 tests passed after the DROP INDEX and budget fixes.
+- Combined checker suite before this port: 50 tests passed after the DROP INDEX and budget fixes.
+- After merging the outcome model: `python -m unittest discover -s speccheck/tests -v` passed 66 tests. The benchmark stayed at tuning 18 / regression 22 / gap-holdout 49 / smoke 30, with known-violation detection 1.000, false violations 0, and noisy candidates 0. The live report has 0 violations, 4 `no_counterexample`, 6 unresolved, 4 unsupported, and 5 bounded. `schema-add-column` is `no_counterexample`. `schema-idempotence` stays unresolved.
 - Existing tuning/regression/previously exposed holdout/smoke benchmark passed.
 - Live advisory report against published main: 8 conforms, 0 violates,
   7 unsupported, 3 unresolved. Exit 0 means a report was produced.
