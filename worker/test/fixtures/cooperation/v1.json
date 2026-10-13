@@ -1,0 +1,2222 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "description": "Synthetic v1 cooperation contract corpus. Not an efficacy experiment.",
+  "limits": {
+    "schema_version": 1,
+    "record_max_bytes": 8192,
+    "string_max_bytes": 1024,
+    "locator_max_bytes": 512,
+    "source_refs_max": 16,
+    "lineage_refs_max": 16,
+    "ttl_default_seconds": 86400,
+    "ttl_min_seconds": 60,
+    "ttl_max_seconds": 604800,
+    "result_default": 12,
+    "result_min": 1,
+    "result_max": 30,
+    "query_text_max_bytes": 512,
+    "response_default_bytes": 16384,
+    "response_min_bytes": 2048,
+    "response_max_bytes": 32768,
+    "candidate_window": 100,
+    "exact_ids_max": 30,
+    "population_max": 10000,
+    "idempotency_key_max_bytes": 128,
+    "diagnostics_max": 16
+  },
+  "append_properties": [
+    "schema_version",
+    "kind",
+    "project",
+    "idempotency_key",
+    "ttl_seconds",
+    "work_ref",
+    "provenance",
+    "reply_to",
+    "supersedes",
+    "payload"
+  ],
+  "query_properties": [
+    "schema_version",
+    "project",
+    "query",
+    "work_ref",
+    "kinds",
+    "limit",
+    "max_bytes",
+    "cutoff",
+    "ids",
+    "include_expired"
+  ],
+  "forbidden_properties": [
+    "access_url",
+    "approval",
+    "assignee",
+    "authority",
+    "bearer",
+    "capability",
+    "command",
+    "credential",
+    "grant",
+    "measured",
+    "password",
+    "room",
+    "secret",
+    "signed_url",
+    "status",
+    "token",
+    "transcript",
+    "verifier",
+    "verify"
+  ],
+  "canonical_vectors": [
+    {
+      "id": "sorted-keys",
+      "value": {
+        "b": 1,
+        "a": "x"
+      },
+      "canonical": "{\"a\":\"x\",\"b\":1}",
+      "sha256": "cdab067e9f3beb32d1252cfd63e492592fecbf591b0d08cadb24bb17f3864246"
+    },
+    {
+      "id": "escapes",
+      "value": "a\"b\\c\n",
+      "canonical": "\"a\\\"b\\\\c\\n\""
+    },
+    {
+      "id": "unicode",
+      "value": "é",
+      "canonical": "\"é\""
+    }
+  ],
+  "digest_groups": {
+    "same": [
+      "empty-handoff",
+      "empty-handoff-explicit-ttl"
+    ],
+    "different": [
+      "empty-handoff",
+      "empty-handoff-changed"
+    ]
+  },
+  "lineage": [
+    {
+      "id": "bridged-duplicate",
+      "relation": "duplicate",
+      "left": "bridged-a",
+      "right": "bridged-b"
+    },
+    {
+      "id": "causal-conflict",
+      "relation": "conflict",
+      "left": "conflict-a",
+      "right": "conflict-b"
+    },
+    {
+      "id": "distinct-producer",
+      "relation": "distinct",
+      "left": "conflict-a",
+      "right": "distinct-b"
+    }
+  ],
+  "expiry": [
+    {
+      "id": "at-boundary",
+      "expires_at": "2026-10-14T00:00:00Z",
+      "now": "2026-10-14T00:00:00Z",
+      "fresh": false
+    },
+    {
+      "id": "one-second-before",
+      "expires_at": "2026-10-14T00:00:00Z",
+      "now": "2026-10-13T23:59:59Z",
+      "fresh": true
+    }
+  ],
+  "visibility": {
+    "stamp": {
+      "id": "0123456789abcdef0123456789abcdef",
+      "principal": "owner",
+      "origin": "kypp",
+      "now": "2026-10-13T15:27:00Z",
+      "client_label": "contract",
+      "session_id": "sess-1",
+      "case": "empty-handoff"
+    },
+    "expires_at": "2026-10-14T15:27:00Z",
+    "checks": [
+      {
+        "principal": "owner",
+        "origin": "kypp",
+        "visible": true
+      },
+      {
+        "principal": "other",
+        "origin": "kypp",
+        "visible": false
+      },
+      {
+        "principal": "owner",
+        "origin": "other",
+        "visible": false
+      }
+    ]
+  },
+  "hidden_predecessors": {
+    "cutoff": "2026-10-13T12:00:00Z",
+    "records": [
+      {
+        "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "supersedes": null,
+        "created_at": "2026-10-13T00:00:00Z"
+      },
+      {
+        "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "supersedes": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "created_at": "2026-10-13T01:00:00Z"
+      },
+      {
+        "id": "cccccccccccccccccccccccccccccccc",
+        "supersedes": "dddddddddddddddddddddddddddddddd",
+        "created_at": "2026-10-14T00:00:00Z"
+      }
+    ],
+    "hidden": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  "selection": {
+    "criteria": {
+      "query": "lexical-hit",
+      "repository": "https://github.com/vu1n/kypp",
+      "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+    },
+    "order": [
+      "s-exact-lexical",
+      "s-exact-plain",
+      "s-lexical",
+      "s-neither"
+    ],
+    "records": [
+      {
+        "id": "s-exact-lexical",
+        "record": {
+          "id": "0123456789abcdef0123456789abcdef",
+          "schema_version": 1,
+          "kind": "handoff",
+          "author_principal": "owner",
+          "client_label": null,
+          "session_id": null,
+          "origin": "kypp",
+          "created_at": "2026-10-13T00:00:00Z",
+          "expires_at": "2026-10-14T00:00:00Z",
+          "audience": {
+            "kind": "principal",
+            "principal": "owner"
+          },
+          "idempotency_key": "s-exact-lexical",
+          "work_ref": {
+            "repository": "https://github.com/vu1n/kypp",
+            "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+            "url": null,
+            "workflow": null,
+            "huddles_task": null,
+            "huddles_run": null
+          },
+          "reply_to": null,
+          "supersedes": null,
+          "provenance": {
+            "producer_namespace": "fixture",
+            "original_record_id": "rec-1",
+            "original_run_id": null,
+            "derived_from": [],
+            "reported": true
+          },
+          "payload": {
+            "summary": "lexical-hit",
+            "attempted": "",
+            "uncertainty": "",
+            "suggested_next_step": "",
+            "source_refs": [],
+            "evidence_ids": []
+          }
+        }
+      },
+      {
+        "id": "s-exact-plain",
+        "record": {
+          "id": "1123456789abcdef0123456789abcdef",
+          "schema_version": 1,
+          "kind": "handoff",
+          "author_principal": "owner",
+          "client_label": null,
+          "session_id": null,
+          "origin": "kypp",
+          "created_at": "2026-10-13T02:00:00Z",
+          "expires_at": "2026-10-14T02:00:00Z",
+          "audience": {
+            "kind": "principal",
+            "principal": "owner"
+          },
+          "idempotency_key": "s-exact-plain",
+          "work_ref": {
+            "repository": "https://github.com/vu1n/kypp",
+            "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+            "url": null,
+            "workflow": null,
+            "huddles_task": null,
+            "huddles_run": null
+          },
+          "reply_to": null,
+          "supersedes": null,
+          "provenance": {
+            "producer_namespace": "fixture",
+            "original_record_id": "rec-1",
+            "original_run_id": null,
+            "derived_from": [],
+            "reported": true
+          },
+          "payload": {
+            "summary": "plain",
+            "attempted": "",
+            "uncertainty": "",
+            "suggested_next_step": "",
+            "source_refs": [],
+            "evidence_ids": []
+          }
+        }
+      },
+      {
+        "id": "s-lexical",
+        "record": {
+          "id": "2123456789abcdef0123456789abcdef",
+          "schema_version": 1,
+          "kind": "handoff",
+          "author_principal": "owner",
+          "client_label": null,
+          "session_id": null,
+          "origin": "kypp",
+          "created_at": "2026-10-13T03:00:00Z",
+          "expires_at": "2026-10-14T03:00:00Z",
+          "audience": {
+            "kind": "principal",
+            "principal": "owner"
+          },
+          "idempotency_key": "s-lexical",
+          "work_ref": {
+            "repository": "https://github.com/vu1n/kypp",
+            "candidate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "url": null,
+            "workflow": null,
+            "huddles_task": null,
+            "huddles_run": null
+          },
+          "reply_to": null,
+          "supersedes": null,
+          "provenance": {
+            "producer_namespace": "fixture",
+            "original_record_id": "rec-1",
+            "original_run_id": null,
+            "derived_from": [],
+            "reported": true
+          },
+          "payload": {
+            "summary": "lexical-hit elsewhere",
+            "attempted": "",
+            "uncertainty": "",
+            "suggested_next_step": "",
+            "source_refs": [],
+            "evidence_ids": []
+          }
+        }
+      },
+      {
+        "id": "s-neither",
+        "record": {
+          "id": "3123456789abcdef0123456789abcdef",
+          "schema_version": 1,
+          "kind": "handoff",
+          "author_principal": "owner",
+          "client_label": null,
+          "session_id": null,
+          "origin": "kypp",
+          "created_at": "2026-10-13T04:00:00Z",
+          "expires_at": "2026-10-14T04:00:00Z",
+          "audience": {
+            "kind": "principal",
+            "principal": "owner"
+          },
+          "idempotency_key": "s-neither",
+          "work_ref": {
+            "repository": "https://github.com/vu1n/kypp",
+            "candidate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "url": null,
+            "workflow": null,
+            "huddles_task": null,
+            "huddles_run": null
+          },
+          "reply_to": null,
+          "supersedes": null,
+          "provenance": {
+            "producer_namespace": "fixture",
+            "original_record_id": "rec-1",
+            "original_run_id": null,
+            "derived_from": [],
+            "reported": true
+          },
+          "payload": {
+            "summary": "plain",
+            "attempted": "",
+            "uncertainty": "",
+            "suggested_next_step": "",
+            "source_refs": [],
+            "evidence_ids": []
+          }
+        }
+      }
+    ]
+  },
+  "contribution": {
+    "draft": {
+      "schema_version": 1,
+      "as_of": "2026-10-13T15:27:00Z",
+      "cutoff": "2026-10-13T15:27:00Z",
+      "selector_version": "cooperation-lexical-v1",
+      "records": [],
+      "selected": [],
+      "max_bytes": 16384,
+      "omissions": [],
+      "diagnostics": [],
+      "window_capped": false,
+      "candidate_window_exhaustive": true
+    },
+    "sha256": "c2350a7a1910938a945152bab6b5dd5920b6c6516ee23a2d445e3e01936976c7"
+  },
+  "cases": [
+    {
+      "id": "empty-handoff",
+      "op": "append",
+      "expect": "accept",
+      "digest": "18e693aaccc1e2b4beeabce2ab2f5200bbe4c9f939bfead8d744e1ff6472908d",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "empty-handoff",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "empty-handoff-explicit-ttl",
+      "op": "append",
+      "expect": "accept",
+      "digest": "18e693aaccc1e2b4beeabce2ab2f5200bbe4c9f939bfead8d744e1ff6472908d",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "empty-handoff",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "ttl_seconds": 86400
+      }
+    },
+    {
+      "id": "empty-handoff-changed",
+      "op": "append",
+      "expect": "accept",
+      "digest": "0af798412ba952fecbf0e8bc05bb0c11b80ba929286fdee9bcbbc23d7b15d86b",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "empty-handoff",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "changed",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "stale-head-pass",
+      "op": "append",
+      "expect": "accept",
+      "digest": "84741c08a53ea5220bb3299ead394833cc6891429cf522b1b87cf4709612ebda",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "stale-head-pass",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "stale head"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "valid_result",
+            "value": 1,
+            "label": "pass"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "valid-non-improvement",
+      "op": "append",
+      "expect": "accept",
+      "digest": "0d056f4c96450ae2b22249b24bd9b1bf8df1a88739f0be721b7092c5633249e5",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "valid-non-improvement",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "valid_result",
+            "value": 0,
+            "label": "non-improvement"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "invalid-candidate",
+      "op": "append",
+      "expect": "accept",
+      "digest": "a6297f3c8d190b2a62eac280ffae08e8dec1cc1aa2fc4218db8f6bb542dfe958",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "invalid-candidate",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "invalid_candidate",
+            "reason": "candidate rejected"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "timeout",
+      "op": "append",
+      "expect": "accept",
+      "digest": "2cdace5db0bc80b30ea832b9bc5a0602ee387b19d7ba2a3dd524bf6cd6510e39",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "timeout",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "inconclusive_execution",
+            "reason": "timeout"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "spawn-failure",
+      "op": "append",
+      "expect": "accept",
+      "digest": "53a81c96258b0023e1d97f21397e093dc597af1baf9342e2e2b5343078d80526",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "spawn-failure",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "session_log",
+            "provider": "pillbox",
+            "session_id": "sess-9",
+            "start": 0,
+            "end": 12
+          },
+          "outcome": {
+            "class": "inconclusive_execution",
+            "reason": "spawn_failure"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "evaluator-failure",
+      "op": "append",
+      "expect": "accept",
+      "digest": "144f722c7eab4702ba7a9d12e11bb612d667534850f789dcd5ff1548c846183e",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "evaluator-failure",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "inconclusive_execution",
+            "reason": "evaluator_failure"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "infrastructure",
+      "op": "append",
+      "expect": "accept",
+      "digest": "24f1f6cf8e37e104e2723556efda274656d29a6d48e952a43cc1df2805320278",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "infrastructure",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "inconclusive_execution",
+            "reason": "infrastructure"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "legacy-false",
+      "op": "append",
+      "expect": "accept",
+      "digest": "121860e8e5a9a3c0e3e70a1c839e32ff3ea214b202019e57f04a0f76656d74ba",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "legacy-false",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "inconclusive_execution",
+            "reason": "legacy_false"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "assertion",
+      "op": "append",
+      "expect": "accept",
+      "digest": "193609a7752dfc734b9f69dfe3e6a79219c498f1351032f129209e67b7b73131",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "assertion",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "assertion",
+            "statement": "author believes the check held"
+          },
+          "evaluator_ref": null,
+          "run_id": null
+        }
+      }
+    },
+    {
+      "id": "ttl-min",
+      "op": "append",
+      "expect": "accept",
+      "digest": "79b954678021fb299775f1ee89c5894608be4216c10524f67370f3d16537a69d",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "ttl-min",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "ttl_seconds": 60
+      }
+    },
+    {
+      "id": "ttl-max",
+      "op": "append",
+      "expect": "accept",
+      "digest": "462f9b1cab2769f334fbd75d4718697e413a3229208a06e7934f9ca7dcbef258",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "ttl-max",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "ttl_seconds": 604800
+      }
+    },
+    {
+      "id": "sixteen-source-refs",
+      "op": "append",
+      "expect": "accept",
+      "digest": "5e7d475230dba7e6003d6b897f0bd6411a45fed6e0c824a38a0f98b67eb7d055",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "sixteen-source-refs",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            }
+          ],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "string-at-cap",
+      "op": "append",
+      "expect": "accept",
+      "digest": "2813e0df6e60edf132406c8ee72a5b16bb0fe6db29f28ca7d9f591915961c82e",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "string-at-cap",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "multibyte-at-cap",
+      "op": "append",
+      "expect": "accept",
+      "digest": "c2968ed312fb614b7a02f70dc5fbd871c02f82b5188d6f96788ad4e6ee2796ae",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "multibyte-at-cap",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "ttl-59",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "ttl-59",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "ttl_seconds": 59
+      }
+    },
+    {
+      "id": "ttl-over-max",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "ttl-over-max",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "ttl_seconds": 604801
+      }
+    },
+    {
+      "id": "authority-field",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "authority-field",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "authority": "verified"
+      }
+    },
+    {
+      "id": "payload-authority",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "payload-authority",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": [],
+          "authority": "human"
+        }
+      }
+    },
+    {
+      "id": "verify-field",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "verify-field",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "verify": "true"
+      }
+    },
+    {
+      "id": "measured-field",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "measured-field",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "measured": true
+      }
+    },
+    {
+      "id": "capability-field",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "capability-field",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "capability": "shell"
+      }
+    },
+    {
+      "id": "approval-field",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "approval-field",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "approval": "yes"
+      }
+    },
+    {
+      "id": "unknown-version",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 2,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "unknown-version",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "version-string",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": "1",
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "version-string",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "outcome-false",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "outcome-false",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": false,
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "invalid-without-reason",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "invalid-without-reason",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "invalid_candidate",
+            "reason": ""
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "evaluated-without-evaluator",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "evaluated-without-evaluator",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "valid_result",
+            "value": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "file-url",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "file-url",
+        "work_ref": {
+          "repository": "file:///tmp/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "floating-brief-ref",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "floating-brief-ref",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@latest#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "assertion",
+            "statement": "no"
+          },
+          "evaluator_ref": null,
+          "run_id": null
+        }
+      }
+    },
+    {
+      "id": "url-query",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "url-query",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "url": "https://github.com/vu1n/kypp/pull/27?review=1"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "url-userinfo",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "url-userinfo",
+        "work_ref": {
+          "repository": "https://user:pass@github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "room-field",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "room-field",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        },
+        "room": "huddle"
+      }
+    },
+    {
+      "id": "seventeen-source-refs",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "seventeen-source-refs",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            },
+            {
+              "type": "brief",
+              "locator": "doc://kypp/memory-scope-decay@0005#scope-keys-decay"
+            }
+          ],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "string-over-cap",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "string-over-cap",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "multibyte-over-cap",
+      "op": "append",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "kind": "handoff",
+        "project": "kypp",
+        "idempotency_key": "multibyte-over-cap",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1"
+        },
+        "payload": {
+          "summary": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+          "attempted": "",
+          "uncertainty": "",
+          "suggested_next_step": "",
+          "source_refs": [],
+          "evidence_ids": []
+        }
+      }
+    },
+    {
+      "id": "search-default",
+      "op": "query",
+      "expect": "accept",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp"
+      }
+    },
+    {
+      "id": "search-limit-30",
+      "op": "query",
+      "expect": "accept",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "limit": 30,
+        "max_bytes": 32768
+      }
+    },
+    {
+      "id": "search-limit-1",
+      "op": "query",
+      "expect": "accept",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "limit": 1,
+        "max_bytes": 2048,
+        "query": ""
+      }
+    },
+    {
+      "id": "historical-one",
+      "op": "query",
+      "expect": "accept",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "ids": [
+          "0123456789abcdef0123456789abcdef"
+        ],
+        "include_expired": true
+      }
+    },
+    {
+      "id": "limit-zero",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "limit": 0
+      }
+    },
+    {
+      "id": "limit-negative",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "limit": -1
+      }
+    },
+    {
+      "id": "limit-over",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "limit": 31
+      }
+    },
+    {
+      "id": "limit-fraction",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "limit": 1.5
+      }
+    },
+    {
+      "id": "bytes-under",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "max_bytes": 2047
+      }
+    },
+    {
+      "id": "bytes-over",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "max_bytes": 32769
+      }
+    },
+    {
+      "id": "query-over-cap",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "query": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      }
+    },
+    {
+      "id": "too-many-ids",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "include_expired": true,
+        "ids": [
+          "00000000000000000000000000000001",
+          "00000000000000000000000000000002",
+          "00000000000000000000000000000003",
+          "00000000000000000000000000000004",
+          "00000000000000000000000000000005",
+          "00000000000000000000000000000006",
+          "00000000000000000000000000000007",
+          "00000000000000000000000000000008",
+          "00000000000000000000000000000009",
+          "0000000000000000000000000000000a",
+          "0000000000000000000000000000000b",
+          "0000000000000000000000000000000c",
+          "0000000000000000000000000000000d",
+          "0000000000000000000000000000000e",
+          "0000000000000000000000000000000f",
+          "00000000000000000000000000000010",
+          "00000000000000000000000000000011",
+          "00000000000000000000000000000012",
+          "00000000000000000000000000000013",
+          "00000000000000000000000000000014",
+          "00000000000000000000000000000015",
+          "00000000000000000000000000000016",
+          "00000000000000000000000000000017",
+          "00000000000000000000000000000018",
+          "00000000000000000000000000000019",
+          "0000000000000000000000000000001a",
+          "0000000000000000000000000000001b",
+          "0000000000000000000000000000001c",
+          "0000000000000000000000000000001d",
+          "0000000000000000000000000000001e",
+          "0000000000000000000000000000001f"
+        ]
+      }
+    },
+    {
+      "id": "prefix-id",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "include_expired": true,
+        "ids": [
+          "01234567"
+        ]
+      }
+    },
+    {
+      "id": "historical-without-flag",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "ids": [
+          "0123456789abcdef0123456789abcdef"
+        ]
+      }
+    },
+    {
+      "id": "include-expired-false",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "include_expired": false,
+        "ids": [
+          "0123456789abcdef0123456789abcdef"
+        ]
+      }
+    },
+    {
+      "id": "mixed-modes",
+      "op": "query",
+      "expect": "reject",
+      "input": {
+        "schema_version": 1,
+        "project": "kypp",
+        "query": "x",
+        "ids": [
+          "0123456789abcdef0123456789abcdef"
+        ],
+        "include_expired": true
+      }
+    },
+    {
+      "id": "bridged-a",
+      "op": "append",
+      "expect": "accept",
+      "digest": "d6e96cb7f172812d1bc3b4e3088ae3b8c650786d561ed0f1ca85e7a7dbb90ead",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "bridged-a",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1",
+          "derived_from": [
+            {
+              "namespace": "bridge",
+              "record_id": "a"
+            },
+            {
+              "namespace": "bridge",
+              "record_id": "b"
+            }
+          ]
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "valid_result",
+            "value": 0,
+            "label": "non-improvement"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "bridged-b",
+      "op": "append",
+      "expect": "accept",
+      "digest": "35a996cad79afe3e81fc2c06591e4fe138fd40ed7dd01572f75f81124f9ab0d7",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "bridged-b",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1",
+          "derived_from": [
+            {
+              "namespace": "bridge",
+              "record_id": "b"
+            },
+            {
+              "namespace": "bridge",
+              "record_id": "a"
+            }
+          ]
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "artifact-1",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "valid_result",
+            "value": 0,
+            "label": "non-improvement"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "conflict-a",
+      "op": "append",
+      "expect": "accept",
+      "digest": "711edb7bedb52962b35cc282f13fba6557bd80df9d05be596db6a4b92add433c",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "conflict-a",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "left",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "valid_result",
+            "value": 1,
+            "label": "pass"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "conflict-b",
+      "op": "append",
+      "expect": "accept",
+      "digest": "94a33b1bbc7d253c8d75b3dbe49a4e09ddc3fcc65f32a92e06504c51022138c9",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "conflict-b",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-1",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/agent-mcp-surface-compose@0002#compose-surface",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "right",
+            "digest": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+          },
+          "outcome": {
+            "class": "invalid_candidate",
+            "reason": "forged collision"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    },
+    {
+      "id": "distinct-b",
+      "op": "append",
+      "expect": "accept",
+      "digest": "12073c3665e00da99c2bc44f2638340d102a06d2a46c066f6d45c816ebb3d258",
+      "input": {
+        "schema_version": 1,
+        "kind": "evidence_reference",
+        "project": "kypp",
+        "idempotency_key": "distinct-b",
+        "work_ref": {
+          "repository": "https://github.com/vu1n/kypp",
+          "candidate_revision": "e611da1e26005f7c741bdc9010a7412af2afe82d"
+        },
+        "provenance": {
+          "producer_namespace": "fixture",
+          "original_record_id": "rec-2",
+          "original_run_id": "run-1"
+        },
+        "payload": {
+          "requirement_ref": {
+            "property": "bounds"
+          },
+          "spec_ref": "doc://kypp/memory-scope-decay@0005#scope-keys-decay",
+          "candidate_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "source_ref": {
+            "type": "artifact",
+            "provider": "fixture",
+            "id": "left",
+            "digest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "outcome": {
+            "class": "valid_result",
+            "value": 1,
+            "label": "pass"
+          },
+          "evaluator_ref": {
+            "identity": "fixture-eval",
+            "revision": "0005"
+          },
+          "run_id": "run-1"
+        }
+      }
+    }
+  ]
+}
