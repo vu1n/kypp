@@ -58,7 +58,7 @@ export interface Claim {
   updated_at: string;
 }
 
-// Context: doc://kypp/authority-order@0004#authority-dominates — rank survivors by authority first; agent < verified < human.
+// Context: doc://kypp/authority-order@0006#authority-dominates — rank survivors by authority first; agent < verified < human.
 export function rank(c: Claim): [number, number, number, number, string] {
   return [AUTHORITIES.indexOf(c.authority), c.status === "accepted" ? 1 : 0, c.confidence ?? 0,
     c.source_ids.length, c.updated_at];
