@@ -23,6 +23,8 @@ record kinds: handoff and evidence_reference. They are not memory claims.
    Expiry means not fresh; it never implies failure, revocation or task completion.
 4. These temporary records use explicit wall-clock expiry, initially default 24 hours,
    minimum 60 seconds and maximum 7 days. This is not the decay policy of durable claims.
+   Cooperation records are not memory claims, so their wall-clock expiry does not revive
+   the rejected wall-clock TTL for durable claims.
    No automatic row deletion, defrag acceptance, widening, promotion or corroboration.
    A durable lesson requires an explicit separate claim through the existing pipeline.
 5. Evidence references retain the original producer identity, run, tested requirement,
@@ -32,6 +34,8 @@ record kinds: handoff and evidence_reference. They are not memory claims.
    An unqualified legacy false is not a valid experimental negative.
 6. Storing or repeating a reported result cannot mint verified/human authority or independent
    corroboration. No measured boolean, verifier command, capability or approval field is added.
+   `append_context` and `query_context` take no authority parameter. `/sync`, `correct`, and
+   `mark_verified` are unchanged under authority-order@0006.
 7. Store references and concise client-authored observations, never full transcripts, raw logs,
    sealed HCP bodies, credentials or signed access URLs. Source references do not confer access.
    Huddles contributors must establish disclosure permission for the entire Kypp audience.

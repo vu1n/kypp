@@ -14,6 +14,8 @@ Permit a separate, narrow hosted cooperation surface alongside durable memory:
   exact-ID historical access is a bounded mode of this same operation.
 
 These operations supplement today's briefing/recall/claim/expand/correct implementation.
+`append_context` and `query_context` take no authority parameter. `/sync`, `correct`, and
+`mark_verified` are unchanged under authority-order@0006.
 This amendment does not claim compose is already implemented or require the complete
 four-verb migration to land with cooperation records. State explicitly that the Python
 backend/local MCP surface is not expanded in this first slice.
