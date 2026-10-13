@@ -480,10 +480,13 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             group,
         )
     bad = []
+    unknown = []
     for i, sql in enumerate(facts["entries"]):
         kind = classify_migration(sql)
-        if kind in {"not_add_column", "not_null_without_default"}:
+        if kind in {"not_add_column", "not_null_without_default", "version_table"}:
             bad.append(f"[{i}] {kind}: {sql}")
+        elif kind == "unrecognized":
+            unknown.append(f"[{i}] unrecognized: {sql}")
     coverage = f"classified all {len(facts['entries'])} _MIGRATIONS entries"
     if bad:
         return (
@@ -497,6 +500,21 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
                 coverage=coverage,
                 detail="a migration is not ADD COLUMN, or is NOT NULL without a default. The decision is superseded; the pinned bullet is still the rule this check uses",
                 counterexample="; ".join(bad),
+                evidence="schema",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    if unknown:
+        return (
+            Verdict(
+                rule_id="schema-add-column",
+                status="unresolved",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=SCHEMA_SCOPE,
+                coverage=coverage + "; " + "; ".join(unknown[:6]),
+                detail="an ADD COLUMN migration was not the allow-listed shape, so it was not proved additive",
                 evidence="schema",
                 code_revision=CODE_REVISION,
             ),
@@ -646,7 +664,7 @@ def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tupl
             group.display_text,
             DELETE_SCOPE,
             coverage + "; " + "; ".join(gaps[:6]),
-            "a DELETE is built dynamically, so the target table was not proved",
+            "a DELETE or a statement naming memory_claims or observations was not proved to be a plain allow-listed statement",
         ), group
     return (
         Verdict(
@@ -697,7 +715,7 @@ def eval_mark_verified(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
             group.display_text,
             VERIFIED_SCOPE,
             coverage + "; " + "; ".join(facts["gaps"][:6]),
-            "an authority argument or SQL value was not a constant, so it was not proved to be other than verified",
+            "an authority write was not proved to be a constant other than verified, or the SQL was outside the allow-listed grammar",
         ), group
     return (
         Verdict(

@@ -77,3 +77,51 @@ the Worker's rank implementation; the authority-body scan is unchanged.
 `kypp/arbiter.py:90`, `kypp/arbiter.py:122`, and `kypp/distill.py:366`. This increment
 does not change those governed runtime paths. No new active decision was edited or
 ratified. The PR remains draft pending the user's separate merge decision.
+
+## Fail-closed conforms requirements
+
+A rule conforms only when every in-scope statement matches a shape that was proved. If no
+matcher fires, the verdict is unresolved. These are the shapes that still count as conforms.
+
+| Rule | Conforms only when |
+| --- | --- |
+| `mcp-no-verify-argument` | Both `kypp/mcp_server.py` and `worker/src/mcp.ts` parse, every tool is enumerated, and no parameter or literal schema key is `verify`. A model is closed only when every `extra` / `model_config` is absent or a literal `forbid` or `ignore`. `*args`, bare `**kwargs`, an open model, a spread, or an unresolved `add_tool` target is unresolved. |
+| `mcp-no-human-or-verified-authority` | The same covered tool surface, and no literal authority value is `human` or `verified`. A non-literal authority expression is unresolved. |
+| `human-authority-writers` | Never conforms. The `POST /sync` writer is named by the spec and is not in the tree. |
+| `authority-rank-order` | Python `Authority`, `AUTHORITY_RANK`, `_rank`, and `_survivor` match the proved order, and `compareRank` is exactly `rank(a)` / `rank(b)` bindings, one index loop whose discriminators are `ra[i] - rb[i]`, then `return 0`, and `survivor` keeps the higher rank. Any other control flow is unresolved. A proved negation still violates. |
+| `schema-add-column` | Every `_MIGRATIONS` string is one fully parsed `ALTER TABLE … ADD COLUMN` with optional `DEFAULT` and optional `NULL` / `NOT NULL`. |
+| `schema-idempotence` | Never conforms. A version table violates; the absence of one does not prove the duplicate-column behaviour. |
+| `verify-timeout-behaviour` | Never conforms. Timeout handling is runtime behaviour. |
+| `no-delete-claims` | Every statement that names `memory_claims` or `observations` is fully parsed as plain `DELETE`, `UPDATE SET`, `INSERT` (columns plus `VALUES` or `SELECT`), `SELECT`, `ALTER TABLE ADD COLUMN`, or `CREATE TABLE` / `INDEX`, with no trailing hole. Constant `+` and templates are folded first in Python and TypeScript. |
+| `verified-authority-writer` | Same allow-list for statements that name `authority`. A literal `verified` in an assignment to that column violates, including inside `ON CONFLICT` and `REPLACE`, except the `CASE` inside `MemoryStore.mark_verified`. `WHERE authority = 'verified'` is not an assignment. `claim(..., authority=<constant other than verified>)` conforms; a non-constant argument is unresolved. |
+| `no-grader-verbatim` | `kypp/distill.py` exists and every `ClaimDraft` subject and content is proved free of criterion `name` and `feedback`. Zero drafts, or any unknown expression, is unresolved. One proved leak violates even if another draft is unknown. |
+| `doc-refs` | Every examined `doc://kypp` ref resolves to an id, a version that exists, and an anchor in that version. |
+| `aliases` | `aliases.yaml` is present when versioned docs exist, and each `latest` is the highest version file. |
+| `signoff-anchors` | `.brief/SIGNOFF` exists and every line names an anchor that exists in the baseline spec. A missing file skips the rule. The reason text is not evidence. |
+| `feature-paths` | `.brief/docs/features.md` exists and every `paths:` glob matches at least one head path. A missing file skips the rule. |
+
+Anything outside those shapes is unresolved unless a counterexample is proved. Upsert, `RETURNING`, a CTE, a trigger, and `REPLACE` are unresolved for the SQL rules unless they contain a protected `DELETE` or an assignment of `'verified'` to `authority`.
+
+### Mutants tried against a false conforms
+
+Each of these was aimed at the old default-pass behaviour. The expected verdict is the one the fail-closed rule now gives.
+
+| Attempt | Result |
+| --- | --- |
+| `INSERT … VALUES ('s','agent') ON CONFLICT DO UPDATE SET authority='verified'` | violates `verified-authority-writer` |
+| Same upsert with `SET authority='agent'` | unresolved, not conforms |
+| `INSERT … VALUES ('s','agent') RETURNING id` | unresolved |
+| `REPLACE INTO memory_claims(authority) VALUES ('verified')` | violates |
+| `UPDATE … SET status='accepted' WHERE authority='verified'` | not a writer |
+| `compareRank` binds `rank(a)` / `rank(b)`, then `return a.confidence - b.confidence`, and leaves the loop unreachable | unresolved `authority-rank-order` |
+| The proved loop plus an extra `if (ra[i] == rb[i]) return 0` | unresolved |
+| Worker `"DELETE FROM " + "memory_claims"` | violates `no-delete-claims` |
+| `CREATE TRIGGER … BEGIN DELETE FROM memory_claims; END` | violates |
+| `WITH gone AS (SELECT 1) DELETE FROM observations` | violates |
+| `WITH c AS (SELECT id FROM memory_claims) SELECT id FROM c` | unresolved |
+| `ALTER TABLE … ADD COLUMN user TEXT; DROP TABLE observations` | violates `schema-add-column` |
+| `ADD COLUMN user TEXT CHECK (length(user) > 0)` | unresolved |
+| `model_config = {**base, "extra": "forbid"}` | unresolved `mcp-no-verify-argument` |
+| `ClaimDraft(..., obscure(crit["name"]), ...)` | unresolved `no-grader-verbatim` |
+
+On the live tree, `no-delete-claims` is unresolved. The statements that fail the allow-list are the `SELECT … WHERE ` + `" AND ".join(where)` recalls in `kypp/store.py`, `INSERT OR IGNORE … FROM memory_claims` in `worker/migrations/0003_origin_projects.sql`, and the `UPDATE memory_claims … AND ${UNSORTED}` writes in `worker/src/store.ts`. `verified-authority-writer` still conforms: the only literal `verified` assignment is the allowed `mark_verified` update.

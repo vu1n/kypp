@@ -136,6 +136,32 @@ class SqlIdentifierTest(unittest.TestCase):
         verdict = next(item for item in report.verdicts if item.rule_id == "verified-authority-writer")
         self.assertEqual(verdict.status, "unresolved")
 
+    def test_upsert_verified_is_a_writer_and_other_shapes_abstain(self):
+        self.assertTrue(sql_write_flags(
+            "INSERT INTO memory_claims(subject, authority) VALUES ('s', 'agent') "
+            "ON CONFLICT(subject) DO UPDATE SET authority='verified'",
+            False,
+        )[2])
+        self.assertEqual(
+            sql_write_flags(
+                "INSERT INTO memory_claims(subject, authority) VALUES ('s', 'agent') "
+                "ON CONFLICT(subject) DO UPDATE SET authority='agent'",
+                False,
+            )[2:],
+            (False, True),
+        )
+        self.assertEqual(
+            sql_write_flags(
+                "INSERT INTO memory_claims(subject, authority) VALUES ('s', 'agent') RETURNING id",
+                False,
+            )[2:],
+            (False, True),
+        )
+        self.assertEqual(
+            sql_write_flags("UPDATE memory_claims SET status='accepted' WHERE authority='verified'", False),
+            (False, False, False, False),
+        )
+
     def test_bracket_delete_violates(self):
         tree = with_structural_specs(clean_tree())
         tree["kypp/wipe.py"] = 'def wipe(db):\n    db.execute("DELETE FROM [observations]")\n'

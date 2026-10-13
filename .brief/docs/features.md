@@ -303,25 +303,36 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   mirror. The TypeScript order has to be proved equal to the Python order (`agent` < `verified` <
   `human`, higher rank wins). Divergence is a violation. A missing file, a parse failure, or an
   expression the checker cannot classify stays `unresolved`. `compareRank` conforms only when the
-  compared names are bound directly to `rank` of its two parameters and those names are what the
-  comparison indexes. An incidental `rank(` call stays `unresolved`. Negation or `reversed` on the
-  Python `_rank` is a violation.
+  body is the one proved shape: bindings of the two parameters to `rank(param)`, then a single
+  `for` whose comparisons are that pair, then `return 0`. An earlier return, an extra branch, or
+  an incidental `rank(` call stays `unresolved`. Negation or `reversed` on the Python `_rank`
+  is a violation.
 - Stale `doc://` pins are one advisory per pin. The detail lists every path and line.
-- `no-delete-claims` checks constant SQL for `DELETE` against `memory_claims` or `observations`
+- `no-delete-claims` checks SQL for `DELETE` against `memory_claims` or `observations`
   in `kypp/**/*.py` and `worker/**/*.{ts,sql}`. Bracket, backtick, and double-quoted identifiers
-  count, including a schema prefix (`main.[memory_claims]`). Adjacent literals, `+`, and `"".join`
-  of string literals are one constant, including a name bound to one of those in the same function.
-  A dynamic `DELETE` whose target is not a constant stays `unresolved`. Docstrings are not SQL.
-  The recall/briefing exclusion bullet and the consolidation bullet stay unsupported: they are
-  query and runtime behaviour, not a SQL literal.
+  count, including a schema prefix (`main.[memory_claims]`). Constant `+`, templates, and `"".join`
+  are folded before the scan, in Python and in TypeScript; the leaves of that fold are not judged
+  on their own. A statement that names a protected table conforms only when plain DELETE, UPDATE
+  SET, INSERT, SELECT, ALTER TABLE ADD COLUMN, or CREATE TABLE/INDEX consumes it. Upsert,
+  RETURNING, a CTE, a trigger, REPLACE, and a trailing hole stay `unresolved` unless a protected
+  DELETE is actually visible. Docstrings are not SQL. The recall/briefing exclusion bullet and the
+  consolidation bullet stay unsupported: they are query and runtime behaviour, not a SQL literal.
+  On current main the rule is unresolved: several recalls are `SELECT … WHERE ` plus a join, and
+  `worker/src/store.ts` updates `memory_claims` through a trailing `${UNSORTED}` hole.
 - `verified-authority-writer` allows `authority='verified'` SQL inside `MemoryStore.mark_verified`
   and constant `claim()` authority arguments other than `verified`. The same SQL in any other
   Python file, or in a worker `.ts` or `.sql` string, is a violation. INSERT maps each column onto
   its VALUES row or SELECT item, including multi-row VALUES and `INSERT ... SELECT`, and the same
-  bracket, backtick, and double-quoted spellings as DELETE. A mapped literal `verified` is a
-  violation. A mapped literal other than `verified`, or a `?` placeholder, is not. An INSERT that
-  mentions `authority` but whose columns cannot be aligned stays `unresolved`. A non-constant
-  `authority=` on `claim()` stays `unresolved`. A one-step local bound to `"verified"` is a violation.
+  bracket, backtick, and double-quoted spellings as DELETE. A mapped literal `verified`, or
+  `SET authority='verified'` inside `ON CONFLICT` or `REPLACE`, is a violation. A `WHERE
+  authority='verified'` filter is not. An allow-listed statement whose authority value is `?` is
+  not a violation. Anything that names `authority` but is not that grammar stays `unresolved`
+  unless the assignment is proved. A non-constant `authority=` on `claim()` stays `unresolved`.
+  A one-step local bound to `"verified"` is a violation.
+- `schema-add-column` conforms only when every `_MIGRATIONS` entry is one `ALTER TABLE ... ADD
+  COLUMN` with an optional `DEFAULT` and optional `NULL` / `NOT NULL`. `NOT NULL` without
+  `DEFAULT`, or a second statement, violates. `ADD COLUMN` with a `CHECK` or any other unparsed
+  tail stays `unresolved`. A version-table name violates this rule and `schema-idempotence`.
 - `no-grader-verbatim` checks `ClaimDraft` subject and content. A proved read of a criterion
   `name` or `feedback` is a violation. Text copied from model JSON stays `unresolved`.
 - `memory-scope-decay` and `agent-mcp-surface-compose` have no `### Invariant` list, so their

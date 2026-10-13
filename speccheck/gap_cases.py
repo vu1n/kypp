@@ -273,6 +273,183 @@ def gap_cases() -> list[Case]:
                   'def draft(rows, it):\n    ClaimDraft("fact", "n", str(len(rows.criteria)))\n'
                   '    content = it.get("content")\n    ClaimDraft("fact", "copied", content)\n'),
               expect_status={"no-grader-verbatim": "unresolved"}, expect_violation_ids=set()),
+        _case(
+            "holdout_verified_upsert",
+            "gap-holdout",
+            "ON CONFLICT DO UPDATE SET authority='verified' is a writer even after a non-verified VALUES row",
+            _edit(lambda t: t.__setitem__(
+                "kypp/extra.py",
+                "def promote(db):\n"
+                "    db.execute(\"INSERT INTO memory_claims(subject, authority) VALUES ('s', 'agent') "
+                "ON CONFLICT(subject) DO UPDATE SET authority='verified'\")\n",
+            )),
+            expect_status={"verified-authority-writer": "violates"},
+            expect_violation_ids={"verified-authority-writer"},
+            expect_severity={"verified-authority-writer": "high"},
+        ),
+        _case(
+            "holdout_verified_upsert_agent",
+            "gap-holdout",
+            "an upsert that sets authority='agent' is not the allow-listed INSERT, so it does not conform",
+            _edit(lambda t: t.__setitem__(
+                "kypp/extra.py",
+                "def promote(db):\n"
+                "    db.execute(\"INSERT INTO memory_claims(subject, authority) VALUES ('s', 'agent') "
+                "ON CONFLICT(subject) DO UPDATE SET authority='agent'\")\n",
+            )),
+            expect_status={"verified-authority-writer": "unresolved"},
+            expect_violation_ids=set(),
+        ),
+        _case(
+            "holdout_verified_returning",
+            "gap-holdout",
+            "INSERT ... RETURNING is outside the allow-list even when the mapped value is not verified",
+            _edit(lambda t: t.__setitem__(
+                "kypp/extra.py",
+                "def promote(db):\n"
+                "    db.execute(\"INSERT INTO memory_claims(subject, authority) VALUES ('s', 'agent') RETURNING id\")\n",
+            )),
+            expect_status={"verified-authority-writer": "unresolved"},
+            expect_violation_ids=set(),
+        ),
+        _case(
+            "holdout_verified_replace",
+            "gap-holdout",
+            "REPLACE INTO that places verified in the authority column is a writer",
+            _edit(lambda t: t.__setitem__(
+                "kypp/extra.py",
+                "def promote(db):\n"
+                "    db.execute(\"REPLACE INTO memory_claims(authority) VALUES ('verified')\")\n",
+            )),
+            expect_status={"verified-authority-writer": "violates"},
+            expect_violation_ids={"verified-authority-writer"},
+            expect_severity={"verified-authority-writer": "high"},
+        ),
+        _case(
+            "holdout_ts_rank_early_return",
+            "gap-holdout",
+            "compareRank does not conform when an earlier return ignores the rank bindings",
+            _ts(MEMORY_TS.replace(
+                "  const ra = rank(a), rb = rank(b);\n  for (let i = 0; i < ra.length; i++) {",
+                "  const ra = rank(a), rb = rank(b);\n  return a.confidence - b.confidence;\n"
+                "  for (let i = 0; i < ra.length; i++) {",
+                1,
+            )),
+            expect_status={"authority-rank-order": "unresolved"},
+            expect_violation_ids=set(),
+        ),
+        _case(
+            "holdout_ts_rank_extra_if",
+            "gap-holdout",
+            "an extra return inside the compareRank loop is not the one proved shape",
+            _ts(MEMORY_TS.replace(
+                "    if (ra[i] > rb[i]) return 1;\n",
+                "    if (ra[i] > rb[i]) return 1;\n    if (ra[i] == rb[i]) return 0;\n",
+                1,
+            )),
+            expect_status={"authority-rank-order": "unresolved"},
+            expect_violation_ids=set(),
+        ),
+        _spec(
+            "holdout_delete_ts_concat",
+            "gap-holdout",
+            "worker SQL split across + leaves is still one DELETE FROM memory_claims",
+            lambda t: t.__setitem__("worker/src/extra.ts", 'db.exec("DELETE FROM " + "memory_claims")\n'),
+            expect_status={"no-delete-claims": "violates"},
+            expect_violation_ids={"no-delete-claims"},
+            expect_severity={"no-delete-claims": "high"},
+        ),
+        _spec(
+            "holdout_delete_trigger",
+            "gap-holdout",
+            "DELETE FROM memory_claims inside a trigger body is still a delete",
+            lambda t: t.__setitem__(
+                "kypp/wipe.py",
+                'def wipe(db):\n    db.executescript("CREATE TRIGGER t AFTER INSERT ON memory_claims '
+                'BEGIN DELETE FROM memory_claims; END")\n',
+            ),
+            expect_status={"no-delete-claims": "violates"},
+            expect_violation_ids={"no-delete-claims"},
+            expect_severity={"no-delete-claims": "high"},
+        ),
+        _spec(
+            "holdout_delete_cte",
+            "gap-holdout",
+            "a CTE whose statement deletes observations is still a delete",
+            lambda t: t.__setitem__(
+                "kypp/wipe.py",
+                'def wipe(db):\n    db.execute("WITH gone AS (SELECT 1) DELETE FROM observations")\n',
+            ),
+            expect_status={"no-delete-claims": "violates"},
+            expect_violation_ids={"no-delete-claims"},
+            expect_severity={"no-delete-claims": "high"},
+        ),
+        _spec(
+            "holdout_delete_cte_read",
+            "gap-holdout",
+            "a CTE that only reads memory_claims is not a plain SELECT, so it does not conform",
+            lambda t: t.__setitem__(
+                "kypp/wipe.py",
+                'def wipe(db):\n    db.execute("WITH c AS (SELECT id FROM memory_claims) SELECT id FROM c")\n',
+            ),
+            expect_status={"no-delete-claims": "unresolved"},
+            expect_violation_ids=set(),
+        ),
+        _case(
+            "holdout_schema_trailing_drop",
+            "gap-holdout",
+            "ADD COLUMN followed by a second statement is not an additive migration",
+            _edit(lambda t: t.__setitem__(
+                "kypp/store.py",
+                t["kypp/store.py"].replace(
+                    '"ALTER TABLE memory_claims ADD COLUMN user TEXT"',
+                    '"ALTER TABLE memory_claims ADD COLUMN user TEXT; DROP TABLE observations"',
+                    1,
+                ),
+            )),
+            expect_status={"schema-add-column": "violates"},
+            expect_violation_ids={"schema-add-column"},
+            expect_severity={"schema-add-column": "medium"},
+        ),
+        _case(
+            "holdout_schema_check",
+            "gap-holdout",
+            "ADD COLUMN with a CHECK clause is not the allow-listed migration shape",
+            _edit(lambda t: t.__setitem__(
+                "kypp/store.py",
+                t["kypp/store.py"].replace(
+                    '"ALTER TABLE memory_claims ADD COLUMN user TEXT"',
+                    '"ALTER TABLE memory_claims ADD COLUMN user TEXT CHECK (length(user) > 0)"',
+                    1,
+                ),
+            )),
+            expect_status={"schema-add-column": "unresolved"},
+            expect_violation_ids=set(),
+        ),
+        _case(
+            "holdout_model_config_spread",
+            "gap-holdout",
+            "a model_config dict spread is not a proved literal extra policy, even if extra=forbid is visible",
+            _edit(lambda t: t.__setitem__(
+                "kypp/mcp_server.py",
+                "class ClaimArgs(BaseModel):\n    model_config = {**base, \"extra\": \"forbid\"}\n    subject: str\n"
+                "def build_mcp(store):\n    @mcp.tool()\n    def claim(args: ClaimArgs) -> str:\n        return \"ok\"\n"
+                "    @mcp.tool()\n    def correct(subject: str, content: str) -> str:\n        return \"ok\"\n",
+            )),
+            expect_status={"mcp-no-verify-argument": "unresolved"},
+            expect_violation_ids=set(),
+        ),
+        _spec(
+            "holdout_grader_wrapped_leak",
+            "gap-holdout",
+            "wrapping a criterion name in an unknown call does not prove the draft is clean",
+            lambda t: t.__setitem__(
+                "kypp/distill.py",
+                'def draft(crit):\n    return ClaimDraft("fact", obscure(crit["name"]), "x")\n',
+            ),
+            expect_status={"no-grader-verbatim": "unresolved"},
+            expect_violation_ids=set(),
+        ),
         Case(
             "holdout_stale_pin_deduped",
             "gap-holdout",

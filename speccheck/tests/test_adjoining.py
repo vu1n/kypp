@@ -65,8 +65,9 @@ class LiveRepoTest(unittest.TestCase):
         self.assertIn("authority-rank-order", conforms)
         self.assertIn("schema-add-column", conforms)
         self.assertIn("doc-refs", conforms)
-        self.assertIn("no-delete-claims", conforms)
         self.assertIn("verified-authority-writer", conforms)
+        deleted = next(v for v in report.verdicts if v.rule_id == "no-delete-claims")
+        self.assertEqual(deleted.status, "unresolved")
         grader = next(v for v in report.verdicts if v.rule_id == "no-grader-verbatim")
         self.assertEqual(grader.status, "unresolved")
         stale = [a for a in report.advisories if a.code == "stale-pin"]

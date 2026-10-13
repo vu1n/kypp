@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from tree_sitter import Node, Parser
 
 
-PARSER_VERSION = 'ts-mcp-tree-sitter-v5'
+PARSER_VERSION = 'ts-mcp-tree-sitter-v6'
 
 
 def parser_cache_key() -> str:
@@ -426,30 +426,6 @@ def _direct_rank_arg(value) -> str | None:
     return _text(got[0])
 
 
-def _rank_bindings(body) -> dict[str, str]:
-    """Names bound directly to ``rank(<identifier>)``. A second binding drops the name."""
-    found: dict[str, str] = {}
-    dropped: set[str] = set()
-    for node in _walk(body):
-        if node.type != "variable_declarator":
-            continue
-        ident = node.child_by_field_name("name")
-        if ident is None or ident.type != "identifier":
-            continue
-        name = _text(ident)
-        arg = _direct_rank_arg(node.child_by_field_name("value"))
-        if arg is None:
-            if name in found:
-                dropped.add(name)
-            continue
-        if name in found or name in dropped:
-            dropped.add(name)
-            found.pop(name, None)
-            continue
-        found[name] = arg
-    return found
-
-
 def _returned_int(stmt) -> int | None:
     kids = [child for child in stmt.named_children]
     if len(kids) != 1:
@@ -502,8 +478,148 @@ def _subscript_pair(expr):
     return names[0], names[1], op
 
 
+def _block_stmts(node):
+    node = _unwrap(node)
+    if node is None or node.type != "statement_block":
+        return None
+    return [child for child in node.named_children if child.type != "comment"]
+
+
+def _binding_decls(stmt) -> list[tuple[str, str]] | None:
+    """Every declarator must be exactly ``rank(<identifier>)``."""
+    if stmt.type != "lexical_declaration":
+        return None
+    decls = [child for child in stmt.named_children if child.type == "variable_declarator"]
+    if not decls:
+        return None
+    found: list[tuple[str, str]] = []
+    for decl in decls:
+        ident = decl.child_by_field_name("name")
+        if ident is None or ident.type != "identifier":
+            return None
+        arg = _direct_rank_arg(decl.child_by_field_name("value"))
+        if arg is None:
+            return None
+        found.append((_text(ident), arg))
+    return found
+
+
+def _loop_index(init) -> str | None:
+    if init is None or init.type != "lexical_declaration":
+        return None
+    decls = [child for child in init.named_children if child.type == "variable_declarator"]
+    if len(decls) != 1:
+        return None
+    ident = decls[0].child_by_field_name("name")
+    value = _unwrap(decls[0].child_by_field_name("value"))
+    if ident is None or ident.type != "identifier" or value is None:
+        return None
+    if value.type != "number" or _text(value) != "0":
+        return None
+    return _text(ident)
+
+
+def _anon_op(node) -> str:
+    return next((child.text.decode("utf8") for child in node.children if not child.is_named), "")
+
+
+def _length_test(cond, var: str, left: str) -> bool:
+    cond = _unwrap(cond)
+    if cond is None or cond.type != "binary_expression" or _anon_op(cond) != "<":
+        return False
+    sides = list(cond.named_children)
+    if len(sides) != 2 or sides[0].type != "identifier" or _text(sides[0]) != var:
+        return False
+    member = _unwrap(sides[1])
+    if member is None or member.type != "member_expression":
+        return False
+    obj = member.child_by_field_name("object")
+    prop = member.child_by_field_name("property")
+    return (
+        obj is not None
+        and obj.type == "identifier"
+        and _text(obj) == left
+        and prop is not None
+        and _text(prop) == "length"
+    )
+
+
+def _is_increment(inc, var: str) -> bool:
+    if inc is None or inc.type != "update_expression" or _anon_op(inc) != "++":
+        return False
+    names = [child for child in inc.named_children if child.type == "identifier"]
+    return len(names) == 1 and _text(names[0]) == var
+
+
+def _if_polarity(ifs, left: str, right: str, var: str) -> str | None:
+    if len(ifs) != 2:
+        return None
+    less = greater = None
+    for node in ifs:
+        if node.type != "if_statement" or node.child_by_field_name("alternative") is not None:
+            return None
+        pair = _subscript_pair(_unwrap(node.child_by_field_name("condition")))
+        returned = _if_return(node.child_by_field_name("consequence"))
+        if pair is None or returned not in {-1, 1}:
+            return None
+        got_left, got_right, op = pair
+        indexes = _subscript_indexes(node.child_by_field_name("condition"))
+        if indexes != (var, var) or got_left != left or got_right != right:
+            return None
+        if op == "<":
+            if less is not None:
+                return None
+            less = returned
+        elif op == ">":
+            if greater is not None:
+                return None
+            greater = returned
+    if less == -1 and greater == 1:
+        return "natural"
+    if less == 1 and greater == -1:
+        return "inverted"
+    return None
+
+
+def _subscript_indexes(expr) -> tuple[str, str] | None:
+    expr = _unwrap(expr)
+    if expr is None or expr.type != "binary_expression":
+        return None
+    sides = [child for child in expr.named_children if child.type == "subscript_expression"]
+    if len(sides) != 2:
+        return None
+    indexes = []
+    for side in sides:
+        index = side.child_by_field_name("index")
+        if index is None:
+            return None
+        indexes.append(_text(index))
+    return indexes[0], indexes[1]
+
+
+def _for_polarity(stmt, left: str, right: str) -> str | None:
+    if stmt.type != "for_statement":
+        return None
+    var = _loop_index(stmt.child_by_field_name("initializer"))
+    if var is None:
+        return None
+    if not _length_test(stmt.child_by_field_name("condition"), var, left):
+        return None
+    if not _is_increment(stmt.child_by_field_name("increment"), var):
+        return None
+    body = _block_stmts(stmt.child_by_field_name("body"))
+    if body is None:
+        return None
+    return _if_polarity(body, left, right, var)
+
+
 def _ts_comparator(fn) -> str:
-    """natural/inverted only when the compared names are ``rank`` of the two parameters."""
+    """natural/inverted only for the one proved compareRank shape.
+
+    Bindings are ``rank`` of the two parameters, then one index loop whose first
+    discriminator is that pair, then ``return 0``. Any other control flow, including
+    an earlier return that ignores the ranks, is unknown.
+    """
     if fn is None:
         return "unknown"
     params = fn.child_by_field_name("parameters")
@@ -520,27 +636,33 @@ def _ts_comparator(fn) -> str:
         names.append(_text(pattern))
     if len(names) != 2:
         return "unknown"
-    bound = _rank_bindings(body)
-    less = greater = None
-    for node in _walk(body):
-        if node.type != "if_statement":
-            continue
-        pair = _subscript_pair(_unwrap(node.child_by_field_name("condition")))
-        returned = _if_return(node.child_by_field_name("consequence"))
-        if pair is None or returned not in {-1, 1}:
-            continue
-        left, right, op = pair
-        if bound.get(left) != names[0] or bound.get(right) != names[1]:
-            continue
-        if op == "<":
-            less = returned
-        elif op == ">":
-            greater = returned
-    if less == -1 and greater == 1:
-        return "natural"
-    if less == 1 and greater == -1:
-        return "inverted"
-    return "unknown"
+    stmts = _block_stmts(body)
+    if not stmts:
+        return "unknown"
+    bindings: list[tuple[str, str]] = []
+    index = 0
+    while index < len(stmts) and stmts[index].type == "lexical_declaration":
+        got = _binding_decls(stmts[index])
+        if got is None:
+            return "unknown"
+        bindings.extend(got)
+        index += 1
+        if len(bindings) >= 2:
+            break
+    if len(bindings) != 2 or len({name for name, _arg in bindings}) != 2:
+        return "unknown"
+    by_param = {arg: name for name, arg in bindings}
+    if set(by_param) != set(names):
+        return "unknown"
+    if index >= len(stmts):
+        return "unknown"
+    polarity = _for_polarity(stmts[index], by_param[names[0]], by_param[names[1]])
+    if polarity is None or index != len(stmts) - 2:
+        return "unknown"
+    last = stmts[-1]
+    if last.type != "return_statement" or _returned_int(last) != 0:
+        return "unknown"
+    return polarity
 
 
 def _ts_survivor_picks(body: str, comparator: str) -> str:
@@ -662,6 +784,95 @@ def _sql_file(path: str, source: str) -> tuple[list[str], list[str]]:
     return _note_sql(cleaned, cleaned, False, f"{path}:1")
 
 
+_FOLD_CONTAINERS = {
+    "binary_expression",
+    "template_string",
+    "call_expression",
+    "array",
+    "arguments",
+    "parenthesized_expression",
+    "member_expression",
+    "as_expression",
+}
+
+
+def _ts_fold_sql(node) -> tuple[str | None, str, bool] | None:
+    """(full string or None, fragments with \\x00 holes, dynamic). None if this is not a string expression."""
+    node = _unwrap(node)
+    if node is None:
+        return None
+    if node.type == "string":
+        text = _string(node)
+        if text is None:
+            raw = _text(node)
+            return None, raw, True
+        return text, text, False
+    if node.type == "template_string":
+        parts: list[str] = []
+        dynamic = False
+        for child in node.named_children:
+            if child.type == "string_fragment":
+                parts.append(_text(child))
+                continue
+            if child.type != "template_substitution":
+                dynamic = True
+                parts.append("\x00")
+                continue
+            inner = child.named_children[0] if child.named_children else None
+            folded = _ts_fold_sql(inner) if inner is not None else None
+            if folded is not None and folded[0] is not None and not folded[2]:
+                parts.append(folded[0])
+                continue
+            dynamic = True
+            parts.append(folded[1] if folded and folded[1] else "\x00")
+        text = "".join(parts)
+        return (None if dynamic else text), text, dynamic
+    if node.type == "binary_expression" and _anon_op(node) == "+":
+        left = _ts_fold_sql(node.child_by_field_name("left"))
+        right = _ts_fold_sql(node.child_by_field_name("right"))
+        if left is None or right is None:
+            return None
+        if left[0] is not None and right[0] is not None and not left[2] and not right[2]:
+            text = left[0] + right[0]
+            return text, text, False
+        return None, left[1] + right[1], True
+    if node.type == "call_expression":
+        func = node.child_by_field_name("function")
+        if func is None or func.type != "member_expression":
+            return None
+        prop = func.child_by_field_name("property")
+        if prop is None or _text(prop) != "join":
+            return None
+        args = node.child_by_field_name("arguments")
+        got = list(args.named_children) if args is not None else []
+        if len(got) != 1 or _string(got[0]) != "":
+            return None
+        array = _unwrap(func.child_by_field_name("object"))
+        if array is None or array.type != "array":
+            return None
+        bits: list[str] = []
+        for elt in array.named_children:
+            folded = _ts_fold_sql(elt)
+            if folded is None or folded[0] is None or folded[2]:
+                frag = "".join(bits) + (folded[1] if folded else "\x00")
+                return None, frag, True
+            bits.append(folded[0])
+        text = "".join(bits)
+        return text, text, False
+    return None
+
+
+def _outer_sql_expr(node) -> bool:
+    if _ts_fold_sql(node) is None:
+        return False
+    parent = node.parent
+    while parent is not None and parent.type in _FOLD_CONTAINERS:
+        if _ts_fold_sql(parent) is not None:
+            return False
+        parent = parent.parent
+    return True
+
+
 def typescript_sql_findings(path: str, source: str) -> tuple[list[str], list[str]]:
     if path.endswith(".sql"):
         return _sql_file(path, source)
@@ -675,33 +886,20 @@ def typescript_sql_findings(path: str, source: str) -> tuple[list[str], list[str
     bad: list[str] = []
     gaps: list[str] = []
     for node in _walk(tree.root_node):
+        if not _outer_sql_expr(node):
+            continue
         line = node.start_point.row + 1
         where = f"{path}:{line}"
-        if node.type == "string":
-            text = _string(node)
-            if text is None:
-                raw = _text(node)
-                found, holes = _note_sql(raw, raw, True, where)
-                gaps.extend(holes)
-                if any(item.startswith("DELETE ") for item in found):
-                    gaps.append(f"dynamic DELETE {where}")
-                if any(item.startswith("verified SQL ") for item in found):
-                    gaps.append(f"dynamic authority SQL {where}")
-                continue
-            found, holes = _note_sql(text, text, False, where)
-            bad.extend(found)
+        full, fragments, dynamic = _ts_fold_sql(node) or (None, "", False)
+        if node.type == "string" and _string(node) is None:
+            found, holes = _note_sql(None, fragments, True, where)
             gaps.extend(holes)
-        elif node.type == "template_string":
-            fragments = []
-            dynamic = False
-            for child in node.named_children:
-                if child.type == "template_substitution":
-                    dynamic = True
-                    fragments.append("\x00")
-                elif child.type == "string_fragment":
-                    fragments.append(_text(child))
-            static = "".join(fragments)
-            found, holes = _note_sql(static, static, dynamic, where)
-            bad.extend(found)
-            gaps.extend(holes)
+            if any(item.startswith("DELETE ") for item in found):
+                gaps.append(f"dynamic DELETE {where}")
+            if any(item.startswith("verified SQL ") for item in found):
+                gaps.append(f"dynamic authority SQL {where}")
+            continue
+        found, holes = _note_sql(full, fragments, dynamic, where)
+        bad.extend(found)
+        gaps.extend(holes)
     return list(dict.fromkeys(bad)), list(dict.fromkeys(gaps))

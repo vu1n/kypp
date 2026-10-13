@@ -44,6 +44,11 @@ class BenchTest(unittest.TestCase):
         self.assertTrue(all(c.split == "regression" for c in cases))
         self.assertTrue(all(c.id.startswith("holdout_") for c in cases))
 
+    def test_gap_holdout_is_a_split_choice(self):
+        from speccheck.cli import main
+
+        self.assertEqual(main(["bench", "--split", "gap-holdout"]), 0)
+
     def test_default_split_selection_without_evaluating_holdout(self):
         with patch("speccheck.bench.score_split") as score:
             run_benchmark()

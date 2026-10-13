@@ -646,27 +646,25 @@ def python_authority_rank(vocab_source: str, arbiter_source: str) -> dict:
     }
 
 
-def _sql_ident(name: str) -> str:
-    """Bare, double-quoted, backtick, or SQLite [bracket] identifier."""
-    return rf"(?:\[{name}\]|`{name}`|\"{name}\"|\b{name}\b)"
-
-
-_ADD_COLUMN = re.compile(r"\bADD\s+COLUMN\b", re.I)
-_NOT_NULL = re.compile(r"\bNOT\s+NULL\b", re.I)
-_DEFAULT = re.compile(r"\bDEFAULT\b", re.I)
-_VERSION_TABLE = re.compile(
-    "|".join(_sql_ident(name) for name in ("schema_version", "schema_migrations", "schema_versions", "alembic_version")),
-    re.I,
-)
+_VERSION_NAMES = {"schema_version", "schema_migrations", "schema_versions", "alembic_version"}
 
 
 def classify_migration(sql: str) -> str:
-    compact = " ".join(sql.split())
-    if _VERSION_TABLE.search(compact):
+    """One fully parsed ``ALTER TABLE ... ADD COLUMN`` is ok.
+
+    A second statement is a proved non-additive change. ``ADD COLUMN`` that does not
+    match the allow-list (a CHECK, a type the grammar does not consume) is unrecognized,
+    which the schema rule leaves unresolved. ``NOT NULL`` without ``DEFAULT`` stays a violation.
+    """
+    toks = _tokenize_sql(sql)
+    if any(tok.kind in {"ident", "quoted"} and tok.value in _VERSION_NAMES for tok in toks):
         return "version_table"
-    if not _ADD_COLUMN.search(compact):
+    stmts = [stmt for stmt in _split_statements(toks) if stmt]
+    if len(stmts) != 1 or not _has_add_column(stmts[0]):
         return "not_add_column"
-    if _NOT_NULL.search(compact) and not _DEFAULT.search(compact):
+    if _parse_alter(stmts[0], 0) != len(stmts[0]):
+        return "unrecognized"
+    if _alter_not_null_without_default(stmts[0]):
         return "not_null_without_default"
     return "ok"
 
@@ -688,7 +686,7 @@ def cached_python_mcp(
 
 
 def cached_python_migrations(cache: Cache, source: str) -> dict:
-    return cache.syntax(source, "py-migrations", lambda: python_migrations(source))
+    return cache.syntax(source, "py-migrations-v2", lambda: python_migrations(source))
 
 
 def cached_rank(cache: Cache, vocab_source: str, arbiter_source: str) -> dict:
@@ -1016,94 +1014,792 @@ def _insert_authority(toks: list[_Tok], i: int) -> tuple[bool, bool, int]:
     return False, False, max(j, i + 1)
 
 
-def _update_authority(toks: list[_Tok], i: int) -> tuple[bool, bool, int]:
-    j = i + 1
-    _table, j = _read_name(toks, j)
-    if j >= len(toks) or not _is_ident(toks[j], "set"):
-        return False, False, max(j, i + 1)
-    j += 1
+_SQL_VERBS = {"select", "insert", "update", "delete", "replace", "alter", "create", "with", "drop", "explain"}
+_EXPR_END = {
+    "from", "where", "group", "order", "limit", "offset", "union", "except", "intersect",
+    "having", "window", "returning", "set", "into", "values", "join", "on", "using",
+    "left", "right", "full", "inner", "cross", "natural", "outer", "asc", "desc", "nulls",
+}
+_NOT_ALIAS = _EXPR_END | {
+    "select", "insert", "update", "delete", "create", "table", "index", "add", "column",
+    "by", "as", "all", "distinct", "exists", "and", "or", "not", "if", "virtual", "unique",
+    "primary", "key", "default", "check", "constraint", "begin", "end", "case", "when",
+    "then", "else", "conflict", "replace", "ignore", "abort", "rollback", "fail", "with",
+    "trigger", "view", "alter", "drop",
+}
+_JOIN_WORD = {"natural", "left", "right", "full", "inner", "cross", "outer", "join"}
+_COL_CONSTRAINT = {"primary", "not", "null", "unique", "default", "check", "collate", "references", "constraint"}
+
+
+def _split_statements(toks: list[_Tok]) -> list[list[_Tok]]:
+    stmts: list[list[_Tok]] = []
+    cur: list[_Tok] = []
+    depth = 0
+    for tok in toks:
+        if tok.kind == "punct" and tok.value == "(":
+            depth += 1
+        elif tok.kind == "punct" and tok.value == ")":
+            depth = max(0, depth - 1)
+        if depth == 0 and tok.kind == "punct" and tok.value == ";":
+            if cur:
+                stmts.append(cur)
+            cur = []
+            continue
+        cur.append(tok)
+    if cur:
+        stmts.append(cur)
+    return stmts
+
+
+def _has_sql_verb(stmt: list[_Tok]) -> bool:
+    """True for a SQL clause, not for prose that happens to contain ``with`` or ``authority``."""
+    if not stmt:
+        return False
+    if stmt[0].kind == "ident" and stmt[0].value in _SQL_VERBS:
+        return True
+    for index, tok in enumerate(stmt):
+        if tok.kind != "ident":
+            continue
+        nxt = stmt[index + 1] if index + 1 < len(stmt) else None
+        if tok.value == "delete" and nxt is not None and _is_ident(nxt, "from"):
+            return True
+        if tok.value in {"insert", "replace"} and nxt is not None and _is_ident(nxt, "into"):
+            return True
+        if tok.value == "update" and nxt is not None and nxt.kind in {"ident", "quoted", "hole"}:
+            if any(_is_ident(item, "set") for item in stmt[index + 1 : index + 8]):
+                return True
+        if tok.value == "alter" and nxt is not None and _is_ident(nxt, "table"):
+            return True
+        if tok.value == "create" and nxt is not None and _is_ident(nxt) and nxt.value in {
+            "table", "index", "unique", "virtual", "trigger", "temp", "temporary",
+        }:
+            return True
+        if tok.value == "drop" and nxt is not None and _is_ident(nxt) and nxt.value in {"table", "index", "trigger", "view"}:
+            return True
+        if tok.value == "select" and any(_is_ident(item, "from") for item in stmt[index + 1 :]):
+            return True
+    return False
+
+
+def _mentions_protected(stmt: list[_Tok]) -> bool:
+    return any(tok.kind in {"ident", "quoted"} and tok.value in _PROTECTED_TABLES for tok in stmt)
+
+
+def _has_add_column(stmt: list[_Tok]) -> bool:
+    depth = 0
+    for index, tok in enumerate(stmt):
+        if tok.kind == "punct" and tok.value == "(":
+            depth += 1
+        elif tok.kind == "punct" and tok.value == ")":
+            depth = max(0, depth - 1)
+        if depth == 0 and _is_ident(tok, "add") and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "column"):
+            return True
+    return False
+
+
+def _alter_not_null_without_default(stmt: list[_Tok]) -> bool:
+    has_default = False
+    has_not_null = False
+    for index, tok in enumerate(stmt):
+        if _is_ident(tok, "default"):
+            has_default = True
+        if _is_ident(tok, "not") and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "null"):
+            has_not_null = True
+    return has_not_null and not has_default
+
+
+def _forbidden_shape(stmt: list[_Tok]) -> bool:
+    """Upsert, RETURNING, CTE, trigger, and REPLACE are outside the allow-list."""
+    depth = 0
+    for index, tok in enumerate(stmt):
+        if tok.kind == "punct" and tok.value == "(":
+            depth += 1
+        elif tok.kind == "punct" and tok.value == ")":
+            depth = max(0, depth - 1)
+            continue
+        if depth != 0 or tok.kind != "ident":
+            continue
+        if tok.value in {"returning", "replace", "trigger", "with"}:
+            return True
+        if tok.value == "on" and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "conflict"):
+            return True
+        if tok.value in {"insert", "update"} and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "or"):
+            return True
+    return False
+
+
+def _unbounded_hole(stmt: list[_Tok]) -> bool:
+    """A trailing hole can hide another statement. A hole with source after it is one slot."""
+    for index, tok in enumerate(stmt):
+        if tok.kind != "hole":
+            continue
+        if not any(item.kind != "hole" for item in stmt[index + 1 :]):
+            return True
+    return False
+
+
+def _consume_paren(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or toks[i].kind != "punct" or toks[i].value != "(":
+        return None
+    depth = 0
+    while i < len(toks):
+        tok = toks[i]
+        if tok.kind == "punct" and tok.value == "(":
+            depth += 1
+        elif tok.kind == "punct" and tok.value == ")":
+            depth -= 1
+            i += 1
+            if depth == 0:
+                return i
+            continue
+        i += 1
+    return None
+
+
+def _consume_expr(toks: list[_Tok], i: int, extra_end: set[str] | None = None) -> int | None:
+    ends = _EXPR_END if not extra_end else _EXPR_END | extra_end
+    start = i
+    depth = 0
+    while i < len(toks):
+        tok = toks[i]
+        if tok.kind == "punct" and tok.value == "(":
+            depth += 1
+            i += 1
+            continue
+        if tok.kind == "punct" and tok.value == ")":
+            if depth == 0:
+                break
+            depth -= 1
+            i += 1
+            continue
+        if depth == 0 and tok.kind == "punct" and tok.value in {",", ";"}:
+            break
+        if depth == 0 and tok.kind == "ident" and tok.value in ends:
+            break
+        i += 1
+    if i == start or depth != 0:
+        return None
+    return i
+
+
+def _parse_expr_list(toks: list[_Tok], i: int) -> int | None:
+    i = _consume_expr(toks, i)
+    if i is None:
+        return None
+    while i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
+        nxt = _consume_expr(toks, i + 1)
+        if nxt is None:
+            return None
+        i = nxt
+    return i
+
+
+def _parse_order_list(toks: list[_Tok], i: int) -> int | None:
+    while True:
+        i = _consume_expr(toks, i)
+        if i is None:
+            return None
+        if i < len(toks) and _is_ident(toks[i]) and toks[i].value in {"asc", "desc"}:
+            i += 1
+        if i < len(toks) and _is_ident(toks[i], "nulls"):
+            if i + 1 < len(toks) and _is_ident(toks[i + 1]) and toks[i + 1].value in {"first", "last"}:
+                i += 2
+            else:
+                return None
+        if i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
+            i += 1
+            continue
+        return i
+
+
+def _maybe_alias(toks: list[_Tok], i: int) -> int | None:
+    if i < len(toks) and _is_ident(toks[i], "as"):
+        _name, nxt = _read_name(toks, i + 1)
+        return nxt if _name else None
+    if i < len(toks) and toks[i].kind in {"ident", "quoted"} and toks[i].value not in _NOT_ALIAS:
+        return i + 1
+    return i
+
+
+def _parse_table_ref(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks):
+        return None
+    if toks[i].kind == "punct" and toks[i].value == "(":
+        i = _consume_paren(toks, i)
+        if i is None:
+            return None
+        return _maybe_alias(toks, i)
+    name, i = _read_name(toks, i)
+    if not name:
+        return None
+    return _maybe_alias(toks, i)
+
+
+def _parse_from(toks: list[_Tok], i: int) -> int | None:
+    i = _parse_table_ref(toks, i)
+    if i is None:
+        return None
+    while i < len(toks):
+        tok = toks[i]
+        if tok.kind == "punct" and tok.value == ",":
+            i = _parse_table_ref(toks, i + 1)
+            if i is None:
+                return None
+            continue
+        if not (_is_ident(tok) and tok.value in _JOIN_WORD):
+            break
+        while i < len(toks) and _is_ident(toks[i]) and toks[i].value in _JOIN_WORD:
+            if toks[i].value == "join":
+                i += 1
+                break
+            i += 1
+        else:
+            return None
+        i = _parse_table_ref(toks, i)
+        if i is None:
+            return None
+        if i < len(toks) and _is_ident(toks[i], "on"):
+            i = _consume_expr(toks, i + 1)
+            if i is None:
+                return None
+        elif i < len(toks) and _is_ident(toks[i], "using"):
+            if i + 1 >= len(toks) or toks[i + 1].value != "(":
+                return None
+            i = _consume_paren(toks, i + 1)
+            if i is None:
+                return None
+    return i
+
+
+def _parse_select(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or not _is_ident(toks[i], "select"):
+        return None
+    i += 1
+    if i < len(toks) and _is_ident(toks[i]) and toks[i].value in {"distinct", "all"}:
+        i += 1
+    i = _parse_expr_list(toks, i)
+    if i is None:
+        return None
+    if i < len(toks) and _is_ident(toks[i], "into"):
+        return None
+    if i < len(toks) and _is_ident(toks[i], "from"):
+        i = _parse_from(toks, i + 1)
+        if i is None:
+            return None
+    while i < len(toks) and toks[i].kind == "ident":
+        word = toks[i].value
+        if word in {"where", "having"}:
+            i = _consume_expr(toks, i + 1)
+        elif word in {"group", "order"}:
+            if i + 1 >= len(toks) or not _is_ident(toks[i + 1], "by"):
+                return None
+            i = _parse_order_list(toks, i + 2) if word == "order" else _parse_expr_list(toks, i + 2)
+        elif word == "limit":
+            i = _consume_expr(toks, i + 1)
+            if i is not None and i < len(toks) and _is_ident(toks[i], "offset"):
+                i = _consume_expr(toks, i + 1)
+        elif word == "offset":
+            i = _consume_expr(toks, i + 1)
+        elif word in {"union", "except", "intersect"}:
+            i += 1
+            if i < len(toks) and _is_ident(toks[i], "all"):
+                i += 1
+            if i >= len(toks) or not _is_ident(toks[i], "select"):
+                return None
+            i = _parse_select(toks, i)
+        else:
+            break
+        if i is None:
+            return None
+    return i
+
+
+def _skip_if_not_exists(toks: list[_Tok], i: int) -> int:
+    if (
+        i + 2 < len(toks)
+        and _is_ident(toks[i], "if")
+        and _is_ident(toks[i + 1], "not")
+        and _is_ident(toks[i + 2], "exists")
+    ):
+        return i + 3
+    return i
+
+
+def _consume_default(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks):
+        return None
+    if toks[i].kind == "punct" and toks[i].value in {"+", "-"}:
+        i += 1
+    if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
+        return _consume_paren(toks, i)
+    if i < len(toks) and toks[i].kind in {"string", "number", "ident", "quoted", "placeholder", "hole"}:
+        return i + 1
+    return None
+
+
+def _parse_col_constraints(toks: list[_Tok], i: int) -> int | None:
+    while i < len(toks):
+        tok = toks[i]
+        if tok.kind == "punct" and tok.value in {",", ")"}:
+            return i
+        if tok.kind != "ident":
+            return None
+        word = tok.value
+        if word == "primary":
+            if i + 1 >= len(toks) or not _is_ident(toks[i + 1], "key"):
+                return None
+            i += 2
+        elif word == "not":
+            if i + 1 >= len(toks) or not _is_ident(toks[i + 1], "null"):
+                return None
+            i += 2
+        elif word in {"null", "unique"}:
+            i += 1
+        elif word == "default":
+            i = _consume_default(toks, i + 1)
+            if i is None:
+                return None
+        elif word == "check":
+            if i + 1 >= len(toks):
+                return None
+            i = _consume_paren(toks, i + 1)
+            if i is None:
+                return None
+        elif word == "collate":
+            _name, i = _read_name(toks, i + 1)
+            if not _name:
+                return None
+        elif word == "references":
+            _name, i = _read_name(toks, i + 1)
+            if not _name:
+                return None
+            if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
+                i = _consume_paren(toks, i)
+                if i is None:
+                    return None
+        elif word == "constraint":
+            _name, i = _read_name(toks, i + 1)
+            if not _name:
+                return None
+        else:
+            return None
+    return i
+
+
+def _parse_type(toks: list[_Tok], i: int) -> int | None:
+    if i < len(toks) and toks[i].kind == "ident" and toks[i].value not in _COL_CONSTRAINT:
+        i += 1
+        if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
+            i = _consume_paren(toks, i)
+    return i
+
+
+def _parse_create_table(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or not _is_ident(toks[i], "table"):
+        return None
+    i = _skip_if_not_exists(toks, i + 1)
+    name, i = _read_name(toks, i)
+    if not name or i >= len(toks) or toks[i].value != "(":
+        return None
+    i += 1
+    if i < len(toks) and toks[i].value == ")":
+        return i + 1
+    while i < len(toks):
+        if toks[i].kind == "ident" and toks[i].value in {"constraint", "primary", "unique", "check", "foreign"}:
+            if toks[i].value == "foreign":
+                return None
+            if toks[i].value == "constraint":
+                _name, i = _read_name(toks, i + 1)
+                if not _name:
+                    return None
+            i = _parse_col_constraints(toks, i)
+        else:
+            _name, i = _read_name(toks, i)
+            if not _name:
+                return None
+            i = _parse_type(toks, i)
+            if i is None:
+                return None
+            i = _parse_col_constraints(toks, i)
+        if i is None:
+            return None
+        if toks[i].kind == "punct" and toks[i].value == ",":
+            i += 1
+            continue
+        if toks[i].kind == "punct" and toks[i].value == ")":
+            return i + 1
+        return None
+    return None
+
+
+def _parse_create_index(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or not _is_ident(toks[i], "index"):
+        return None
+    i = _skip_if_not_exists(toks, i + 1)
+    _name, i = _read_name(toks, i)
+    if not _name or i >= len(toks) or not _is_ident(toks[i], "on"):
+        return None
+    table, i = _read_name(toks, i + 1)
+    if not table or i >= len(toks) or toks[i].value != "(":
+        return None
+    i = _consume_paren(toks, i)
+    if i is None:
+        return None
+    if i < len(toks) and _is_ident(toks[i], "where"):
+        return _consume_expr(toks, i + 1)
+    return i
+
+
+def _parse_create_virtual(toks: list[_Tok], i: int) -> int | None:
+    if i + 1 >= len(toks) or not _is_ident(toks[i], "virtual") or not _is_ident(toks[i + 1], "table"):
+        return None
+    i = _skip_if_not_exists(toks, i + 2)
+    _name, i = _read_name(toks, i)
+    if not _name or i >= len(toks) or not _is_ident(toks[i], "using"):
+        return None
+    module, i = _read_name(toks, i + 1)
+    if not module:
+        return None
+    if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
+        return _consume_paren(toks, i)
+    return i
+
+
+def _parse_create(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or not _is_ident(toks[i], "create"):
+        return None
+    i += 1
+    if i < len(toks) and _is_ident(toks[i]) and toks[i].value in {"temp", "temporary"}:
+        i += 1
+    if i < len(toks) and _is_ident(toks[i], "unique"):
+        return _parse_create_index(toks, i + 1)
+    if i < len(toks) and _is_ident(toks[i], "virtual"):
+        return _parse_create_virtual(toks, i)
+    if i < len(toks) and _is_ident(toks[i], "table"):
+        return _parse_create_table(toks, i)
+    if i < len(toks) and _is_ident(toks[i], "index"):
+        return _parse_create_index(toks, i)
+    return None
+
+
+def _parse_alter(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or not _is_ident(toks[i], "alter"):
+        return None
+    i += 1
+    if i >= len(toks) or not _is_ident(toks[i], "table"):
+        return None
+    name, i = _read_name(toks, i + 1)
+    if not name or i + 1 >= len(toks) or not _is_ident(toks[i], "add") or not _is_ident(toks[i + 1], "column"):
+        return None
+    col, i = _read_name(toks, i + 2)
+    if not col:
+        return None
+    i = _parse_type(toks, i)
+    if i is None:
+        return None
+    seen_default = False
+    seen_null = False
+    while i < len(toks):
+        if not _is_ident(toks[i]):
+            return None
+        word = toks[i].value
+        if word == "default" and not seen_default:
+            seen_default = True
+            i = _consume_default(toks, i + 1)
+            if i is None:
+                return None
+            continue
+        if word == "not" and not seen_null and i + 1 < len(toks) and _is_ident(toks[i + 1], "null"):
+            seen_null = True
+            i += 2
+            continue
+        if word == "null" and not seen_null:
+            seen_null = True
+            i += 1
+            continue
+        return None
+    return i
+
+
+def _parse_insert(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or not _is_ident(toks[i], "insert"):
+        return None
+    i += 1
+    if i < len(toks) and _is_ident(toks[i], "or"):
+        return None
+    if i >= len(toks) or not _is_ident(toks[i], "into"):
+        return None
+    name, i = _read_name(toks, i + 1)
+    if not name:
+        return None
+    if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
+        cols, i, incomplete = _column_list(toks, i)
+        if incomplete or cols is None:
+            return None
+    if i < len(toks) and _is_ident(toks[i], "values"):
+        i += 1
+        if i >= len(toks) or toks[i].value != "(":
+            return None
+        while i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
+            _row, i = _split_exprs(toks, i, paren=True)
+            if _row is None:
+                return None
+            if i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
+                i += 1
+                continue
+            break
+        return i
+    if i < len(toks) and _is_ident(toks[i], "select"):
+        return _parse_select(toks, i)
+    if i < len(toks) and _is_ident(toks[i], "default") and i + 1 < len(toks) and _is_ident(toks[i + 1], "values"):
+        return i + 2
+    return None
+
+
+def _parse_assignments(toks: list[_Tok], i: int) -> int | None:
+    while True:
+        target, i = _read_name(toks, i)
+        if not target or i >= len(toks) or toks[i].value != "=":
+            return None
+        i = _consume_expr(toks, i + 1)
+        if i is None:
+            return None
+        if i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
+            i += 1
+            continue
+        return i
+
+
+def _parse_update(toks: list[_Tok], i: int) -> int | None:
+    if i >= len(toks) or not _is_ident(toks[i], "update"):
+        return None
+    i += 1
+    if i < len(toks) and _is_ident(toks[i], "or"):
+        return None
+    i = _parse_table_ref(toks, i)
+    if i is None or i >= len(toks) or not _is_ident(toks[i], "set"):
+        return None
+    i = _parse_assignments(toks, i + 1)
+    if i is None:
+        return None
+    if i < len(toks) and _is_ident(toks[i], "where"):
+        return _consume_expr(toks, i + 1)
+    return i
+
+
+def _parse_delete(toks: list[_Tok], i: int) -> int | None:
+    if i + 1 >= len(toks) or not _is_ident(toks[i], "delete") or not _is_ident(toks[i + 1], "from"):
+        return None
+    i = _parse_table_ref(toks, i + 2)
+    if i is None:
+        return None
+    if i < len(toks) and _is_ident(toks[i], "where"):
+        return _consume_expr(toks, i + 1)
+    return i
+
+
+def _is_plain(stmt: list[_Tok]) -> bool:
+    if not stmt or _forbidden_shape(stmt) or _unbounded_hole(stmt) or stmt[0].kind != "ident":
+        return False
+    word = stmt[0].value
+    if word == "select":
+        end = _parse_select(stmt, 0)
+    elif word == "insert":
+        end = _parse_insert(stmt, 0)
+    elif word == "update":
+        end = _parse_update(stmt, 0)
+    elif word == "delete":
+        end = _parse_delete(stmt, 0)
+    elif word == "alter":
+        end = _parse_alter(stmt, 0)
+    elif word == "create":
+        end = _parse_create(stmt, 0)
+    else:
+        return False
+    return end == len(stmt)
+
+
+def _scan_deletes(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool]:
+    """protected hit, hole gap, every DELETE FROM target proved non-protected, saw DELETE."""
     bad = False
     gap = False
-    while j < len(toks):
-        if toks[j].kind == "ident" and toks[j].value in {"where", "returning", "from"}:
+    saw = False
+    targets: list[str | None] = []
+    index = 0
+    while index < len(stmt):
+        if _is_ident(stmt[index], "delete"):
+            saw = True
+            if index + 1 < len(stmt) and _is_ident(stmt[index + 1], "from"):
+                name, nxt = _read_name(stmt, index + 2)
+                targets.append(name)
+                if name in _PROTECTED_TABLES:
+                    bad = True
+                elif name is None:
+                    gap = True
+                index = max(nxt, index + 1)
+                continue
+        index += 1
+    proved_safe = bool(targets) and all(name not in (None, "") and name not in _PROTECTED_TABLES for name in targets)
+    return bad, gap, proved_safe, saw
+
+
+def _set_region(stmt: list[_Tok], i: int) -> tuple[bool, bool, int]:
+    bad = False
+    gap = False
+    while i < len(stmt):
+        tok = stmt[i]
+        if tok.kind == "ident" and tok.value in {"where", "returning", "from", "order", "limit"}:
             break
-        if toks[j].kind == "punct" and toks[j].value == ";":
+        if tok.kind == "punct" and tok.value == ";":
             break
-        target, j = _read_name(toks, j)
-        if target == "":
-            return bad, _mentions_authority(toks, i, len(toks)), max(j, i + 1)
-        if j >= len(toks) or toks[j].value != "=":
-            return bad, target == "authority" or _mentions_authority(toks, i, len(toks)), max(j, i + 1)
-        j += 1
+        target, nxt = _read_name(stmt, i)
+        if target == "" or nxt >= len(stmt) or stmt[nxt].value != "=":
+            if _mentions_authority(stmt, i, len(stmt)):
+                gap = True
+            return bad, gap, i
         expr: list[_Tok] = []
+        j = nxt + 1
         depth = 0
-        while j < len(toks):
-            tok = toks[j]
-            if tok.kind == "punct" and tok.value == "(":
+        while j < len(stmt):
+            item = stmt[j]
+            if item.kind == "punct" and item.value == "(":
                 depth += 1
-            elif tok.kind == "punct" and tok.value == ")" and depth:
+            elif item.kind == "punct" and item.value == ")" and depth:
                 depth -= 1
             if depth == 0 and (
-                (tok.kind == "punct" and tok.value in {",", ";"})
-                or (tok.kind == "ident" and tok.value in {"where", "returning"})
+                (item.kind == "punct" and item.value in {",", ";"})
+                or (item.kind == "ident" and item.value in {"where", "returning", "from"})
             ):
                 break
-            expr.append(tok)
+            expr.append(item)
             j += 1
-        if target == "authority":
-            kind = _expr_kind(expr)
-            if kind == "verified":
-                bad = True
-            elif kind == "unknown":
+        if target is None or target == "authority":
+            if target is None:
                 gap = True
-        if j < len(toks) and toks[j].kind == "punct" and toks[j].value == ",":
-            j += 1
+            else:
+                kind = _expr_kind(expr)
+                if kind == "verified":
+                    bad = True
+                elif kind == "unknown":
+                    gap = True
+        if j < len(stmt) and stmt[j].kind == "punct" and stmt[j].value == ",":
+            i = j + 1
             continue
-        break
-    return bad, gap, j
+        return bad, gap, j
+    return bad, gap, i
+
+
+def _scan_sets(stmt: list[_Tok]) -> tuple[bool, bool]:
+    bad = False
+    gap = False
+    index = 0
+    while index < len(stmt):
+        if _is_ident(stmt[index], "set"):
+            found_bad, found_gap, nxt = _set_region(stmt, index + 1)
+            bad = bad or found_bad
+            gap = gap or found_gap
+            index = max(nxt, index + 1)
+            continue
+        index += 1
+    return bad, gap
+
+
+def _scan_inserts(stmt: list[_Tok]) -> tuple[bool, bool]:
+    bad = False
+    gap = False
+    index = 0
+    while index < len(stmt):
+        if _is_ident(stmt[index], "insert") or _is_ident(stmt[index], "replace"):
+            subject = stmt
+            if _is_ident(stmt[index], "replace"):
+                subject = list(stmt)
+                subject[index] = _Tok("ident", "insert")
+            found_bad, found_gap, nxt = _insert_authority(subject, index)
+            bad = bad or found_bad
+            gap = gap or found_gap
+            index = max(nxt, index + 1)
+            continue
+        index += 1
+    return bad, gap
+
+
+def _column_default_verified(stmt: list[_Tok]) -> bool:
+    depth = 0
+    for index, tok in enumerate(stmt):
+        if tok.kind == "punct" and tok.value == "(":
+            depth += 1
+        elif tok.kind == "punct" and tok.value == ")":
+            depth = max(0, depth - 1)
+        if tok.kind not in {"ident", "quoted"} or tok.value != "authority":
+            continue
+        local = depth
+        j = index + 1
+        while j < len(stmt):
+            item = stmt[j]
+            if item.kind == "punct" and item.value == "(":
+                local += 1
+            elif item.kind == "punct" and item.value == ")":
+                if local == depth:
+                    break
+                local = max(depth, local - 1)
+            elif local == depth and item.kind == "punct" and item.value == ",":
+                break
+            if item.kind == "ident" and item.value == "default":
+                k = j + 1
+                if k < len(stmt) and stmt[k].kind == "punct" and stmt[k].value in {"+", "-"}:
+                    k += 1
+                if k < len(stmt) and stmt[k].kind in {"string", "quoted"} and stmt[k].value == "verified":
+                    return True
+            j += 1
+    return False
+
+
+def _judge_statement(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool, bool]:
+    delete_bad, delete_gap, proved_safe, saw_delete = _scan_deletes(stmt)
+    verified_bad, verified_gap = _scan_sets(stmt)
+    insert_bad, insert_gap = _scan_inserts(stmt)
+    verified_bad = verified_bad or insert_bad or _column_default_verified(stmt)
+    verified_gap = verified_gap or insert_gap
+    if not _is_plain(stmt):
+        if _mentions_protected(stmt) and not delete_bad:
+            delete_gap = True
+        if _mentions_authority(stmt, 0, len(stmt)) and not verified_bad:
+            verified_gap = True
+    unproved_delete = saw_delete and not delete_bad and not proved_safe
+    return delete_bad, delete_gap, verified_bad, verified_gap, unproved_delete
 
 
 def sql_write_flags(text: str, dynamic: bool) -> tuple[bool, bool, bool, bool]:
-    """delete hit, delete gap, verified hit, verified gap for one SQL string.
+    """delete hit, delete gap, verified hit, verified gap for one folded SQL string.
 
-    A ``\\x00`` marks a folded hole. INSERT maps column lists onto VALUES rows and
-    SELECT lists; an INSERT that names authority but cannot be mapped is a gap.
-    Bracket, backtick, and double-quoted identifiers count as the protected names.
+    A statement that names ``memory_claims``, ``observations``, or ``authority`` conforms
+    only when DELETE, UPDATE SET, INSERT columns/VALUES/SELECT, or a non-writing
+    SELECT, ALTER TABLE ADD COLUMN, or CREATE TABLE/INDEX consumes every token.
+    Upsert, RETURNING, CTE, trigger, and REPLACE stay unresolved unless a protected
+    DELETE or an assignment of the literal ``verified`` to ``authority`` is proved.
+    A ``\\x00`` with no source after it is an unbounded hole. Bracket, backtick, and
+    double-quoted identifiers count.
     """
-    toks = _tokenize_sql(text)
     delete_bad = False
     delete_gap = False
     verified_bad = False
     verified_gap = False
-    saw_delete = False
-    i = 0
-    while i < len(toks):
-        tok = toks[i]
-        if _is_ident(tok, "delete"):
-            saw_delete = True
-            if i + 1 < len(toks) and _is_ident(toks[i + 1], "from"):
-                name, nxt = _read_name(toks, i + 2)
-                if name in _PROTECTED_TABLES:
-                    delete_bad = True
-                elif name is None:
-                    delete_gap = True
-                i = max(nxt, i + 1)
-                continue
-        elif _is_ident(tok, "insert"):
-            bad, gap, nxt = _insert_authority(toks, i)
-            verified_bad = verified_bad or bad
-            verified_gap = verified_gap or gap
-            i = max(nxt, i + 1)
+    unproved_delete = False
+    for stmt in _split_statements(_tokenize_sql(text)):
+        if not _has_sql_verb(stmt):
             continue
-        elif _is_ident(tok, "update"):
-            bad, gap, nxt = _update_authority(toks, i)
-            verified_bad = verified_bad or bad
-            verified_gap = verified_gap or gap
-            i = max(nxt, i + 1)
-            continue
-        i += 1
-    if dynamic and saw_delete and not delete_bad:
+        bad, gap, vbad, vgap, unproved = _judge_statement(stmt)
+        delete_bad = delete_bad or bad
+        delete_gap = delete_gap or gap
+        verified_bad = verified_bad or vbad
+        verified_gap = verified_gap or vgap
+        unproved_delete = unproved_delete or unproved
+    if dynamic and unproved_delete and not delete_bad:
         delete_gap = True
+    if delete_bad:
+        delete_gap = False
+    if verified_bad:
+        verified_gap = False
     return delete_bad, delete_gap, verified_bad, verified_gap
 
 
@@ -1188,14 +1884,27 @@ def _walk_sql_strings(tree: ast.AST, path: str) -> tuple[list[str], list[str]]:
             folded, _fragments, dynamic = _fold_sql(value, env)
             env[target.id] = None if dynamic or folded is None else folded
 
+    def sql_expr(node: ast.AST) -> bool:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return True
+        if isinstance(node, ast.JoinedStr):
+            return True
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return True
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join":
+            return True
+        return False
+
     def note_tree(node: ast.AST, lineno: int) -> None:
-        for sub in ast.walk(node):
-            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
-                continue
-            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                note(sub, getattr(sub, "lineno", lineno))
-            elif isinstance(sub, (ast.JoinedStr, ast.BinOp, ast.Call)):
-                note(sub, getattr(sub, "lineno", lineno))
+        # Folded concatenation is one statement. Its leaves are not scanned on their own,
+        # or a fragment such as "memory_claims" would be judged without the verb beside it.
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            return
+        if sql_expr(node):
+            note(node, getattr(node, "lineno", lineno))
+            return
+        for sub in ast.iter_child_nodes(node):
+            note_tree(sub, getattr(sub, "lineno", lineno))
 
     def walk(stmts: list[ast.stmt]) -> None:
         for stmt in stmts:
@@ -1210,11 +1919,11 @@ def _walk_sql_strings(tree: ast.AST, path: str) -> tuple[list[str], list[str]]:
             if isinstance(stmt, ast.Assign):
                 for target in stmt.targets:
                     bind(target, stmt.value)
-                note(stmt.value, getattr(stmt, "lineno", 0))
+                note_tree(stmt.value, getattr(stmt, "lineno", 0))
                 continue
             if isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
                 bind(stmt.target, stmt.value)
-                note(stmt.value, getattr(stmt, "lineno", 0))
+                note_tree(stmt.value, getattr(stmt, "lineno", 0))
                 continue
             if isinstance(stmt, (ast.For, ast.While, ast.If, ast.With, ast.Try)):
                 saved = dict(env)
