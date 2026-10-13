@@ -1,154 +1,116 @@
-# Plan: sound Worker MCP signature checks
+# Plan: complete source inventories for advisory checks
 
-Repository: `vu1n/kypp`. Base: `92dc50c05d0688b6644e89c6b0a6343b29d67713`.
-Starting checkout: clean `main`; no staged, unstaged, or untracked task files.
-Integration branch: `codex/speccheck-worker-signatures`.
-Executor pin: GPT 6.1 Sol Fast (`gpt-6.1-sol`, low reasoning), for delegated work.
+Repository: `vu1n/kypp`. Base: `0e80abc1bcafa1aed1ff312bc2827126a9290011`.
+Starting branch: clean `codex/speccheck-sql-migrations` at `945e7235e760370342a59e227fbac3b0c8ff5485`.
+New independent branch: `codex/speccheck-source-inventory`, directly from main.
+PR25 (`c10f3c7`) and PR26 (`945e723`) are open and untouched. Their changed
+symbols do not overlap this source-loading increment; no stack dependency.
 
-PR23 is merged and already guards reference-cache dependencies, baseline authority,
-and the POST /sync exception. Continue its deterministic MVP with syntax-tree
-enumeration of the Worker's TOOLS input schemas. Unknown array entries or schema
-constructs must prevent conformance; a covered verify parameter remains a
-counterexample even when another entry is unknown. This is scoped signature
-checking, not runtime schema evaluation or a proof of global absence.
+An unreadable selected file is currently listed but omitted from `load_files`.
+The reference rule can then say `conforms` over an incomplete inventory. A real
+temporary Git repository reproduced this with a broken reference followed by
+non-UTF-8 bytes: the file was listed, not loaded, and doc-refs conformed.
+The outcome is a complete selected-text snapshot or an explicit `GitError`, not
+a report claiming coverage of files silently discarded. Git filenames must be
+enumerated without line/quote ambiguity. Worktree deletions remain valid changes;
+non-regular selected entries must not be followed or treated as source text.
 
-The corpus lane independently relabels the exposed PR23 holdout as regressions and
-freezes fresh cases before inspecting the implementation. The implementation lane
-must not read that lane's files. Evaluate the frozen corpus only after implementation
-settles; if results lead to fixes, disclose exposure and move those cases to
-regressions. No CI result or reviewer silence implies claim conformance.
+Use the current cloud ship-it skill at `/workspace/dev/codex-skills/ship-it/SKILL.md`.
+Executors stay pinned to `gpt-6.1-sol`, low reasoning, on this existing task.
+Fast service-tier readback is unavailable. No merge, deployment, paid experiment,
+runtime Kypp change, active-decision edit or ratification is authorized.
+The separate substrate task owns `.brief/amendments/scope-keys-decay.md`,
+`.brief/amendments/compose-surface.md` and its SIGNOFF entries; do not touch them.
+This increment is not Pillbox work or a redesign of reference indexing.
 
-Authorization covers branch/push/draft-PR actions and in-scope fixes. No merge,
-deployment, decision ratification, billed cloud review, or use of the separate
-stateless-agent attachment is authorized here. Ratified docs remain unchanged.
+## INV-001 — Complete selected-text snapshots
 
-## SC-001 — Worker syntax and evidence
-
-Replace the Worker text scanner with a bounded TypeScript syntax-tree parser.
-Use tree-sitter with an optional checker dependency group and lazy loading; absence
-of parser dependencies produces an explicit coverage gap. Retain same-file literal
-schema support, reject unsupported syntax conservatively, preserve partial known
-counterexamples, and invalidate syntax facts produced by the old scanner. Remove
-obsolete scanner helpers. Tests must exercise real parser shapes and the evaluator,
-with red-first evidence for skipped entries and lost counterexamples. CI must
-install the checker extras and run the checker tests and benchmark before emitting
-the advisory report. Existing CLI exit/report/no-write contracts remain intact.
+Fix Git/worktree enumeration and loading. Preserve literal paths containing spaces,
+tabs, newlines and non-ASCII characters, in committed and worktree modes. Reject
+unreadable/non-UTF-8 selected files and selected non-regular entries explicitly
+instead of omitting them. An intentionally absent worktree file is a deletion,
+not a read failure; its content and path must be absent from the returned snapshot.
+Retain existing tuple interfaces and the CLI contract: exit zero after a report,
+including findings, but failure to read the source tree is a nonzero broken check.
+No successful report or cache write should follow a source read failure.
 
 ```yaml
-id: SC-001
+id: INV-001
 task_type: bug_fix
 depth: deep
 executor: gpt-6.1-sol-low
 depends_on: []
 footprint:
   modifies:
-    - "speccheck/syntax.py::*"
-    - "speccheck/evaluate.py::eval_mcp_no_verify"
-    - "speccheck/evaluate.py::MCP_SCOPE"
-    - "pyproject.toml::*"
-    - ".github/workflows/spec-consistency.yml::*"
+    - "speccheck/gitio.py::*"
   creates:
-    - "speccheck/ts_syntax.py"
-    - "speccheck/tests/test_ts_syntax.py"
+    - "speccheck/tests/test_gitio.py"
 produces:
-  - "speccheck/ts_syntax.py::typescript_mcp_tools"
-  - "speccheck/syntax.py::cached_ts_mcp"
-gate: "Checker tests pass with real tree-sitter dependencies; literal verify findings survive unrelated coverage gaps; unsupported entries never conform; old disk syntax facts are not reused"
+  - "speccheck/gitio.py::load_files"
+gate: "Real Git/worktree tests prove unusual-path round trips, explicit decoding/read/type failures, deletion handling, and no external symlink content reads; red-first examples go green without CLI/evaluator changes"
 ```
 
-## SC-002 — Independent evaluation corpus
+## INV-002 — Independent input corpus
 
-Reclassify every exposed holdout case from PR23 as regression data. Update CLI,
-benchmark, and split tests accordingly. Author and freeze a small independent
-Worker-signature holdout before reading SC-001. Record provenance and the exact
-freeze commit in a Markdown evaluation document; report false conformance,
-abstention, and coverage separately for tuning, regression, holdout, and smoke.
-Do not alter the checker to make cases pass. Preserve existing case inputs and
-the smoke-only accuracy caveat. The parent will evaluate the frozen cases.
+Author small end-to-end cases from the contract using real temporary Git repos.
+Read CLI and fixture interfaces, but do not inspect INV-001 or its worktree.
+Freeze inputs and expected outcomes in a commit before scoring. Include clean
+controls, adverse file contents, unusual filenames, committed/worktree paths,
+intentional deletions and ignored/out-of-scope controls. A produced report must
+retain a visible broken-reference or verify-argument counterexample when present;
+an unreadable selected snapshot must fail without producing report artifacts.
+First scoring happens after implementation settles, with honest exposure notes.
 
 ```yaml
-id: SC-002
+id: INV-002
 task_type: test
 depth: routine
 executor: gpt-6.1-sol-low
 depends_on: []
 footprint:
-  modifies:
-    - "speccheck/bench_cases.py::*"
-    - "speccheck/bench.py::*"
-    - "speccheck/cli.py::*"
-    - "speccheck/tests/test_bench.py::*"
   creates:
-    - "speccheck/holdout_cases.py"
-    - "docs/spec-check-evaluation.md"
+    - "speccheck/tests/test_source_inventory_corpus.py"
+    - "docs/spec-check-source-evaluation.md"
 produces:
-  - "speccheck/bench_cases.py::all_cases"
-  - "speccheck/holdout_cases.py::holdout_cases"
-gate: "All 13 exposed PR23 holdout inputs remain as regressions; fresh cases are committed before implementation inspection; split selection and metric tests pass; no holdout tuning is claimed"
+  - "speccheck/tests/test_source_inventory_corpus.py::CASES"
+gate: "Case inputs/labels frozen before scoring or implementation inspection; runnable end-to-end CLI corpus asserts truthful report coverage or explicit loading failure, with durable provenance"
 ```
 
-## SC-003 — Integrate, test, review, and draft PR
+## INV-003 — Integration, review and draft PR
 
-Integrate the disjoint lanes, run required checks, evaluate the frozen corpus, and
-record actual results. Run tighten and structural review. Commit and push the
-complete diff; verify a clean task scope and identical remote head before a fresh
-blank-context correctness reviewer reads immutable base/head commits. Run mutants
-in a scratch worktree. Request a separate static security pass after correctness.
-Open a draft PR only after correctness clears; monitor exact-head CI and address
-in-scope findings. CI's draft mergeability refusal is expected and is reported
-separately from check conclusions. Leave the PR draft for the user's merge decision.
+Integrate the disjoint lanes, then score the frozen corpus. Run appropriate checker
+tests, existing benchmark and required Brief checks. Tighten the owned diff and
+perform independent structural review. Test meaningful mutants in an isolated
+scratch lane. Commit, push and pin the immutable head before blank-context
+correctness review; request the separate static security pass after correctness.
+Create a draft PR with actual review and CI evidence; preserve draft status.
 
 ```yaml
-id: SC-003
+id: INV-003
 task_type: generic
 depth: deep
 executor: gpt-6.1-sol-low
-depends_on: [SC-001, SC-002]
+depends_on: [INV-001, INV-002]
 footprint:
   modifies:
     - "PLAN.md::*"
     - ".brief/docs/features.md::*"
   creates:
-    - "docs/spec-check-continuation.md"
-gate: "Required tests/governance pass; frozen evaluation results and mutant results are durable; pushed exact head receives independent correctness and separate security review; draft PR has exact-head CI evidence and remaining limits"
+    - "docs/spec-check-source-inventory.md"
+gate: "Local tests and Brief checks pass; frozen first results are recorded; mutants are killed or addressed; exact pushed head clears correctness and separate security review; draft PR has successful exact-head workflows"
 ```
 
 ## Status
 
-- Initial checker baseline: 19 tests passed.
-- kypp MCP tools absent after tool discovery; briefing/recall/claim skipped per AGENTS.md.
-- Cloud skill: `/workspace/dev/codex-skills/ship-it/SKILL.md`; repo `.agents/` absent.
-- CLI Brief uses the workflow-pinned v0.4.2 with cache under `/workspace`.
-- SC-001 landed from `ee9860d`; SC-002 freeze `91eb908` and documentation `c38752f`
-  landed as `e98ece0` and `1019dd0`. The implementation did not inspect fresh cases.
-- First fresh-corpus evaluation at integrated `1019dd07991fb451bca996216a0344f6ffb10255`:
-  all nine expectations passed; false conformance 0, abstention 1/3, coverage 2/3.
-- Final checker suite: 40 tests passed. Advisory live report: 8 conforms,
-  0 violates, 7 unsupported, 3 unresolved; this is scoped evidence, not ratification.
-- Independent structural review found no high-confidence structural blocker.
-- Correctness/security review and exact-head CI evidence will be recorded in the draft PR.
-- No merge or deployment is authorized; final handoff leaves the PR draft.
-
-## Deviations
-
-- Approved the narrow SC-001 `MCP_SCOPE` edit to state initializer-only evidence.
-  This clarifies the existing covered scope without expanding runtime behavior.
-- The corpus lane also fixed missing-verdict metric denominators, verified with
-  independent mocked reports. An omitted row now counts as an uncovered abstention.
-- First correctness review found that schema references in unrelated `inputSchema`
-  pairs were wrongly whitelisted. The parent restricted permitted positions to
-  direct TOOLS entries, added a red-first regression, and advanced parser cache
-  identity. These fixes were driven by independent review, not holdout outcomes.
-- Mutation testing found a missing dependency-version cache regression. Added
-  tests for runtime/grammar changes and previous whitelist facts.
-- Fresh correctness review identified shorthand reference escapes. Red-first tests
-  also proved escaped identifier spellings unsafe to compare as raw text. The
-  scanner now treats both conservatively and advances its cache namespace again.
+- Current main, PR25 and PR26 verified before choosing scope.
+- All selected files on the three inspected branches currently decode; no existing binary-selected blocker.
+- Kypp MCP tools absent after discovery; proceed per AGENTS.md.
+- No SIGNOFF edit expected for this checker-only change; any required addition must preserve others' lines.
 
 ## Graph
 
 ```mermaid
 flowchart TD
-    SC_001["SC-001 Worker syntax · deep · 6.1 Sol Fast"] ==> SC_003["SC-003 Integrate/review/draft · deep · 6.1 Sol Fast"]
-    SC_002["SC-002 Independent corpus · routine · 6.1 Sol Fast"] ==> SC_003
+    INV_001["INV-001 Complete snapshots · deep · 6.1 Sol"] ==> INV_003["INV-003 Integrate/review/draft · deep · 6.1 Sol"]
+    INV_002["INV-002 Independent corpus · routine · 6.1 Sol"] ==> INV_003
 ```
