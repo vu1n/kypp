@@ -97,7 +97,7 @@ Report outcomes stay separate. They are not one green badge.
 
 Bounded propositions in this tree: every examined `doc://kypp` ref in the enumerated file set resolves; each `aliases.yaml` latest entry equals the highest version file; every SIGNOFF line names an anchor present in the baseline spec; every feature-map glob matches a file in the enumerated head set; the fully parsed `TOOLS` initializer declares no `verify` property.
 
-`verified-authority-writer` stays unresolved. The `/sync` bullet lets a model-ratified revision land at `verified`, and the next bullet says only `MemoryStore.mark_verified` sets `verified`. That writer set is not ratified. A proved extra write is recorded on the unresolved verdict.
+`verified-authority-writer` reads `authority-order@0006`. `MemoryStore.mark_verified` is the only local path that grants verified. `POST /sync` is a separate import and is not built, so it is not an allowed writer and ratifying it is not evidence. A proved write of `authority='verified'` outside `mark_verified` violates. An unclassified write stays unresolved. A scan with neither is `no_counterexample`, not assurance.
 
 SQL has no allow-list parser. `?` and other untraced bindings are unknown. A protected `DELETE` next to an opaque sibling is still a violation. Upsert, an early `compareRank` return, and a TypeScript concatenation never produce a positive assurance result.
 
@@ -107,14 +107,14 @@ The split inventory is `tuning`, `regression`, `gap-holdout`, and `smoke`, defin
 
 | Split | Cases | Known-violation detection | Unresolved rate | False violations | Noisy candidates | Mutation detection |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| tuning | 18 | 1.000 | 0.333 | 0.000 | 0.000 | n/a |
+| tuning | 18 | 1.000 | 0.278 | 0.000 | 0.000 | n/a |
 | regression | 22 | 1.000 | 0.182 | 0.000 | 0.000 | 1.000 |
-| gap-holdout | 49 | 1.000 | 0.510 | 0.000 | 0.000 | n/a |
+| gap-holdout | 49 | 1.000 | 0.367 | 0.000 | 0.000 | n/a |
 | smoke | 30 | — | — | 0.000 | 0.000 | — |
 
 ## Runtime contracts
 
-`pyproject.toml` depends on `mcp>=1.30,<2`. The server is still FastMCP; an MCP v2 migration is separate. CI installs that wheel in a clean environment and constructs the server with `build_mcp()`. Importing `kypp.mcp_server` does not import the SDK. `tests/test_mcp_construct.py` is that construction check. `tests/test_mcp_contract.py` lists every tool, rejects a `verify` or `authority` schema property, calls every tool with ordinary arguments, then calls them again with `verify` and `authority='verified'` or `'human'`. Content may contain the word verify. A store row that kept a verifier fails the same assertion. `worker/test/mcp-contract.test.ts` does this through `handleMcp` `tools/list` and `tools/call` on the `node:sqlite` D1 double. The collector reads `SELECT *` and every `PRAGMA table_info` column. A tools/call mutation that writes a verifier, including `""`, fails that same collector. `dispatch` does not re-check the schema, so the test reads the rows.
+`pyproject.toml` depends on `mcp>=1.30,<2`. The server is still FastMCP; an MCP v2 migration is separate. CI installs that wheel in a clean virtualenv and constructs the server with `python -I`, then prints `kypp.__file__` and `kypp.mcp_server.__file__`. Those paths have to sit under the venv, which is the proof the installed wheel was imported. Importing `kypp.mcp_server` does not import the SDK. `tests/test_mcp_construct.py` is that construction check. `tests/test_mcp_contract.py` lists every tool, rejects a `verify` or `authority` schema property, calls every tool with ordinary arguments, then calls them again with `verify` and `authority='verified'` or `'human'`. Content may contain the word verify. A store row that kept a verifier fails the same assertion. `worker/test/mcp-contract.test.ts` does this through `handleMcp` `tools/list` and `tools/call` on the `node:sqlite` D1 double. The collector reads `SELECT *` and every `PRAGMA table_info` column. A tools/call mutation that writes a verifier, including `""`, fails that same collector. `dispatch` does not re-check the schema, so the test reads the rows.
 
 `tests/test_verify_timeout.py` asserts that `run_check("sleep 30", timeout=0.4)` returns failure and a timeout message within five seconds. It does not prove that every descendant is dead, that a failed spawn is handled, or that a sweep continues.
 
@@ -173,4 +173,4 @@ Each of these was aimed at the old default-pass behaviour. The expected verdict 
 | `model_config = {**base, "extra": "forbid"}` | unresolved `mcp-no-verify-argument` |
 | `ClaimDraft(..., obscure(crit["name"]), ...)` | unresolved `no-grader-verbatim` |
 
-On the live tree, `no-delete-claims` is unresolved. The `UPDATE memory_claims … AND ${UNSORTED}` writes in `worker/src/store.ts` end in a hole, so the scan cannot see whether another statement follows. That hole is coverage, not a delete candidate. Schema, migrations, and ordinary inserts that name `memory_claims` are not findings. `verified-authority-writer` stays unresolved because the `/sync` bullet and the `mark_verified` bullet do not name one writer set.
+On the live tree, `no-delete-claims` is unresolved. The `UPDATE memory_claims … AND ${UNSORTED}` writes in `worker/src/store.ts` end in a hole, so the scan cannot see whether another statement follows. That hole is coverage, not a delete candidate. Schema, migrations, and ordinary inserts that name `memory_claims` are not findings. `SELECT replace(...)` is not a delete. `verified-authority-writer` reads `authority-order@0006` and stays unresolved on the live tree because some authority writes are still unclassified. A proved extra write would violate.

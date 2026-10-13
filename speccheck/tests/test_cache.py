@@ -1,10 +1,15 @@
 """Syntax is cached by content hash. Base-SHA reference rows are not reused."""
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from speccheck.cache import Cache
+from speccheck.cache import Cache, content_hash
 from speccheck.engine import run_check
 from speccheck.fixtures import clean_tree
+from speccheck.syntax import _file_blob, cached_delete_sql, cached_verified_writes
+from speccheck.ts_syntax import parser_cache_key
 
 
 class CacheTest(unittest.TestCase):
@@ -79,6 +84,44 @@ class CacheTest(unittest.TestCase):
         self.assertEqual(cache.ref_builds, 2)
         self.assertGreater(cache.syntax_hits, 0)
         self.assertEqual(cache.syntax_misses, misses)
+
+    def test_stale_replace_classification_is_not_reused(self):
+        files = {
+            "kypp/query.py":
+                "def query(db):\n    db.execute(\"SELECT replace(content, 'a', 'b') FROM memory_claims\")\n",
+        }
+        blob = _file_blob(files, ("kypp/", "worker/"))
+        digest = content_hash(blob.encode())
+        parser = parser_cache_key()
+        stale_delete = {
+            "scanned": ["kypp/query.py"],
+            "bad": ["DELETE kypp/query.py:2"],
+            "gaps": ["delete-like kypp/query.py:2"],
+        }
+        stale_verified = {
+            "scanned": ["kypp/query.py"],
+            "bad": [],
+            "gaps": ["dynamic authority SQL kypp/query.py:2"],
+            "sql_scanned": ["kypp/query.py"],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for kind, payload in (
+                (f"delete-sql-v2-{parser}", stale_delete),
+                (f"verified-writes-{parser}", stale_verified),
+            ):
+                path = root / "syntax" / kind / digest
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps(payload))
+            cache = Cache(root)
+            deleted = cached_delete_sql(cache, files)
+            writes = cached_verified_writes(cache, files)
+            self.assertEqual(cache.syntax_hits, 0)
+            self.assertEqual(cache.syntax_misses, 2)
+        self.assertEqual(deleted["bad"], [])
+        self.assertFalse(any(item.startswith("delete-like") for item in deleted["gaps"]))
+        self.assertFalse(any(item.startswith("dynamic authority") for item in writes["gaps"]))
+        self.assertFalse(writes["bad"])
 
 
 if __name__ == "__main__":

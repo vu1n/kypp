@@ -85,13 +85,73 @@ class SqlIdentifierTest(unittest.TestCase):
         for statement in (
             "UPDATE memory_claims SET [authority] = 'verified'",
             'UPDATE memory_claims SET "authority"="verified"',
-            "UPDATE t SET `authority`='verified'",
             "INSERT INTO [memory_claims]([authority]) VALUES ('verified')",
         ):
             delete_bad, _delete_gap, verified_bad, verified_gap = sql_write_flags(statement, False)
             self.assertTrue(verified_bad, statement)
             self.assertFalse(verified_gap, statement)
             self.assertFalse(delete_bad, statement)
+        for statement in (
+            "UPDATE t SET `authority`='verified'",
+            "UPDATE build_jobs SET authority='verified'",
+            "UPDATE observations SET authority='verified'",
+            "INSERT INTO build_jobs(authority) VALUES ('verified')",
+            "ALTER TABLE build_jobs ADD COLUMN authority TEXT DEFAULT 'verified'",
+        ):
+            self.assertEqual(sql_write_flags(statement, False), (False, False, False, False), statement)
+
+    def test_verified_sql_violation_requires_memory_claims(self):
+        self.assertTrue(sql_write_flags("UPDATE main.memory_claims SET authority='verified'", False)[2])
+        self.assertTrue(sql_write_flags(
+            "ALTER TABLE memory_claims ADD COLUMN authority TEXT DEFAULT 'verified'", False,
+        )[2])
+        tree = clean_tree()
+        tree["kypp/extra.py"] = (
+            "def promote(db):\n"
+            "    db.execute(\"UPDATE build_jobs SET authority='verified'\")\n"
+        )
+        verdict = next(item for item in _report(tree).verdicts if item.rule_id == "verified-authority-writer")
+        self.assertEqual(verdict.status, "no_counterexample")
+        self.assertIsNone(verdict.counterexample)
+        tree["kypp/extra.py"] = (
+            "def promote(db):\n"
+            "    db.execute(\"UPDATE memory_claims SET authority='verified'\")\n"
+        )
+        verdict = next(item for item in _report(tree).verdicts if item.rule_id == "verified-authority-writer")
+        self.assertEqual(verdict.status, "violates")
+        self.assertEqual(verdict.severity, "high")
+        self.assertIn("kypp/extra.py", verdict.counterexample or "")
+
+    def test_lookalike_memory_store_is_a_counterexample(self):
+        writer = (
+            "class MemoryStore:\n"
+            "    def mark_verified(self, db):\n"
+            "        db.execute(\"UPDATE memory_claims SET authority='verified' WHERE id=1\")\n"
+        )
+        allowed = clean_tree()
+        allowed["kypp/store.py"] += "\n" + writer
+        allowed_verdict = next(
+            item for item in _report(allowed).verdicts if item.rule_id == "verified-authority-writer"
+        )
+        self.assertEqual(allowed_verdict.status, "no_counterexample")
+        self.assertIsNone(allowed_verdict.counterexample)
+        lookalike = clean_tree()
+        lookalike["kypp/store.py"] += "\n" + writer
+        lookalike["kypp/backdoor.py"] = writer
+        verdict = next(item for item in _report(lookalike).verdicts if item.rule_id == "verified-authority-writer")
+        self.assertEqual(verdict.status, "violates")
+        self.assertEqual(verdict.severity, "high")
+        self.assertIn("kypp/backdoor.py", verdict.counterexample or "")
+        self.assertNotIn("kypp/store.py", verdict.counterexample or "")
+        claim = clean_tree()
+        claim["kypp/backdoor.py"] = (
+            "class MemoryStore:\n"
+            "    def mark_verified(self, store):\n"
+            "        store.claim('fact', 's', 'c', authority='verified')\n"
+        )
+        claim_verdict = next(item for item in _report(claim).verdicts if item.rule_id == "verified-authority-writer")
+        self.assertEqual(claim_verdict.status, "violates")
+        self.assertIn("kypp/backdoor.py", claim_verdict.counterexample or "")
 
     def test_insert_maps_values_and_abstains_when_unmapped(self):
         self.assertEqual(
@@ -173,10 +233,11 @@ class SqlIdentifierTest(unittest.TestCase):
             "ON CONFLICT(subject) DO UPDATE SET authority='verified'\")\n"
         )
         verdict = next(item for item in _report(tree).verdicts if item.rule_id == "verified-authority-writer")
-        self.assertEqual(verdict.status, "unresolved")
+        self.assertEqual(verdict.status, "violates")
+        self.assertEqual(verdict.severity, "high")
         self.assertIn("verified", verdict.counterexample or "")
         self.assertIn("mark_verified", verdict.detail)
-        self.assertIn("POST /sync", verdict.detail)
+        self.assertNotIn("conforms", verdict.status)
 
     def test_ordinary_sql_naming_a_protected_table_is_not_a_delete_finding(self):
         for table in ("memory_claims", "observations"):
@@ -207,6 +268,17 @@ class SqlIdentifierTest(unittest.TestCase):
         self.assertNotIn("dynamic DELETE", verdict.coverage)
         self.assertNotIn("dynamic DELETE", verdict.detail)
         self.assertNotIn("conforms", verdict.status)
+
+    def test_replace_function_in_a_read_only_query_is_not_delete_like(self):
+        for table in ("memory_claims", "observations"):
+            statement = f"SELECT replace(content, 'a', 'b') FROM {table}"
+            delete_bad, delete_gap, verified_bad, verified_gap = sql_write_flags(statement, False)
+            self.assertFalse(delete_bad, statement)
+            self.assertFalse(delete_gap, statement)
+            self.assertFalse(verified_bad, statement)
+            self.assertFalse(verified_gap, statement)
+        self.assertTrue(sql_write_flags("REPLACE INTO memory_claims(id) VALUES ('a')", False)[1])
+        self.assertTrue(sql_write_flags("INSERT OR REPLACE INTO observations(id) VALUES ('a')", False)[1])
 
     def test_delete_like_constructions_are_candidates_and_parse_failures_stay_visible(self):
         for statement in (

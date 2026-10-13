@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from speccheck.engine import run_check
-from speccheck.evaluate import AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
+from speccheck.evaluate import AUTH6_BULLETS, AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
 from speccheck.fixtures import clean_tree
 from speccheck.gitio import load_files, rev_parse
 from speccheck.textscan import group_bullets, invariant_bullets, split_front_matter
@@ -21,6 +21,7 @@ class AdjoiningTest(unittest.TestCase):
     def test_pins_match_ratified_specs(self):
         self.assertEqual(_bullets(ROOT / ".brief/docs/verify-operator-only/versions/v0002.md"), VERIFY_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/authority-order/versions/v0004.md"), AUTH_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/authority-order/versions/v0006.md"), AUTH6_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/additive-migrations/versions/v0002.md"), SCHEMA_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/append-only-history/versions/v0001.md"), DELETE_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/no-grader-leak/versions/v0001.md"), GRADER_BULLETS)
@@ -71,8 +72,13 @@ class LiveRepoTest(unittest.TestCase):
         self.assertEqual(tools.detail, "the fully parsed TOOLS initializer declares no verify property")
         writer = next(v for v in report.verdicts if v.rule_id == "verified-authority-writer")
         self.assertEqual(writer.status, "unresolved")
-        self.assertIn("POST /sync", writer.detail)
-        self.assertIn("mark_verified", writer.detail)
+        self.assertEqual(writer.spec, "doc://kypp/authority-order@0006#authority-dominates")
+        self.assertIn("mark_verified", writer.claim_text)
+        self.assertIn("not classified", writer.detail)
+        self.assertIn("dynamic authority SQL kypp/store.py:282", writer.coverage)
+        self.assertIn("dynamic authority SQL worker/src/store.ts:232", writer.coverage)
+        self.assertIn("dynamic authority SQL worker/src/store.ts:269", writer.coverage)
+        self.assertIsNone(writer.counterexample)
         deleted = next(v for v in report.verdicts if v.rule_id == "no-delete-claims")
         self.assertEqual(deleted.status, "unresolved")
         self.assertIn("coverage worker/src/store.ts", deleted.coverage)

@@ -304,9 +304,9 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   `TOOLS` initializer that declares no `verify` property.
 - The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
   following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
-- Those writer rules still read frozen `authority-order@0004`. `authority-order@0005` reconciles
-  the verified-writer contradiction, and that row has not been re-evaluated against it. Ratifying
-  the policy does not create positive evidence.
+- Rank, MCP authority, and human-writer rules still read frozen `authority-order@0004`.
+  `verified-authority-writer` reads `authority-order@0006`. Ratifying that policy is not
+  positive evidence: a scan with no proved write and no gap is `no_counterexample`.
 - `authority-rank-order` reads `kypp/vocab.py`, `kypp/arbiter.py`, and the `worker/src/memory.ts`
   mirror. The TypeScript order has to be proved equal to the Python order (`agent` < `verified` <
   `human`, higher rank wins). Divergence is a violation. A missing file, a parse failure, or an
@@ -325,15 +325,25 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   A proved `DELETE` is a violation even when a sibling statement is opaque. A parser failure, or a
   trailing hole on a statement that is not itself delete-like, stays `unresolved` and is named in
   coverage. CREATE, ALTER, INSERT, and SELECT that only name a protected table produce no delete
-  finding. A `?` placeholder is unknown. Docstrings are not SQL. The recall/briefing exclusion
+  finding. `replace()` in a read-only query is the SQL function, not a REPLACE statement.
+  A `?` placeholder is unknown. Docstrings are not SQL. The recall/briefing exclusion
   bullet and the consolidation bullet stay unsupported. On the live tree the rule is `unresolved`:
   `worker/src/store.ts` updates `memory_claims` through a trailing `${UNSORTED}` hole.
-- `verified-authority-writer` stays `unresolved`. `POST /sync` may land a model-ratified revision
-  at `verified`, and the next bullet says only `MemoryStore.mark_verified` sets `verified`. The
-  writer set is not ratified. A proved `authority='verified'` assignment outside `mark_verified`
-  is recorded on that unresolved verdict, including `ON CONFLICT DO UPDATE`. It is not a settled
-  violation and not a pass. A `?` binding is a coverage gap. A `WHERE authority='verified'` filter
-  is not an assignment. A one-step local bound to `"verified"` is recorded the same way.
+- `verified-authority-writer` reads the `MemoryStore.mark_verified` bullet of
+  `authority-order@0006`. The allowed writer is `kypp.store.MemoryStore.mark_verified`
+  (`kypp/store.py`), not a class of the same name in another module. A proved
+  `authority='verified'` assignment outside that method is a violation, including
+  `ON CONFLICT DO UPDATE` and a one-step local bound to `"verified"`, and only when the
+  SQL writes `memory_claims`. `UPDATE build_jobs SET authority='verified'` is not a
+  violation. `POST /sync` is not built, so it is not an allowed writer. An unclassified
+  write on claim storage, including a `?` binding, stays `unresolved` and is named in
+  coverage. No proved write and no gap is `no_counterexample`, not assurance. A
+  `WHERE authority='verified'` filter is not an assignment. The `CASE` inside
+  `kypp.store.MemoryStore.mark_verified` stays allowed. On the live tree the rule stays
+  `unresolved`: dynamic authority writes are still unclassified.
+- `delete-sql-v3` and `verified-writes-v2` are the cache namespaces for those scans.
+  An older `delete-sql-v2` or `verified-writes` row, including one that classified
+  `replace()` as delete-like, is not reused.
 - `schema-add-column` does not emit assurance. Comments, strings, and quoted names cannot
   supply clauses. `NOT NULL` without `DEFAULT`, DROP, RENAME, and a simple `CREATE TABLE`
   are violations. A `CREATE TABLE` named as a schema-version table also violates

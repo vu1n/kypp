@@ -34,11 +34,20 @@ jobs:
           python -m venv /tmp/kypp-clean
           /tmp/kypp-clean/bin/pip install --upgrade pip
           /tmp/kypp-clean/bin/pip install /tmp/kypp-dist/*.whl
-          /tmp/kypp-clean/bin/python - <<'PY'
+          # -I ignores PYTHONPATH and the user site, so the import has to come from
+          # the wheel installed in this venv. The printed __file__ is that proof.
+          /tmp/kypp-clean/bin/python -I - <<'PY'
           import tempfile
           from pathlib import Path
+          import kypp
+          import kypp.mcp_server as mcp_server
           from kypp.mcp_server import build_mcp
           from kypp.store import MemoryStore
+          installed = "/tmp/kypp-clean/"
+          for label, location in (("kypp", kypp.__file__), ("mcp_server", mcp_server.__file__)):
+              print(label, location)
+              if not location.startswith(installed):
+                  raise SystemExit(f"{label} was not imported from the installed wheel: {location}")
           path = Path(tempfile.mkdtemp()) / "smoke.db"
           server = build_mcp(MemoryStore(str(path)), "pillbox")
           if server is None:
