@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from speccheck.bench import run_benchmark, score_split
 from speccheck.bench_cases import Case, all_cases, regression_cases
+from speccheck.holdout_cases import holdout_cases
 from speccheck.model import Report, Verdict
 
 
@@ -12,7 +13,7 @@ class BenchTest(unittest.TestCase):
     def test_splits_and_rates(self):
         cases = all_cases()
         splits = {c.split for c in cases}
-        self.assertEqual(splits, {"tuning", "regression", "holdout", "smoke"})
+        self.assertEqual(splits, {"tuning", "regression", "holdout", "gap-holdout", "smoke"})
         ids = [c.id for c in cases]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(sum(1 for c in cases if c.split == "smoke"), 30)
@@ -29,6 +30,14 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(scores["smoke"].false_flag_rate, 0.0)
         self.assertIsNone(scores["smoke"].false_conformance_rate)
 
+    def test_frozen_worker_holdout_stays_nine_cases(self):
+        frozen = holdout_cases()
+        frozen_ids = [case.id for case in frozen]
+        self.assertEqual(frozen_ids, [f"worker_fresh_{i:02d}" for i in range(1, 10)])
+        self.assertTrue(all(case.split == "holdout" for case in frozen))
+        extras = [case.id for case in all_cases() if case.split == "holdout" and case.id not in set(frozen_ids)]
+        self.assertEqual(extras, [])
+
     def test_legacy_holdout_preserved_as_regression(self):
         cases = regression_cases()
         self.assertEqual(len(cases), 13)
@@ -40,7 +49,7 @@ class BenchTest(unittest.TestCase):
             run_benchmark()
         self.assertEqual(
             [call.args[0] for call in score.call_args_list],
-            ["tuning", "regression", "holdout", "smoke"],
+            ["tuning", "regression", "holdout", "gap-holdout", "smoke"],
         )
         for call in score.call_args_list:
             self.assertTrue(call.args[1])

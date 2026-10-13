@@ -116,7 +116,7 @@ def score_split(split: str, cases: list[Case]) -> SplitScore:
 
 
 def run_benchmark(splits: list[str] | None = None) -> list[SplitScore]:
-    wanted = splits or ["tuning", "regression", "holdout", "smoke"]
+    wanted = splits or ["tuning", "regression", "holdout", "gap-holdout", "smoke"]
     grouped: dict[str, list[Case]] = {name: [] for name in wanted}
     for case in all_cases():
         if case.split in grouped:

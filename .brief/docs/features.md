@@ -327,7 +327,9 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   another entry is unresolved. Comments and string contents are not tool declarations.
 - Syntax cache keys include the checker parser version and installed runtime/grammar versions.
   Missing parser dependencies abstain without caching a result that could mask a later install.
-- The original PR23 holdout is regression data. Fresh holdout provenance and exposure are recorded
-  in `docs/spec-check-evaluation.md`; smoke controls are not accuracy evidence.
+- The original PR23 holdout is regression data. The frozen nine-case Worker holdout from #24
+  stays in `speccheck/holdout_cases.py` and is not extended. False passes for the later rank,
+  registration, SQL, and grader rules are the separate `gap-holdout` split. Smoke controls are
+  not accuracy evidence. Provenance for the frozen nine is in `docs/spec-check-evaluation.md`.
 - A reference-index cache hit for the same head SHA is reused only when the dependency hash
   still matches. A baseline spec change rebuilds the index.
