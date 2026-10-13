@@ -79,9 +79,9 @@ def gap_cases() -> list[Case]:
         _case(
             "tuning_mark_verified_sql",
             "tuning",
-            "authority=verified SQL inside MemoryStore.mark_verified is the allowed writer",
-            _edit(lambda t: t.__setitem__("kypp/extra.py",
-                "class MemoryStore:\n    def mark_verified(self, db):\n"
+            "authority=verified SQL inside kypp.store.MemoryStore.mark_verified is the allowed writer",
+            _edit(lambda t: t.__setitem__("kypp/store.py", t["kypp/store.py"] +
+                "\nclass MemoryStore:\n    def mark_verified(self, db):\n"
                 "        db.execute(\"UPDATE memory_claims SET authority='verified' WHERE id=1\")\n")),
             expect_status={"verified-authority-writer": "no_counterexample"},
             expect_violation_ids=set(),

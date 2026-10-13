@@ -330,13 +330,20 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   bullet and the consolidation bullet stay unsupported. On the live tree the rule is `unresolved`:
   `worker/src/store.ts` updates `memory_claims` through a trailing `${UNSORTED}` hole.
 - `verified-authority-writer` reads the `MemoryStore.mark_verified` bullet of
-  `authority-order@0006`. A proved `authority='verified'` assignment outside that function
-  is a violation, including `ON CONFLICT DO UPDATE` and a one-step local bound to
-  `"verified"`. `POST /sync` is not built, so it is not an allowed writer. An unclassified
-  write, including a `?` binding, stays `unresolved` and is named in coverage. No proved
-  write and no gap is `no_counterexample`, not assurance. A `WHERE authority='verified'`
-  filter is not an assignment. The `CASE` inside `MemoryStore.mark_verified` stays allowed.
-  On the live tree the rule stays `unresolved`: dynamic authority writes are still unclassified.
+  `authority-order@0006`. The allowed writer is `kypp.store.MemoryStore.mark_verified`
+  (`kypp/store.py`), not a class of the same name in another module. A proved
+  `authority='verified'` assignment outside that method is a violation, including
+  `ON CONFLICT DO UPDATE` and a one-step local bound to `"verified"`, and only when the
+  SQL writes `memory_claims`. `UPDATE build_jobs SET authority='verified'` is not a
+  violation. `POST /sync` is not built, so it is not an allowed writer. An unclassified
+  write on claim storage, including a `?` binding, stays `unresolved` and is named in
+  coverage. No proved write and no gap is `no_counterexample`, not assurance. A
+  `WHERE authority='verified'` filter is not an assignment. The `CASE` inside
+  `kypp.store.MemoryStore.mark_verified` stays allowed. On the live tree the rule stays
+  `unresolved`: dynamic authority writes are still unclassified.
+- `delete-sql-v3` and `verified-writes-v2` are the cache namespaces for those scans.
+  An older `delete-sql-v2` or `verified-writes` row, including one that classified
+  `replace()` as delete-like, is not reused.
 - `schema-add-column` does not emit assurance. `NOT NULL` without `DEFAULT`, a second statement,
   or a version-table name is a violation. `ADD COLUMN` with a `CHECK` stays `unresolved`. A scan
   with no counterexample is `no_counterexample`.

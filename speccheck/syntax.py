@@ -981,14 +981,15 @@ def _insert_authority(toks: list[_Tok], i: int) -> tuple[bool, bool, int]:
     if j >= len(toks) or not _is_ident(toks[j], "into"):
         return False, False, i + 1
     j += 1
-    _table, j = _read_name(toks, j)
+    table, j = _read_name(toks, j)
     cols: list[str] | None = None
     if j < len(toks) and toks[j].kind == "punct" and toks[j].value == "(":
         cols, j, incomplete = _column_list(toks, j)
         if incomplete:
             return False, False, max(j, i + 1)
         if cols is None:
-            return False, _mentions_authority(toks, i, j), j
+            bad, gap = _keep_claim_write(False, _mentions_authority(toks, i, j), table)
+            return bad, gap, j
     if j < len(toks) and _is_ident(toks[j], "values"):
         j += 1
         rows: list[list[list[_Tok]]] = []
@@ -1004,17 +1005,20 @@ def _insert_authority(toks: list[_Tok], i: int) -> tuple[bool, bool, int]:
         if not rows:
             return False, False, max(j, i + 1)
         bad, gap = _authority_rows(cols, rows, _mentions_authority(toks, i, j))
+        bad, gap = _keep_claim_write(bad, gap, table)
         return bad, gap, j
     if j < len(toks) and _is_ident(toks[j], "select"):
         items, j = _split_exprs(toks, j + 1, paren=False)
         if items is None:
             return False, False, max(j, i + 1)
         bad, gap = _authority_rows(cols, [items], _mentions_authority(toks, i, j))
+        bad, gap = _keep_claim_write(bad, gap, table)
         return bad, gap, j
     if j < len(toks) and _is_ident(toks[j], "default"):
         end = min(len(toks), j + 2)
         mentioned = (cols is not None and "authority" in cols) or _mentions_authority(toks, i, end)
-        return False, mentioned, end
+        bad, gap = _keep_claim_write(False, mentioned, table)
+        return bad, gap, end
     return False, False, max(j, i + 1)
 
 
@@ -1204,6 +1208,47 @@ def _set_region(stmt: list[_Tok], i: int) -> tuple[bool, bool, int]:
     return bad, gap, i
 
 
+_CLAIM_TABLE = "memory_claims"
+
+
+def _keep_claim_write(bad: bool, gap: bool, table: str | None) -> tuple[bool, bool]:
+    """A verified-authority write is a violation only against claim storage.
+
+    A known other table, such as ``build_jobs``, is neither a violation nor a gap.
+    An unreadable table name stays unresolved rather than becoming a violation.
+    """
+    if table == _CLAIM_TABLE:
+        return bad, gap
+    if table is None or table == "":
+        return False, bad or gap
+    return False, False
+
+
+def _statement_write_table(stmt: list[_Tok], at: int) -> str | None:
+    """Table of the INSERT, REPLACE, or UPDATE that owns a clause at ``at``.
+
+    ``DO UPDATE SET`` is not its own target; the INSERT before it is.
+    ``None`` is a hole. ``""`` means no table was found.
+    """
+    for index in range(at - 1, -1, -1):
+        tok = stmt[index]
+        if tok.kind != "ident":
+            continue
+        if tok.value == "update":
+            if index + 1 < len(stmt) and _is_ident(stmt[index + 1], "set"):
+                continue
+            name, _nxt = _read_name(stmt, index + 1)
+            return name
+        if tok.value in {"insert", "replace"}:
+            cursor = index + 1
+            if cursor < len(stmt) and _is_ident(stmt[cursor], "or"):
+                cursor = min(len(stmt), cursor + 2)
+            if cursor < len(stmt) and _is_ident(stmt[cursor], "into"):
+                name, _nxt = _read_name(stmt, cursor + 1)
+                return name
+    return ""
+
+
 def _scan_sets(stmt: list[_Tok]) -> tuple[bool, bool]:
     bad = False
     gap = False
@@ -1211,6 +1256,7 @@ def _scan_sets(stmt: list[_Tok]) -> tuple[bool, bool]:
     while index < len(stmt):
         if _is_ident(stmt[index], "set"):
             found_bad, found_gap, nxt = _set_region(stmt, index + 1)
+            found_bad, found_gap = _keep_claim_write(found_bad, found_gap, _statement_write_table(stmt, index))
             bad = bad or found_bad
             gap = gap or found_gap
             index = max(nxt, index + 1)
@@ -1238,8 +1284,17 @@ def _scan_inserts(stmt: list[_Tok]) -> tuple[bool, bool]:
     return bad, gap
 
 
-def _column_default_verified(stmt: list[_Tok]) -> bool:
+def _ddl_table(stmt: list[_Tok]) -> str | None:
+    for index, tok in enumerate(stmt):
+        if tok.kind == "ident" and tok.value in {"alter", "create"} and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "table"):
+            name, _nxt = _read_name(stmt, index + 2)
+            return name
+    return ""
+
+
+def _column_default_verified(stmt: list[_Tok]) -> tuple[bool, bool]:
     depth = 0
+    found = False
     for index, tok in enumerate(stmt):
         if tok.kind == "punct" and tok.value == "(":
             depth += 1
@@ -1264,9 +1319,12 @@ def _column_default_verified(stmt: list[_Tok]) -> bool:
                 if k < len(stmt) and stmt[k].kind == "punct" and stmt[k].value in {"+", "-"}:
                     k += 1
                 if k < len(stmt) and stmt[k].kind in {"string", "quoted"} and stmt[k].value == "verified":
-                    return True
+                    found = True
+                    break
             j += 1
-    return False
+    if not found:
+        return False, False
+    return _keep_claim_write(True, False, _ddl_table(stmt))
 
 
 def _delete_like(stmt: list[_Tok]) -> bool:
@@ -1297,8 +1355,9 @@ def _judge_statement(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool, bool]:
     delete_bad, delete_gap, proved_safe, saw_delete = _scan_deletes(stmt)
     verified_bad, verified_gap = _scan_sets(stmt)
     insert_bad, insert_gap = _scan_inserts(stmt)
-    verified_bad = verified_bad or insert_bad or _column_default_verified(stmt)
-    verified_gap = verified_gap or insert_gap
+    column_bad, column_gap = _column_default_verified(stmt)
+    verified_bad = verified_bad or insert_bad or column_bad
+    verified_gap = verified_gap or insert_gap or column_gap
     # Only a DELETE-like construction can be a delete candidate. A CREATE, ALTER,
     # INSERT, or SELECT that names a protected table is not one.
     if _delete_like(stmt) and not delete_bad and not proved_safe:
@@ -1315,12 +1374,14 @@ def _judge_statement(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool, bool]:
 def sql_write_flags(text: str, dynamic: bool) -> tuple[bool, bool, bool, bool]:
     """delete hit, delete gap, verified hit, verified gap for one folded SQL string.
 
-    A proved ``DELETE`` from a protected table, or a proved assignment of the literal
-    ``verified`` to ``authority``, is a counterexample. A ``?`` placeholder and any
-    other untraced binding are gaps for the authority writer. A statement that only
-    names a protected table is not a delete gap. DELETE, REPLACE, INSERT OR REPLACE,
-    DROP, and TRUNCATE are delete gaps when the target is protected or unproved.
-    A counterexample is kept when a sibling statement is opaque.
+    A proved ``DELETE`` from a protected table is a counterexample. A proved assignment
+    of the literal ``verified`` to ``authority`` is a counterexample only when that
+    write targets ``memory_claims``. ``UPDATE build_jobs SET authority='verified'``
+    is not one. A ``?`` placeholder and any other untraced binding on claim storage
+    are gaps for the authority writer. A statement that only names a protected table
+    is not a delete gap. DELETE, REPLACE, INSERT OR REPLACE, DROP, and TRUNCATE are
+    delete gaps when the target is protected or unproved. A counterexample is kept
+    when a sibling statement is opaque.
     """
     delete_bad = False
     delete_gap = False
@@ -1703,12 +1764,15 @@ def _enclosing_names(stack: list[ast.AST]) -> tuple[str | None, str | None]:
     return cls, fn
 
 
+# Context: doc://kypp/authority-order@0006#authority-dominates — only kypp.store.MemoryStore.mark_verified grants verified.
+_VERIFIED_WRITER = ("kypp/store.py", "MemoryStore", "mark_verified")
+
+
 def verified_authority_writes(files: dict[str, str]) -> dict:
     """Literal and traced writes of authority=verified. Dynamic writes outside mark_verified are gaps."""
     bad: list[str] = []
     gaps: list[str] = []
     scanned: list[str] = []
-    allowed = ("MemoryStore", "mark_verified")
     for path in sorted(files):
         if not (path.startswith("kypp/") and path.endswith(".py")):
             continue
@@ -1741,7 +1805,7 @@ def verified_authority_writes(files: dict[str, str]) -> dict:
                     if not isinstance(sub, ast.Call) or _call_name(sub.func) != "claim":
                         continue
                     cls, fn = _enclosing_names(stack)
-                    inside = (cls, fn) == allowed
+                    inside = (path, cls, fn) == _VERIFIED_WRITER
                     values: list[tuple[ast.AST, str]] = []
                     for kw in sub.keywords:
                         if kw.arg == "authority":
@@ -1768,8 +1832,8 @@ def verified_authority_writes(files: dict[str, str]) -> dict:
         if item.startswith("verified SQL "):
             loc = item[len("verified SQL ") :]
             path = loc.split(":", 1)[0]
-            # Allowed only when the Python string sits in MemoryStore.mark_verified.
-            # The SQL walker does not record the function, so re-check via AST line lookup below.
+            # Allowed only for kypp.store.MemoryStore.mark_verified, not a same-named
+            # method in another module. The SQL walker does not record the function.
             bad.append(item)
         elif item.startswith("DELETE "):
             continue
@@ -1782,22 +1846,24 @@ def verified_authority_writes(files: dict[str, str]) -> dict:
 
 
 def _mark_verified_lines(files: dict[str, str]) -> set[tuple[str, int]]:
+    """Lines of kypp.store.MemoryStore.mark_verified. A lookalike class is not this method."""
+    path, cls_name, method = _VERIFIED_WRITER
+    source = files.get(path)
+    if source is None:
+        return set()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
     found: set[tuple[str, int]] = set()
-    for path, source in files.items():
-        if not (path.startswith("kypp/") and path.endswith(".py")):
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != cls_name:
             continue
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef) or node.name != "MemoryStore":
-                continue
-            for stmt in node.body:
-                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "mark_verified":
-                    end = getattr(stmt, "end_lineno", stmt.lineno)
-                    for line in range(stmt.lineno, end + 1):
-                        found.add((path, line))
+        for stmt in node.body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == method:
+                end = getattr(stmt, "end_lineno", stmt.lineno)
+                for line in range(stmt.lineno, end + 1):
+                    found.add((path, line))
     return found
 
 
@@ -1832,8 +1898,8 @@ def cached_ts_rank(cache: Cache, source: str) -> dict:
 def cached_delete_sql(cache: Cache, files: dict[str, str]) -> dict:
     blob = _file_blob(files, ("kypp/", "worker/"))
     try:
-        # v2 drops cached rows that labeled ordinary SQL as a dynamic DELETE.
-        kind = "delete-sql-v2-" + parser_cache_key()
+        # v3 drops cached rows that treated replace() as a REPLACE statement.
+        kind = "delete-sql-v3-" + parser_cache_key()
     except (ImportError, OSError, ValueError, TypeError):
         return delete_and_verified_sql(files)
     return cache.syntax(blob, kind, lambda: delete_and_verified_sql(files))
@@ -1846,7 +1912,8 @@ def cached_grader(cache: Cache, source: str) -> dict:
 def cached_verified_writes(cache: Cache, files: dict[str, str]) -> dict:
     blob = _file_blob(files, ("kypp/", "worker/"))
     try:
-        kind = "verified-writes-" + parser_cache_key()
+        # v2 drops cached rows that treated replace() as a dynamic authority gap.
+        kind = "verified-writes-v2-" + parser_cache_key()
     except (ImportError, OSError, ValueError, TypeError):
         return verified_authority_writes(files)
     return cache.syntax(blob, kind, lambda: verified_authority_writes(files))
