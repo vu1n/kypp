@@ -103,22 +103,22 @@ SQL has no allow-list parser. `?` and other untraced bindings are unknown. A pro
 
 ## Benchmark
 
-The split inventory is `tuning`, `regression`, `gap-holdout`, and `smoke`, defined once in `speccheck/bench.py`. An empty requested split fails. Exposed cases, including the nine worker signature cases, are regression. The headline is no longer a single false-conformance rate.
+The split inventory is `tuning`, `regression`, `gap-holdout`, and `smoke`, defined once in `speccheck/bench.py`. An empty requested split fails. Exposed cases, including the nine worker signature cases, are regression. Known-violation detection counts only the scored cases that expect a violation. False violations are `violates` on a row that did not expect one. Noisy candidate findings are `candidate` on a row that expected neither a violation nor a candidate. The two are reported separately.
 
-| Split | Cases | Known-violation detection | Unresolved rate | False positives | Mutation detection |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| tuning | 18 | 1.000 | 0.333 | 0.000 | n/a |
-| regression | 22 | 1.000 | 0.182 | 0.000 | 1.000 |
-| gap-holdout | 49 | 1.000 | 0.510 | 0.000 | n/a |
-| smoke | 30 | — | — | 0.000 on clean changes | — |
+| Split | Cases | Known-violation detection | Unresolved rate | False violations | Noisy candidates | Mutation detection |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| tuning | 18 | 1.000 | 0.333 | 0.000 | 0.000 | n/a |
+| regression | 22 | 1.000 | 0.182 | 0.000 | 0.000 | 1.000 |
+| gap-holdout | 49 | 1.000 | 0.510 | 0.000 | 0.000 | n/a |
+| smoke | 30 | — | — | 0.000 | 0.000 | — |
 
 ## Runtime contracts
 
-`tests/test_mcp_contract.py` builds the server with `build_mcp()` on `mcp.server.fastmcp` (tested `mcp` 1.30.0; `mcp` 2 renamed that module). It lists every tool, rejects a `verify` or `authority` schema property, calls every tool with ordinary arguments, then calls them again with `verify` and `authority='verified'` or `'human'`. Content may contain the word verify. A store row that kept a verifier fails the same assertion. `worker/test/mcp-contract.test.ts` does this through `handleMcp` `tools/list` and `tools/call` on the `node:sqlite` D1 double. `dispatch` does not re-check the schema, so the test reads the rows.
+`pyproject.toml` depends on `mcp>=1.30,<2`. The server is still FastMCP; an MCP v2 migration is separate. CI installs that wheel in a clean environment and constructs the server with `build_mcp()`. Importing `kypp.mcp_server` does not import the SDK. `tests/test_mcp_construct.py` is that construction check. `tests/test_mcp_contract.py` lists every tool, rejects a `verify` or `authority` schema property, calls every tool with ordinary arguments, then calls them again with `verify` and `authority='verified'` or `'human'`. Content may contain the word verify. A store row that kept a verifier fails the same assertion. `worker/test/mcp-contract.test.ts` does this through `handleMcp` `tools/list` and `tools/call` on the `node:sqlite` D1 double. The collector reads `SELECT *` and every `PRAGMA table_info` column. A tools/call mutation that writes a verifier, including `""`, fails that same collector. `dispatch` does not re-check the schema, so the test reads the rows.
 
-`tests/test_verify_timeout.py` runs `sh -c sleep` through `kypp.verify.run_check` and requires the process to be killed and the check to fail.
+`tests/test_verify_timeout.py` asserts that `run_check("sleep 30", timeout=0.4)` returns failure and a timeout message within five seconds. It does not prove that every descendant is dead, that a failed spawn is handled, or that a sweep continues.
 
-`tests/test_rank_oracle.py` and `worker/test/rank-oracle.test.ts` compare survivor selection with an oracle from the spec: authority beats conflicting confidence, status, evidence, and recency, in either argument order. A confidence-only early return does not match the oracle.
+`tests/test_rank_oracle.py` and `worker/test/rank-oracle.test.ts` compare survivor selection with an oracle from the spec. Each strict authority pair (`human` over `verified`, `human` over `agent`, `verified` over `agent`) wins in either argument order when the lower authority is better on one secondary key at a time: confidence, status, evidence, or recency. A confidence-only early return does not match the oracle.
 
 Contract tests are CI failures. `speccheck check` stays advisory and exits 0.
 
@@ -167,10 +167,10 @@ Each of these was aimed at the old default-pass behaviour. The expected verdict 
 | Worker `"DELETE FROM " + "memory_claims"` | violates `no-delete-claims` |
 | `CREATE TRIGGER … BEGIN DELETE FROM memory_claims; END` | violates |
 | `WITH gone AS (SELECT 1) DELETE FROM observations` | violates |
-| `WITH c AS (SELECT id FROM memory_claims) SELECT id FROM c` | unresolved |
+| `WITH c AS (SELECT id FROM memory_claims) SELECT id FROM c` | no counterexample; not a delete finding |
 | `ALTER TABLE … ADD COLUMN user TEXT; DROP TABLE observations` | violates `schema-add-column` |
 | `ADD COLUMN user TEXT CHECK (length(user) > 0)` | unresolved |
 | `model_config = {**base, "extra": "forbid"}` | unresolved `mcp-no-verify-argument` |
 | `ClaimDraft(..., obscure(crit["name"]), ...)` | unresolved `no-grader-verbatim` |
 
-On the live tree, `no-delete-claims` is a candidate finding. The unclassified statements include the `SELECT … WHERE ` + `" AND ".join(where)` recalls in `kypp/store.py`, `INSERT OR IGNORE … FROM memory_claims` in `worker/migrations/0003_origin_projects.sql`, and the `UPDATE memory_claims … AND ${UNSORTED}` writes in `worker/src/store.ts`. `verified-authority-writer` stays unresolved because the `/sync` bullet and the `mark_verified` bullet do not name one writer set.
+On the live tree, `no-delete-claims` is unresolved. The `UPDATE memory_claims … AND ${UNSORTED}` writes in `worker/src/store.ts` end in a hole, so the scan cannot see whether another statement follows. That hole is coverage, not a delete candidate. Schema, migrations, and ordinary inserts that name `memory_claims` are not findings. `verified-authority-writer` stays unresolved because the `/sync` bullet and the `mark_verified` bullet do not name one writer set.

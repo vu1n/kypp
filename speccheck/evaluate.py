@@ -638,8 +638,11 @@ def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tupl
         return _pin_missing("no-delete-claims", spec, "baseline append-only-history@0001 does not contain the pinned DELETE bullet"), None
     facts = cached_delete_sql(cache, head)
     bad = [item for item in facts["bad"] if item.startswith("DELETE ")]
-    # Every coverage failure counts, including "did not parse". Authority-only gaps belong to the writer rule.
+    # Authority-only gaps belong to the writer rule. Delete-like holes are candidates.
+    # Parser failures and other coverage holes stay unresolved, and stay visible.
     gaps = [item for item in facts["gaps"] if not item.startswith("dynamic authority")]
+    delete_like = [item for item in gaps if item.startswith("delete-like ")]
+    coverage_gaps = [item for item in gaps if not item.startswith("delete-like ")]
     coverage = f"scanned {len(facts['scanned'])} file(s) for DELETE FROM memory_claims or observations"
     if bad:
         return (
@@ -658,7 +661,8 @@ def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tupl
             ),
             group,
         )
-    if gaps:
+    if delete_like:
+        shown = delete_like + coverage_gaps
         return (
             Verdict(
                 rule_id="no-delete-claims",
@@ -666,8 +670,23 @@ def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tupl
                 spec=spec,
                 claim_text=group.display_text,
                 scope=DELETE_SCOPE,
-                coverage=coverage + "; " + "; ".join(gaps[:6]),
-                detail="a statement naming a protected table, a dynamic DELETE, or a parse failure was not proved; this is not a violation and not assurance",
+                coverage=coverage + "; " + "; ".join(shown[:6]),
+                detail="a DELETE, REPLACE, INSERT OR REPLACE, DROP, or TRUNCATE construction was not proved; this is not a violation and not assurance",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    if coverage_gaps:
+        return (
+            Verdict(
+                rule_id="no-delete-claims",
+                status="unresolved",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=DELETE_SCOPE,
+                coverage=coverage + "; " + "; ".join(coverage_gaps[:6]),
+                detail="a parser failure or an unclassified hole was not resolved; this is not a violation and not assurance",
                 evidence="ast",
                 code_revision=CODE_REVISION,
             ),

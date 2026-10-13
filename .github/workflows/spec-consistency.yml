@@ -25,9 +25,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: install checker dependencies
+      - name: install the package as declared
         run: |
-          python -m pip install ".[speccheck]" "mcp>=1,<2"
+          # One clean install uses only the wheel's declared dependencies. build_mcp()
+          # imports FastMCP lazily, so constructing the server is the compatibility check.
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir /tmp/kypp-dist
+          python -m venv /tmp/kypp-clean
+          /tmp/kypp-clean/bin/pip install --upgrade pip
+          /tmp/kypp-clean/bin/pip install /tmp/kypp-dist/*.whl
+          /tmp/kypp-clean/bin/python - <<'PY'
+          import tempfile
+          from pathlib import Path
+          from kypp.mcp_server import build_mcp
+          from kypp.store import MemoryStore
+          path = Path(tempfile.mkdtemp()) / "smoke.db"
+          server = build_mcp(MemoryStore(str(path)), "pillbox")
+          if server is None:
+              raise SystemExit("build_mcp() did not construct a server")
+          print("constructed", type(server).__name__)
+          PY
+          python -m pip install ".[speccheck]"
           # The mcp_server self-test grounds a temp file with ripgrep. ubuntu-24.04
           # runner images do not ship rg, so grounding comes back empty without it.
           sudo apt-get update

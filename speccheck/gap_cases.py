@@ -215,7 +215,7 @@ def gap_cases() -> list[Case]:
               expect_status={"no-delete-claims": "candidate"}, expect_violation_ids=set()),
         _spec("holdout_delete_docstring", "gap-holdout", "DELETE text that exists only in docstrings is not a SQL statement",
               lambda t: t.__setitem__("kypp/wipe.py", '"""DELETE FROM memory_claims"""\ndef wipe(db):\n    """DELETE FROM observations"""\n    return db\n'),
-              expect_status={"no-delete-claims": "candidate"}, expect_violation_ids=set()),
+              expect_status={"no-delete-claims": "no_counterexample"}, expect_violation_ids=set()),
         _spec("holdout_delete_bracket_table", "gap-holdout",
               "DELETE FROM [memory_claims] is still a delete of the protected table",
               lambda t: t.__setitem__("kypp/wipe.py", 'def wipe(db):\n    db.execute("DELETE FROM [memory_claims]")\n'),
@@ -380,12 +380,12 @@ def gap_cases() -> list[Case]:
         _spec(
             "holdout_delete_cte_read",
             "gap-holdout",
-            "a CTE that only reads memory_claims is not a plain SELECT, so it does not conform",
+            "a CTE that only reads memory_claims is not a DELETE-like construction",
             lambda t: t.__setitem__(
                 "kypp/wipe.py",
                 'def wipe(db):\n    db.execute("WITH c AS (SELECT id FROM memory_claims) SELECT id FROM c")\n',
             ),
-            expect_status={"no-delete-claims": "candidate"},
+            expect_status={"no-delete-claims": "no_counterexample"},
             expect_violation_ids=set(),
         ),
         _case(

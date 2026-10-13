@@ -44,7 +44,7 @@ def evidence() -> str:
 
 def assert_no_privileged(rows: list[tuple]) -> None:
     for authority, verify, content in rows:
-        if verify:
+        if verify is not None:
             raise AssertionError(f"verifier persisted: {verify!r}")
         if authority in {"verified", "human"}:
             raise AssertionError(f"privileged authority write: {authority} content={content!r}")

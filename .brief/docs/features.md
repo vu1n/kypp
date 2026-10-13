@@ -310,16 +310,18 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   Runtime order is the survivor oracle in `tests/test_rank_oracle.py` and
   `worker/test/rank-oracle.test.ts`; an early return on confidence fails that oracle.
 - Stale `doc://` pins are one advisory per pin. The detail lists every path and line.
-- `no-delete-claims` checks SQL for `DELETE` against `memory_claims` or `observations`
+- `no-delete-claims` checks SQL for a delete of `memory_claims` or `observations`
   in `kypp/**/*.py` and `worker/**/*.{ts,sql}`. Bracket, backtick, and double-quoted identifiers
   count, including a schema prefix (`main.[memory_claims]`). Constant `+`, templates, and `"".join`
   are folded before the scan, in Python and in TypeScript; the leaves of that fold are not judged
-  on their own. There is no SQL allow-list. A statement that names a protected table and is not a
-  proved non-delete is a `candidate`. A proved `DELETE` is a violation even when a sibling
-  statement is opaque. A `?` placeholder is unknown. Docstrings are not SQL. The recall/briefing
-  exclusion bullet and the consolidation bullet stay unsupported. On the live tree the rule is
-  `candidate`: recalls concatenate a `WHERE` clause, and `worker/src/store.ts` updates
-  `memory_claims` through a trailing `${UNSORTED}` hole.
+  on their own. There is no SQL allow-list and no blanket pass. Only DELETE, REPLACE, INSERT OR
+  REPLACE, DROP, and TRUNCATE can be candidates, and only when the target is protected or unproved.
+  A proved `DELETE` is a violation even when a sibling statement is opaque. A parser failure, or a
+  trailing hole on a statement that is not itself delete-like, stays `unresolved` and is named in
+  coverage. CREATE, ALTER, INSERT, and SELECT that only name a protected table produce no delete
+  finding. A `?` placeholder is unknown. Docstrings are not SQL. The recall/briefing exclusion
+  bullet and the consolidation bullet stay unsupported. On the live tree the rule is `unresolved`:
+  `worker/src/store.ts` updates `memory_claims` through a trailing `${UNSORTED}` hole.
 - `verified-authority-writer` stays `unresolved`. `POST /sync` may land a model-ratified revision
   at `verified`, and the next bullet says only `MemoryStore.mark_verified` sets `verified`. The
   writer set is not ratified. A proved `authority='verified'` assignment outside `mark_verified`

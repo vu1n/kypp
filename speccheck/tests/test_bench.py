@@ -24,11 +24,14 @@ class BenchTest(unittest.TestCase):
         self.assertEqual(scores["regression"].known_violation_detection, 1.0)
         self.assertEqual(scores["tuning"].false_positive_rate, 0.0)
         self.assertEqual(scores["regression"].false_positive_rate, 0.0)
+        self.assertEqual(scores["tuning"].noisy_candidate_rate, 0.0)
+        self.assertEqual(scores["regression"].noisy_candidate_rate, 0.0)
         self.assertGreater(scores["tuning"].unresolved_rate, 0.0)
         self.assertIsNotNone(scores["regression"].mutation_detection)
         self.assertEqual(scores["regression"].mutation_detection, 1.0)
         self.assertTrue(scores["smoke"].smoke_only)
         self.assertEqual(scores["smoke"].false_positive_rate, 0.0)
+        self.assertEqual(scores["smoke"].noisy_candidate_rate, 0.0)
         self.assertIsNone(scores["smoke"].known_violation_detection)
 
     def test_frozen_worker_holdout_stays_nine_cases(self):
@@ -87,7 +90,25 @@ class BenchTest(unittest.TestCase):
             score = score_split("regression", cases)
         self.assertEqual(score.judged, 2)
         self.assertEqual(score.false_positive_rate, 0.5)
+        self.assertEqual(score.noisy_candidate_rate, 0.0)
         self.assertEqual(score.unresolved_rate, 0.5)
+        self.assertFalse(score.ok)
+
+    def test_candidate_on_a_clean_row_is_noise_not_a_false_violation(self):
+        cases = [Case(str(i), "regression", "clean", {}, {},
+                      expect_status={"rule": "no_counterexample"}) for i in range(2)]
+        noisy = Report("base", "head", verdicts=[Verdict(
+            rule_id="rule", status="candidate", claim_text="c", scope="s",
+            coverage="looked", detail="d",
+        )])
+        quiet = Report("base", "head", verdicts=[Verdict(
+            rule_id="rule", status="no_counterexample", claim_text="c", scope="s",
+            coverage="looked", detail="d",
+        )])
+        with patch("speccheck.bench._run", side_effect=[noisy, quiet]):
+            score = score_split("regression", cases)
+        self.assertEqual(score.false_positive_rate, 0.0)
+        self.assertEqual(score.noisy_candidate_rate, 0.5)
         self.assertFalse(score.ok)
 
     def test_empty_split_fails(self):

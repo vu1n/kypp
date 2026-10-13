@@ -88,6 +88,40 @@ class RankOracleTest(unittest.TestCase):
             self.assertEqual(_survivor(list(members)).id, "strong")
             self.assertEqual(_survivor(list(members)).id, oracle(list(members)).id)
 
+    def test_every_strict_pair_beats_each_secondary_key(self):
+        pairs = (("human", "verified"), ("human", "agent"), ("verified", "agent"))
+        edges = (
+            {"confidence": 0.99},
+            {"status": "accepted"},
+            {"source_ids": ["s1", "s2", "s3"]},
+            {"updated_at": "2026-01-01T00:00:00"},
+        )
+        for higher, lower in pairs:
+            for edge in edges:
+                low_fields = dict(
+                    id=lower,
+                    authority=lower,
+                    confidence=0.1,
+                    status="candidate",
+                    source_ids=[],
+                    updated_at="2019-01-01T00:00:00",
+                )
+                low_fields.update(edge)
+                low = claim(**low_fields)
+                high = claim(
+                    id=higher,
+                    authority=higher,
+                    confidence=0.1,
+                    status="candidate",
+                    source_ids=[],
+                    updated_at="2019-01-01T00:00:00",
+                )
+                for members in ((low, high), (high, low)):
+                    self.assertEqual(_survivor(list(members)).id, higher, (higher, lower, edge))
+                    self.assertEqual(oracle(list(members)).id, higher, (higher, lower, edge))
+                if edge.get("confidence", 0.1) != 0.1:
+                    self.assertNotEqual(early_return([low, high]).id, oracle([low, high]).id)
+
     def test_equal_keys_are_a_tie(self):
         left = claim(id="left")
         right = claim(id="right")

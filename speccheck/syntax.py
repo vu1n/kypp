@@ -1066,6 +1066,8 @@ def _has_sql_verb(stmt: list[_Tok]) -> bool:
             return True
         if tok.value == "drop" and nxt is not None and _is_ident(nxt) and nxt.value in {"table", "index", "trigger", "view"}:
             return True
+        if tok.value == "truncate":
+            return True
         if tok.value == "select" and any(_is_ident(item, "from") for item in stmt[index + 1 :]):
             return True
     return False
@@ -1264,6 +1266,23 @@ def _column_default_verified(stmt: list[_Tok]) -> bool:
     return False
 
 
+def _delete_like(stmt: list[_Tok]) -> bool:
+    """DELETE, REPLACE, INSERT OR REPLACE, DROP, or TRUNCATE. Naming a table is not enough."""
+    for index, tok in enumerate(stmt):
+        if tok.kind != "ident":
+            continue
+        if tok.value in {"delete", "drop", "truncate", "replace"}:
+            return True
+        if (
+            tok.value == "insert"
+            and index + 2 < len(stmt)
+            and _is_ident(stmt[index + 1], "or")
+            and _is_ident(stmt[index + 2], "replace")
+        ):
+            return True
+    return False
+
+
 def _judge_statement(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool, bool]:
     """Counterexamples and coverage gaps. Nothing here is a conformance proof."""
     delete_bad, delete_gap, proved_safe, saw_delete = _scan_deletes(stmt)
@@ -1271,15 +1290,15 @@ def _judge_statement(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool, bool]:
     insert_bad, insert_gap = _scan_inserts(stmt)
     verified_bad = verified_bad or insert_bad or _column_default_verified(stmt)
     verified_gap = verified_gap or insert_gap
-    # A protected-table mention that is not a proved non-delete stays unproved.
-    if _mentions_protected(stmt) and not delete_bad and not proved_safe:
-        delete_gap = True
-    # Upsert, RETURNING, REPLACE, CTE, and an unbounded hole can hide a write.
+    # Only a DELETE-like construction can be a delete candidate. A CREATE, ALTER,
+    # INSERT, or SELECT that names a protected table is not one.
+    if _delete_like(stmt) and not delete_bad and not proved_safe:
+        if _mentions_protected(stmt) or any(tok.kind == "hole" for tok in stmt):
+            delete_gap = True
+    # Upsert, RETURNING, REPLACE, CTE, and an unbounded hole can hide an authority write.
     if (_forbidden_shape(stmt) or _unbounded_hole(stmt)) and not verified_bad:
         if _mentions_authority(stmt, 0, len(stmt)) or _mentions_protected(stmt):
             verified_gap = True
-    if (_forbidden_shape(stmt) or _unbounded_hole(stmt)) and _mentions_protected(stmt) and not delete_bad:
-        delete_gap = True
     unproved_delete = saw_delete and not delete_bad and not proved_safe
     return delete_bad, delete_gap, verified_bad, verified_gap, unproved_delete
 
@@ -1289,10 +1308,10 @@ def sql_write_flags(text: str, dynamic: bool) -> tuple[bool, bool, bool, bool]:
 
     A proved ``DELETE`` from a protected table, or a proved assignment of the literal
     ``verified`` to ``authority``, is a counterexample. A ``?`` placeholder and any
-    other untraced binding are gaps. An unrecognized statement that names a protected
-    table is a gap, never a reason to call the statement safe. Upsert, RETURNING, CTE,
-    trigger, and REPLACE stay gaps unless that counterexample is proved. A counterexample
-    is kept when a sibling statement is opaque.
+    other untraced binding are gaps for the authority writer. A statement that only
+    names a protected table is not a delete gap. DELETE, REPLACE, INSERT OR REPLACE,
+    DROP, and TRUNCATE are delete gaps when the target is protected or unproved.
+    A counterexample is kept when a sibling statement is opaque.
     """
     delete_bad = False
     delete_gap = False
@@ -1372,6 +1391,16 @@ def _fold_sql(node: ast.AST | None, env: dict[str, str | None]) -> tuple[str | N
     return None, "", False
 
 
+def _coverage_hole(text: str) -> bool:
+    """A trailing hole on a non-delete statement can hide SQL. That is coverage, not a delete candidate."""
+    for stmt in _split_statements(_tokenize_sql(text)):
+        if not _has_sql_verb(stmt) or _delete_like(stmt):
+            continue
+        if _unbounded_hole(stmt) and _mentions_protected(stmt):
+            return True
+    return False
+
+
 def _walk_sql_strings(tree: ast.AST, path: str) -> tuple[list[str], list[str]]:
     bad: list[str] = []
     gaps: list[str] = []
@@ -1387,7 +1416,9 @@ def _walk_sql_strings(tree: ast.AST, path: str) -> tuple[list[str], list[str]]:
         if delete_bad:
             bad.append(f"DELETE {where}")
         elif delete_gap:
-            gaps.append(f"dynamic DELETE {where}")
+            gaps.append(f"delete-like {where}")
+        elif _coverage_hole(text):
+            gaps.append(f"coverage {where}")
         if verified_bad:
             bad.append(f"verified SQL {where}")
         elif verified_gap:
@@ -1466,7 +1497,7 @@ def delete_and_verified_sql(files: dict[str, str]) -> dict:
             try:
                 tree = ast.parse(files[path])
             except SyntaxError as exc:
-                gaps.append(f"{path} did not parse: {exc.msg}")
+                gaps.append(f"parse {path} did not parse: {exc.msg}")
                 continue
             found, holes = _walk_sql_strings(tree, path)
             bad.extend(found)
@@ -1792,7 +1823,8 @@ def cached_ts_rank(cache: Cache, source: str) -> dict:
 def cached_delete_sql(cache: Cache, files: dict[str, str]) -> dict:
     blob = _file_blob(files, ("kypp/", "worker/"))
     try:
-        kind = "delete-sql-" + parser_cache_key()
+        # v2 drops cached rows that labeled ordinary SQL as a dynamic DELETE.
+        kind = "delete-sql-v2-" + parser_cache_key()
     except (ImportError, OSError, ValueError, TypeError):
         return delete_and_verified_sql(files)
     return cache.syntax(blob, kind, lambda: delete_and_verified_sql(files))

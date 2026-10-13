@@ -759,7 +759,7 @@ def typescript_authority_rank(source: str) -> dict:
 
 
 def _note_sql(text: str | None, fragments: str, dynamic: bool, where: str) -> tuple[list[str], list[str]]:
-    from .syntax import sql_write_flags
+    from .syntax import _coverage_hole, sql_write_flags
 
     bad: list[str] = []
     gaps: list[str] = []
@@ -770,7 +770,9 @@ def _note_sql(text: str | None, fragments: str, dynamic: bool, where: str) -> tu
     if delete_bad:
         bad.append(f"DELETE {where}")
     elif delete_gap:
-        gaps.append(f"dynamic DELETE {where}")
+        gaps.append(f"delete-like {where}")
+    elif _coverage_hole(shown):
+        gaps.append(f"coverage {where}")
     if verified_bad:
         bad.append(f"verified SQL {where}")
     elif verified_gap:
@@ -879,10 +881,10 @@ def typescript_sql_findings(path: str, source: str) -> tuple[list[str], list[str
     try:
         parser = _parser()
     except (ImportError, OSError, ValueError, TypeError) as exc:
-        return [], [f"dynamic DELETE {path} TypeScript parser unavailable: {exc}"]
+        return [], [f"parse {path} TypeScript parser unavailable: {exc}"]
     tree = parser.parse(source.encode("utf8"))
     if tree.root_node.has_error:
-        return [], [f"dynamic DELETE {path} TypeScript parse error"]
+        return [], [f"parse {path} TypeScript parse error"]
     bad: list[str] = []
     gaps: list[str] = []
     for node in _walk(tree.root_node):
@@ -895,7 +897,7 @@ def typescript_sql_findings(path: str, source: str) -> tuple[list[str], list[str
             found, holes = _note_sql(None, fragments, True, where)
             gaps.extend(holes)
             if any(item.startswith("DELETE ") for item in found):
-                gaps.append(f"dynamic DELETE {where}")
+                gaps.append(f"delete-like {where}")
             if any(item.startswith("verified SQL ") for item in found):
                 gaps.append(f"dynamic authority SQL {where}")
             continue

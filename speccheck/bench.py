@@ -1,7 +1,8 @@
-"""Detection, unresolved rate, clean false positives, and mutation detection.
+"""Detection, unresolved rate, false violations, noisy candidates, and mutation detection.
 
 Smoke controls are scored apart. They do not enter the other rates.
 An empty requested split fails. "No counterexample" is not a pass.
+Known-violation detection counts only the scored cases that expect a violation.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ class SplitScore:
     known_violation_detection: float | None
     unresolved_rate: float | None
     false_positive_rate: float | None
+    noisy_candidate_rate: float | None
     mutation_detection: float | None
     smoke_only: bool
     ok: bool
@@ -96,6 +98,7 @@ def score_split(split: str, cases: list[Case]) -> SplitScore:
             known_violation_detection=None,
             unresolved_rate=None,
             false_positive_rate=None,
+            noisy_candidate_rate=None,
             mutation_detection=None,
             smoke_only=smoke_only,
             ok=False,
@@ -104,11 +107,14 @@ def score_split(split: str, cases: list[Case]) -> SplitScore:
     pairs: list[tuple[str, str | None]] = []
     mutation_pairs: list[tuple[str, str | None]] = []
     flagged = 0
+    noisy_cases = 0
     for case in cases:
         report = _run(case)
         _check_case(case, report, failures)
         if smoke_only and report.by_status("violates"):
             flagged += 1
+        if smoke_only and report.by_status("candidate"):
+            noisy_cases += 1
         if smoke_only:
             continue
         independent = case.id.startswith("worker_fresh_")
@@ -123,6 +129,8 @@ def score_split(split: str, cases: list[Case]) -> SplitScore:
     unresolved = [got for _, got in pairs if got in {None, "unresolved"}]
     clean = [(expected, got) for expected, got in pairs if expected != "violates"]
     false_positives = [got for _, got in clean if got == "violates"]
+    quiet = [(expected, got) for expected, got in pairs if expected not in {"violates", "candidate"}]
+    noisy_candidates = [got for _, got in quiet if got == "candidate"]
     mutation_expected = [(expected, got) for expected, got in mutation_pairs if expected == "violates"]
     mutation_hits = [got for _, got in mutation_expected if got == "violates"]
     return SplitScore(
@@ -132,9 +140,10 @@ def score_split(split: str, cases: list[Case]) -> SplitScore:
         known_violation_detection=_rate(len(detected), len(expected_violations)),
         unresolved_rate=_rate(len(unresolved), judged),
         false_positive_rate=(flagged / len(cases)) if smoke_only else _rate(len(false_positives), len(clean)),
+        noisy_candidate_rate=(noisy_cases / len(cases)) if smoke_only else _rate(len(noisy_candidates), len(quiet)),
         mutation_detection=_rate(len(mutation_hits), len(mutation_expected)),
         smoke_only=smoke_only,
-        ok=not failures and (flagged == 0 if smoke_only else True),
+        ok=not failures and (flagged == 0 and noisy_cases == 0 if smoke_only else True),
         failures=failures,
     )
 
@@ -161,6 +170,7 @@ def run_benchmark(splits: list[str] | None = None) -> list[SplitScore]:
                 known_violation_detection=None,
                 unresolved_rate=None,
                 false_positive_rate=None,
+                noisy_candidate_rate=None,
                 mutation_detection=None,
                 smoke_only=False,
                 ok=False,
@@ -177,17 +187,19 @@ def _fmt(value: float | None) -> str:
 def format_scores(scores: list[SplitScore]) -> str:
     lines = ["# Spec-check benchmark", ""]
     for score in scores:
-        label = " (smoke only — false positives on clean changes)" if score.smoke_only else ""
+        label = " (smoke only — clean changes)" if score.smoke_only else ""
         lines.append(f"## {score.split}{label}")
         lines.append("")
         lines.append(f"- cases: {score.cases}")
         if score.smoke_only:
-            lines.append(f"- false positives on clean changes: {_fmt(score.false_positive_rate)}")
+            lines.append(f"- false violations on clean changes: {_fmt(score.false_positive_rate)}")
+            lines.append(f"- noisy candidate findings on clean changes: {_fmt(score.noisy_candidate_rate)}")
         else:
             lines.append(f"- judged claim rows: {score.judged}")
-            lines.append(f"- known-violation detection: {_fmt(score.known_violation_detection)}")
+            lines.append(f"- known-violation detection (scored cases only): {_fmt(score.known_violation_detection)}")
             lines.append(f"- unresolved rate: {_fmt(score.unresolved_rate)}")
-            lines.append(f"- false positives: {_fmt(score.false_positive_rate)}")
+            lines.append(f"- false violations: {_fmt(score.false_positive_rate)}")
+            lines.append(f"- noisy candidate findings: {_fmt(score.noisy_candidate_rate)}")
             lines.append(f"- mutation detection: {_fmt(score.mutation_detection)}")
         if score.failures:
             lines.append("- failures:")

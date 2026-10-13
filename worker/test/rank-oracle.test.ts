@@ -54,6 +54,32 @@ test("accepted beats a higher-confidence candidate of the same authority", () =>
   }
 });
 
+test("every strict authority pair beats each secondary key, in either order", () => {
+  const pairs = [["human", "verified"], ["human", "agent"], ["verified", "agent"]] as const;
+  const edges: Partial<Claim>[] = [
+    { confidence: 0.99 },
+    { status: "accepted" },
+    { source_ids: ["s1", "s2", "s3"] },
+    { updated_at: "2026-01-01T00:00:00" },
+  ];
+  for (const [higher, lower] of pairs) {
+    for (const edge of edges) {
+      const low = claim({
+        authority: lower, confidence: 0.1, status: "candidate", source_ids: [], updated_at: "2019-01-01T00:00:00",
+        ...edge,
+      });
+      const high = claim({
+        authority: higher, confidence: 0.1, status: "candidate", source_ids: [], updated_at: "2019-01-01T00:00:00",
+      });
+      for (const members of [[low, high], [high, low]]) {
+        assert.equal(survivor(members).id, high.id);
+        assert.equal(oracle(members).id, high.id);
+      }
+      if (edge.confidence != null) assert.notEqual(earlyReturn([low, high]).id, oracle([low, high]).id);
+    }
+  }
+});
+
 test("equal keys are a tie", () => {
   const left = claim({ id: "left" });
   const right = claim({ id: "right" });

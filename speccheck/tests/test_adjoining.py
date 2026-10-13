@@ -74,7 +74,10 @@ class LiveRepoTest(unittest.TestCase):
         self.assertIn("POST /sync", writer.detail)
         self.assertIn("mark_verified", writer.detail)
         deleted = next(v for v in report.verdicts if v.rule_id == "no-delete-claims")
-        self.assertEqual(deleted.status, "candidate")
+        self.assertEqual(deleted.status, "unresolved")
+        self.assertIn("coverage worker/src/store.ts", deleted.coverage)
+        self.assertNotIn("dynamic DELETE", deleted.coverage)
+        self.assertNotIn("dynamic DELETE", deleted.detail)
         grader = next(v for v in report.verdicts if v.rule_id == "no-grader-verbatim")
         self.assertEqual(grader.status, "unresolved")
         stale = [a for a in report.advisories if a.code == "stale-pin"]

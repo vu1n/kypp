@@ -107,11 +107,11 @@ class SqlIdentifierTest(unittest.TestCase):
         )
         self.assertEqual(
             sql_write_flags("INSERT INTO memory_claims(authority) SELECT 'agent'", False),
-            (False, True, False, False),
+            (False, False, False, False),
         )
         self.assertEqual(
             sql_write_flags("INSERT INTO memory_claims(subject, authority) VALUES ('s', ?)", False),
-            (False, True, False, True),
+            (False, False, False, True),
         )
         _delete_bad, _delete_gap, verified_bad, verified_gap = sql_write_flags(
             "INSERT INTO memory_claims(subject, authority) SELECT * FROM other",
@@ -159,7 +159,7 @@ class SqlIdentifierTest(unittest.TestCase):
         )
         self.assertEqual(
             sql_write_flags("UPDATE memory_claims SET status='accepted' WHERE authority='verified'", False),
-            (False, True, False, False),
+            (False, False, False, False),
         )
         sibling = sql_write_flags(
             "SELECT * FROM memory_claims WHERE x = ?; DELETE FROM memory_claims",
@@ -177,6 +177,62 @@ class SqlIdentifierTest(unittest.TestCase):
         self.assertIn("verified", verdict.counterexample or "")
         self.assertIn("mark_verified", verdict.detail)
         self.assertIn("POST /sync", verdict.detail)
+
+    def test_ordinary_sql_naming_a_protected_table_is_not_a_delete_finding(self):
+        for table in ("memory_claims", "observations"):
+            for statement in (
+                f"SELECT id FROM {table}",
+                f"CREATE TABLE {table}(id TEXT)",
+                f"ALTER TABLE {table} ADD COLUMN note TEXT",
+                f"INSERT INTO {table}(id) VALUES ('a')",
+            ):
+                delete_bad, delete_gap, _verified_bad, _verified_gap = sql_write_flags(statement, False)
+                self.assertFalse(delete_bad, statement)
+                self.assertFalse(delete_gap, statement)
+        tree = with_structural_specs(clean_tree())
+        tree["kypp/store.py"] = (
+            "_MIGRATIONS = [\n"
+            "    \"CREATE TABLE memory_claims(id TEXT)\",\n"
+            "    \"CREATE TABLE observations(id TEXT)\",\n"
+            "    \"ALTER TABLE memory_claims ADD COLUMN note TEXT\",\n"
+            "    \"ALTER TABLE observations ADD COLUMN note TEXT\",\n"
+            "    \"INSERT INTO memory_claims(id) VALUES ('a')\",\n"
+            "    \"INSERT INTO observations(id) VALUES ('b')\",\n"
+            "    \"SELECT id FROM memory_claims\",\n"
+            "    \"SELECT id FROM observations\",\n"
+            "]\n"
+        )
+        verdict = next(item for item in _report(tree).verdicts if item.rule_id == "no-delete-claims")
+        self.assertEqual(verdict.status, "no_counterexample")
+        self.assertNotIn("dynamic DELETE", verdict.coverage)
+        self.assertNotIn("dynamic DELETE", verdict.detail)
+        self.assertNotIn("conforms", verdict.status)
+
+    def test_delete_like_constructions_are_candidates_and_parse_failures_stay_visible(self):
+        for statement in (
+            "DROP TABLE memory_claims",
+            "DROP TABLE observations",
+            "TRUNCATE memory_claims",
+            "TRUNCATE TABLE observations",
+            "REPLACE INTO memory_claims(id) VALUES ('a')",
+            "INSERT OR REPLACE INTO observations(id) VALUES ('a')",
+            "DELETE FROM \x00",
+        ):
+            delete_bad, delete_gap, _verified_bad, _verified_gap = sql_write_flags(statement, False)
+            self.assertFalse(delete_bad, statement)
+            self.assertTrue(delete_gap, statement)
+        self.assertFalse(sql_write_flags("DROP TABLE projects", False)[1])
+        self.assertFalse(sql_write_flags(
+            "INSERT OR IGNORE INTO projects(name) SELECT project FROM memory_claims",
+            False,
+        )[1])
+        tree = with_structural_specs(clean_tree())
+        tree["kypp/broken.py"] = "def (\n"
+        verdict = next(item for item in _report(tree).verdicts if item.rule_id == "no-delete-claims")
+        self.assertEqual(verdict.status, "unresolved")
+        self.assertIn("did not parse", verdict.coverage)
+        self.assertNotIn("dynamic DELETE", verdict.coverage)
+        self.assertNotEqual(verdict.status, "candidate")
 
     def test_bracket_delete_violates(self):
         tree = with_structural_specs(clean_tree())
