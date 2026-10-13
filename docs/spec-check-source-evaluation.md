@@ -103,3 +103,18 @@ author has not executed or rescored the repaired corpus and has still not read
 the source-loader implementation or its tests. Only syntax compilation and
 required Brief checks precede the repair commit. Parent scoring of the repaired
 corpus remains pending; no blind-accuracy or mutant result is claimed.
+
+## Integrated regression confirmation
+
+The parent ran the repaired corpus at `e5be5fe76c644d98eece1e10e491b893857b12a9`:
+all 26 named subtests passed. This is exposed regression confirmation, including
+the corrected sentinel and targeted permission-denial fault. It is not a repaired
+blind score. Original freeze `999b6a2b6aa509b4982fa6fb47cf5cc9fcb72b46` and its
+test-file SHA256 `df079265ff442db329dbd6126ed7748fec96c1a06dbcdc7434b2309a451c10b7`
+are retained independently of that repair.
+
+The original first-observation JSON and denial audit are retained in the task's
+Markdown handoff evidence. A separate independently frozen set supplies the valid
+first-observation rows described in [source holdout](spec-check-source-holdout.md).
+Loading failures are input/check failures, not semantic-rule abstentions; these
+case counts must not be combined with the existing benchmark's claim metrics.

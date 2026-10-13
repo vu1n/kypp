@@ -50,6 +50,18 @@ regression evidence. A separate [frozen set](spec-check-source-holdout.md) produ
 eleven valid first-observation successes and one invalid scope expectation.
 These small synthetic sets do not estimate a population error rate.
 
+## Validation
+
+- Full checker suite: 70 unittest methods passed, including 26 named corpus subtests.
+- All existing tuning, regression, previously exposed holdout and smoke benchmark splits passed.
+- Thirteen meaningful mutants were killed. Initial survivors prompted tests for
+  replacement between stat/open, duplicate unmerged Git index entries, and descriptor cleanup.
+- Independent structural review found no high-confidence structural blocker.
+- Required Brief check and pin passed; doctor retained only the three pre-existing stale pins.
+
+Exact pushed-head correctness/security review and workflow conclusions are recorded
+in the draft PR, since they follow this local validation.
+
 This branch starts directly from main. Open PR25 extends semantic rule coverage;
 open PR26 supplies SQL migration evidence. Neither is included or required here.
 Their review branches, the separate substrate amendments and SIGNOFF proposals,

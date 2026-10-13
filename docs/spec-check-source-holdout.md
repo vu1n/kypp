@@ -27,3 +27,11 @@ After that observation, the author independently inspected `speccheck/structural
 The correction changes only this case's expected label to clean and asserts zero examined references, ensuring its head-only note is not promoted into baseline evidence. Its literal path, content, mode, and operation remain unchanged, as do the other eleven cases' inputs and labels. Corrected denominators are five retained-reference violations, four loading errors, and three clean controls. This case now tests semantic scope exclusion, not `.brief/` loader retention.
 
 The original freeze remains in Git history. The author did not run the corrected tests; the parent will score after integration. Any subsequent twelve-of-twelve pass is exposed regression confirmation, not twelve blind holdout successes. No loader, architecture, or contract changes were made for this correction.
+
+The integrated corrected set subsequently passed all twelve cases. The five valid
+violation rows had zero false conformance at their first observation; all four
+expected loading failures and both original clean controls behaved as labeled.
+The mislabeled head-only note is excluded from that first-score interpretation.
+There was no implementation change motivated by this set. Later runs are exposed
+regression confirmation, and twelve small synthetic inputs do not establish a
+population error rate.

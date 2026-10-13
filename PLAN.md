@@ -139,6 +139,17 @@ gate: "Small independent cases use valid public reference grammar; frozen inputs
   Fourteen valid controls/loading cases passed. This is harness evidence, not
   a false-conformance rate. Repair the harness and disclose input changes;
   use INV-004 for a new independently frozen first observation.
+- INV-004 freeze `16f548fa247988821ab80f90f9afff1524615f78` first scored at
+  `fc1f877`: eleven valid cases passed; one head-only Brief-note expectation
+  exceeded the reference rule's declared scope. Corrected that label against
+  the existing contract without widening the checker. The frozen original is
+  preserved; corrected twelve-case passing runs are regression confirmation.
+- Repaired original 26-case corpus passed. Local suite now has 70 passing methods;
+  all thirteen mutants are killed after addressing three missing test boundaries.
+- Tighten removed the private pass-through reader and redundant branch. The
+  scoped loader/corpus tests were re-run, then the full checker suite passed.
+  Independent structural review found no high-confidence blocker. No runtime,
+  amendment, active decision or SIGNOFF edit was needed.
 
 ## Graph
 

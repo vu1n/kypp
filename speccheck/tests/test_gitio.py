@@ -93,6 +93,20 @@ class GitSnapshotTest(unittest.TestCase):
         with self.assertRaises(GitError):
             load_files(self.repo, None)
 
+    def test_opened_file_type_is_checked_after_replacement(self):
+        dest = self.write('kypp/file.py')
+        self.commit()
+        original = os.stat
+        def replace_after_stat(*args, **kwargs):
+            info = original(*args, **kwargs)
+            if args[0] == 'file.py' and kwargs.get('dir_fd') is not None:
+                dest.unlink()
+                os.mkfifo(dest)
+            return info
+        with patch('os.stat', side_effect=replace_after_stat):
+            with self.assertRaises(GitError):
+                load_files(self.repo, None)
+
     def test_read_error_is_failure(self):
         self.write('kypp/file.py')
         self.commit()
@@ -135,6 +149,40 @@ class GitSnapshotTest(unittest.TestCase):
         self.write('kypp/recreated.py', b'recreated')
         self.assertEqual(load_files(self.repo, None),
                          ({'kypp/recreated.py': 'recreated'}, ['kypp/recreated.py']))
+
+    def test_unmerged_index_has_one_worktree_path(self):
+        path = 'kypp/conflicted.py'
+        self.write(path)
+        self.commit()
+        blob = self.git('rev-parse', f'HEAD:{path}').decode().strip()
+        records = f"0 {'0' * 40}\t{path}\n"
+        records += ''.join(f'100644 {blob} {stage}\t{path}\n' for stage in (1, 2, 3))
+        subprocess.run(['git', '-C', str(self.repo), 'update-index', '--index-info'],
+                       input=records.encode(), check=True, capture_output=True)
+        self.assertEqual(self.git('ls-files', '-c', '-z').decode().split('\0').count(path), 3)
+        self.assertEqual(load_files(self.repo, None), ({path: 'source\n'}, [path]))
+
+    def test_source_descriptors_close_on_success_and_decode_failure(self):
+        for content in (b'source\n', b'\xff'):
+            with self.subTest(content=content):
+                self.write('kypp/file.py', content)
+                opened = []
+                original = os.open
+                def record_open(*args, **kwargs):
+                    fd = original(*args, **kwargs)
+                    opened.append(fd)
+                    return fd
+                with patch('speccheck.gitio.list_paths', return_value=['kypp/file.py']), \
+                        patch('os.open', side_effect=record_open):
+                    if content == b'\xff':
+                        with self.assertRaises(GitError):
+                            load_files(self.repo, None)
+                    else:
+                        load_files(self.repo, None)
+                self.assertTrue(opened)
+                for fd in opened:
+                    with self.assertRaises(OSError):
+                        os.fstat(fd)
 
     def test_unselected_binary_and_symlink_are_not_read(self):
         self.write('outside.bin', b'\xff')
