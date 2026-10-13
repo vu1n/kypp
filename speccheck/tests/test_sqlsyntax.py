@@ -98,3 +98,14 @@ class SQLSyntaxTest(unittest.TestCase):
                 self.assertEqual(verdicts['schema-idempotence'].status, 'violates')
         self.assertEqual(self.verdicts('[dynamic(), "ALTER TABLE t ADD COLUMN c TEXT"]')['schema-add-column'].status, 'unresolved')
         self.assertEqual(self.verdicts(repr(['SELECT 1']))['schema-add-column'].status, 'unresolved')
+
+    def test_counterexamples_survive_unsupported_statement_tokens(self):
+        for sql in ('DROP TABLE t; SELECT * FROM u', 'SELECT * FROM u; DROP TABLE t'):
+            result = self.verdicts(repr([sql]))['schema-add-column']
+            self.assertEqual(result.status, 'violates')
+            self.assertNotIn('gaps: none', result.coverage)
+        results = self.verdicts(repr(['CREATE TABLE schema_version (n INTEGER); SELECT * FROM u']))
+        for rule in ('schema-add-column', 'schema-idempotence'):
+            self.assertEqual(results[rule].status, 'violates')
+        self.assertEqual(classify_migration('ALTER TABLE t ADD COLUMN c TEXT; SELECT * FROM u'), 'unknown')
+        self.assertEqual(classify_migration("DROP TABLE t; SELECT 'unfinished"), 'unknown')

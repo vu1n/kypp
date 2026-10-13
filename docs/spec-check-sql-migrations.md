@@ -52,7 +52,7 @@ denominators, the original commit/hash and limits on accuracy claims.
 
 ## Validation and handoff
 
-- Combined checker suite: 49 tests passed after the DROP INDEX and budget fixes.
+- Combined checker suite: 50 tests passed after the DROP INDEX and budget fixes.
 - Existing tuning/regression/previously exposed holdout/smoke benchmark passed.
 - Live advisory report against published main: 8 conforms, 0 violates,
   7 unsupported, 3 unresolved. Exit 0 means a report was produced.
@@ -62,6 +62,10 @@ denominators, the original commit/hash and limits on accuracy claims.
 - Initial mutation testing exposed a missing token-budget assertion. Added a
   real large CREATE TABLE shape to verify abstention before structural classification;
   subsequent mutation results are recorded in the PR.
+- Fresh review found that an unsupported operator in another statement could
+  suppress a completed DROP/CREATE counterexample. Opaque tokens now preserve safe
+  statement boundaries, and mixed statement gaps are retained in coverage. A
+  red-first regression covers both statement orders and version-table evidence.
 
 PR24 merged externally as `0e80abc1bcafa1aed1ff312bc2827126a9290011` during this
 work. Its published parser, corpus and CI discovery step were integrated before

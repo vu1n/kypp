@@ -18,6 +18,7 @@ class Analysis:
     kind: Kind
     reasons: tuple[str, ...]
     version_table: bool = False
+    gaps: tuple[str, ...] = ()
 
 
 _VERSION = {'schema_version', 'schema_versions', 'schema_migrations', 'alembic_version'}
@@ -80,10 +81,14 @@ def _lex(sql: str) -> list[list[tuple[str, str]]]:
         else:
             match = _TOKEN.match(sql, i)
             if not match:
-                raise ValueError('unsupported token')
-            value = match.group()
-            tokens.append(('number' if value[0].isdigit() or value[0] == '.' else 'word', value))
-            i = match.end()
+                # Opaque operators do not change quote/comment/statement boundaries.
+                # Keep the statement so other completed statements retain evidence.
+                tokens.append(('unsupported', c))
+                i += 1
+            else:
+                value = match.group()
+                tokens.append(('number' if value[0].isdigit() or value[0] == '.' else 'word', value))
+                i = match.end()
         if len(tokens) > 4096 or len(statements) > 128:
             raise ValueError('SQL token/statement bound exceeded')
     if depth:
@@ -200,16 +205,17 @@ def analyze_migration(sql: str) -> Analysis:
     try:
         statements = _lex(sql)
     except ValueError as exc:
-        return Analysis('unknown', (str(exc),))
+        return Analysis('unknown', (str(exc),), gaps=(str(exc),))
     results = []
     for statement in statements:
         try:
             results.append(_statement(statement))
         except ValueError as exc:
-            results.append(Analysis('unknown', (str(exc),)))
+            results.append(Analysis('unknown', (str(exc),), gaps=(str(exc),)))
     if not results:
-        return Analysis('unknown', ('no SQL statement',))
+        return Analysis('unknown', ('no SQL statement',), gaps=('no SQL statement',))
     version = any(r.version_table for r in results)
     kinds = {r.kind for r in results}
     kind = next((k for k in ('version_table', 'not_add_column', 'not_null_without_default', 'unknown') if k in kinds), 'ok')
-    return Analysis(kind, tuple(reason for r in results for reason in r.reasons), version)
+    return Analysis(kind, tuple(reason for r in results for reason in r.reasons), version,
+                    tuple(gap for r in results for gap in r.gaps))

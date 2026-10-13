@@ -136,6 +136,10 @@ gate: "Required local tests/governance and frozen evaluation pass; exact pushed 
 - Initial pushed-head review cleared `8bf7738` with risk low. Mutation testing
   killed 11 changes and exposed a missing token-budget assertion; its regression
   was added before a new immutable final-head review.
+- Fresh review at `d563e25` found that a later unsupported token suppressed
+  completed-statement evidence. Opaque-token retention now preserves safe boundaries
+  and records mixed statement gaps, with a red-first regression. Resource limits
+  and malformed quote/comment boundaries still abstain conservatively.
 
 ## Graph
 

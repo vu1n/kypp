@@ -459,9 +459,10 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             gaps.append(f"[{i}] nonliteral migration entry")
             continue
         analysis = analyze_migration(sql)
+        gaps.extend(f"[{i}] {gap}" for gap in analysis.gaps)
         if analysis.kind in {"not_add_column", "not_null_without_default", "version_table"}:
             bad.append(f"[{i}] {analysis.kind}: {sql}")
-        elif analysis.kind == "unknown":
+        elif analysis.kind == "unknown" and not analysis.gaps:
             gaps.append(f"[{i}] {'; '.join(analysis.reasons)}")
     coverage = f"analyzed {len(facts['entries'])} entries; gaps: {'; '.join(gaps) or 'none'}"
     if bad:
