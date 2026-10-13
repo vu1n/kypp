@@ -82,3 +82,8 @@ Only a human may ratify this Kypp architectural amendment. Publish an approved v
 together with scope-keys-decay; record the exact revision/archive stamp. No dependent code
 starts while either remains a proposal. Re-read the published text, reconcile the plan with
 any changes, then run brief doctor and pin reviewed references before implementation lands.
+
+
+---
+ratified_rev: 0002
+ratified_by: Vu

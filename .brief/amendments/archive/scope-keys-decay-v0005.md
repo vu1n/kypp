@@ -88,3 +88,8 @@ Only a human may ratify this Kypp architectural amendment. Record the published 
 archive stamp before coding depends on it. Publish this together with the compose-surface
 amendment, then rerun brief doctor, verify affected references, and pin code to approved
 versions. A proposal, review verdict or generic implementation approval is not ratification.
+
+
+---
+ratified_rev: 0005
+ratified_by: Vu

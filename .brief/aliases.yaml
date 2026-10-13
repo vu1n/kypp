@@ -1,7 +1,7 @@
 additive-migrations:
   latest: 2
 agent-mcp-surface-compose:
-  latest: 1
+  latest: 2
 append-only-history:
   latest: 1
 authority-order:
@@ -13,7 +13,7 @@ human-authority-operator-only:
 kypp-independent:
   latest: 2
 memory-scope-decay:
-  latest: 4
+  latest: 5
 no-grader-leak:
   latest: 1
 pointers-not-content:
