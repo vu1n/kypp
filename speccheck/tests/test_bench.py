@@ -13,29 +13,30 @@ class BenchTest(unittest.TestCase):
     def test_splits_and_rates(self):
         cases = all_cases()
         splits = {c.split for c in cases}
-        self.assertEqual(splits, {"tuning", "regression", "holdout", "gap-holdout", "smoke"})
+        self.assertEqual(splits, {"tuning", "regression", "gap-holdout", "smoke"})
         ids = [c.id for c in cases]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(sum(1 for c in cases if c.split == "smoke"), 30)
         scores = {s.split: s for s in run_benchmark(["tuning", "regression", "smoke"])}
         for name in ("tuning", "regression", "smoke"):
             self.assertTrue(scores[name].ok, scores[name].failures)
-        self.assertEqual(scores["tuning"].false_conformance_rate, 0.0)
-        self.assertEqual(scores["regression"].false_conformance_rate, 0.0)
-        self.assertGreater(scores["tuning"].abstention_rate, 0.0)
-        self.assertGreater(scores["tuning"].coverage, 0.0)
-        self.assertGreater(scores["regression"].abstention_rate, 0.0)
-        self.assertGreater(scores["regression"].coverage, 0.0)
+        self.assertEqual(scores["tuning"].known_violation_detection, 1.0)
+        self.assertEqual(scores["regression"].known_violation_detection, 1.0)
+        self.assertEqual(scores["tuning"].false_positive_rate, 0.0)
+        self.assertEqual(scores["regression"].false_positive_rate, 0.0)
+        self.assertGreater(scores["tuning"].unresolved_rate, 0.0)
+        self.assertIsNotNone(scores["regression"].mutation_detection)
+        self.assertEqual(scores["regression"].mutation_detection, 1.0)
         self.assertTrue(scores["smoke"].smoke_only)
-        self.assertEqual(scores["smoke"].false_flag_rate, 0.0)
-        self.assertIsNone(scores["smoke"].false_conformance_rate)
+        self.assertEqual(scores["smoke"].false_positive_rate, 0.0)
+        self.assertIsNone(scores["smoke"].known_violation_detection)
 
     def test_frozen_worker_holdout_stays_nine_cases(self):
         frozen = holdout_cases()
         frozen_ids = [case.id for case in frozen]
         self.assertEqual(frozen_ids, [f"worker_fresh_{i:02d}" for i in range(1, 10)])
-        self.assertTrue(all(case.split == "holdout" for case in frozen))
-        extras = [case.id for case in all_cases() if case.split == "holdout" and case.id not in set(frozen_ids)]
+        self.assertTrue(all(case.split == "regression" for case in frozen))
+        extras = [case.id for case in all_cases() if case.split == "holdout"]
         self.assertEqual(extras, [])
 
     def test_legacy_holdout_preserved_as_regression(self):
@@ -54,47 +55,51 @@ class BenchTest(unittest.TestCase):
             run_benchmark()
         self.assertEqual(
             [call.args[0] for call in score.call_args_list],
-            ["tuning", "regression", "holdout", "gap-holdout", "smoke"],
+            ["tuning", "regression", "gap-holdout", "smoke"],
         )
         for call in score.call_args_list:
             self.assertTrue(call.args[1])
             self.assertTrue(all(c.split == call.args[0] for c in call.args[1]))
 
-    def test_missing_verdict_is_an_uncovered_abstention(self):
+    def test_missing_verdict_counts_as_unresolved_and_a_miss(self):
         case = Case("missing", "regression", "missing rows", {}, {},
-                    expect_status={"bad": "violates", "clean": "conforms"})
+                    expect_status={"bad": "violates", "clean": "no_counterexample"})
         report = Report("base", "head", verdicts=[Verdict(
-            rule_id="bad", status="conforms", claim_text="c", scope="s",
+            rule_id="bad", status="no_counterexample", claim_text="c", scope="s",
             coverage="looked", detail="d",
         )])
         with patch("speccheck.bench._run", return_value=report):
             score = score_split("regression", [case])
         self.assertEqual(score.judged, 2)
-        self.assertEqual(score.false_conformance_rate, 1.0)
-        self.assertEqual(score.abstention_rate, 0.5)
-        self.assertEqual(score.coverage, 0.5)
+        self.assertEqual(score.known_violation_detection, 0.0)
+        self.assertEqual(score.unresolved_rate, 0.5)
+        self.assertEqual(score.false_positive_rate, 0.0)
         self.assertFalse(score.ok)
 
-    def test_missing_nonconforming_row_stays_in_false_conformance_denominator(self):
+    def test_false_positive_is_a_violation_on_a_clean_row(self):
         cases = [Case(str(i), "regression", "missing", {}, {},
-                      expect_status={"rule": "violates"}) for i in range(2)]
-        false_clean = Report("base", "head", verdicts=[Verdict(
-            rule_id="rule", status="conforms", claim_text="c", scope="s",
+                      expect_status={"rule": "no_counterexample"}) for i in range(2)]
+        false_hit = Report("base", "head", verdicts=[Verdict(
+            rule_id="rule", status="violates", severity="high", claim_text="c", scope="s",
             coverage="looked", detail="d",
         )])
-        with patch("speccheck.bench._run", side_effect=[false_clean, Report("base", "head")]):
+        with patch("speccheck.bench._run", side_effect=[false_hit, Report("base", "head")]):
             score = score_split("regression", cases)
         self.assertEqual(score.judged, 2)
-        self.assertEqual(score.false_conformance_rate, 0.5)
-        self.assertEqual(score.abstention_rate, 0.5)
-        self.assertEqual(score.coverage, 0.5)
+        self.assertEqual(score.false_positive_rate, 0.5)
+        self.assertEqual(score.unresolved_rate, 0.5)
         self.assertFalse(score.ok)
 
-    def test_conforms_requires_scope_and_coverage(self):
+    def test_empty_split_fails(self):
+        score = score_split("gap-holdout", [])
+        self.assertFalse(score.ok)
+        self.assertIn("empty split", score.failures[0])
+
+    def test_bounded_requires_scope_and_coverage(self):
         with self.assertRaises(ValueError):
             Verdict(
                 rule_id="x",
-                status="conforms",
+                status="bounded",
                 claim_text="c",
                 scope="",
                 coverage="looked",

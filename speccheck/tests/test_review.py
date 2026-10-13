@@ -68,7 +68,7 @@ class RankOrderTest(unittest.TestCase):
             },
             "authority-rank-order",
         )
-        self.assertEqual(live, "conforms")
+        self.assertEqual(live, "no_counterexample")
         self.assertIn('Literal["agent", "verified", "human"]', VOCAB_PY)
 
 

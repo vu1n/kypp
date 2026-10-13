@@ -650,11 +650,10 @@ _VERSION_NAMES = {"schema_version", "schema_migrations", "schema_versions", "ale
 
 
 def classify_migration(sql: str) -> str:
-    """One fully parsed ``ALTER TABLE ... ADD COLUMN`` is ok.
+    """Counterexamples only. ``ok`` means no recognized non-additive pattern, not a proof.
 
-    A second statement is a proved non-additive change. ``ADD COLUMN`` that does not
-    match the allow-list (a CHECK, a type the grammar does not consume) is unrecognized,
-    which the schema rule leaves unresolved. ``NOT NULL`` without ``DEFAULT`` stays a violation.
+    A second statement or a missing ``ADD COLUMN`` is a non-additive counterexample.
+    ``CHECK`` is unrecognized. ``NOT NULL`` without ``DEFAULT`` is a counterexample.
     """
     toks = _tokenize_sql(sql)
     if any(tok.kind in {"ident", "quoted"} and tok.value in _VERSION_NAMES for tok in toks):
@@ -662,9 +661,12 @@ def classify_migration(sql: str) -> str:
     stmts = [stmt for stmt in _split_statements(toks) if stmt]
     if len(stmts) != 1 or not _has_add_column(stmts[0]):
         return "not_add_column"
-    if _parse_alter(stmts[0], 0) != len(stmts[0]):
+    stmt = stmts[0]
+    if any(_is_ident(tok, "check") for tok in stmt):
         return "unrecognized"
-    if _alter_not_null_without_default(stmts[0]):
+    if not stmt or not _is_ident(stmt[0], "alter"):
+        return "unrecognized"
+    if _alter_not_null_without_default(stmt):
         return "not_null_without_default"
     return "ok"
 
@@ -882,7 +884,9 @@ def _expr_kind(expr: list[_Tok]) -> str:
         return "unknown"
     if len(expr) == 1:
         tok = expr[0]
-        if tok.kind in {"string", "quoted", "number", "placeholder"}:
+        if tok.kind == "placeholder":
+            return "unknown"
+        if tok.kind in {"string", "quoted", "number"}:
             return "other"
         if tok.kind == "ident" and tok.value in _SQL_LITERAL:
             return "other"
@@ -1015,20 +1019,6 @@ def _insert_authority(toks: list[_Tok], i: int) -> tuple[bool, bool, int]:
 
 
 _SQL_VERBS = {"select", "insert", "update", "delete", "replace", "alter", "create", "with", "drop", "explain"}
-_EXPR_END = {
-    "from", "where", "group", "order", "limit", "offset", "union", "except", "intersect",
-    "having", "window", "returning", "set", "into", "values", "join", "on", "using",
-    "left", "right", "full", "inner", "cross", "natural", "outer", "asc", "desc", "nulls",
-}
-_NOT_ALIAS = _EXPR_END | {
-    "select", "insert", "update", "delete", "create", "table", "index", "add", "column",
-    "by", "as", "all", "distinct", "exists", "and", "or", "not", "if", "virtual", "unique",
-    "primary", "key", "default", "check", "constraint", "begin", "end", "case", "when",
-    "then", "else", "conflict", "replace", "ignore", "abort", "rollback", "fail", "with",
-    "trigger", "view", "alter", "drop",
-}
-_JOIN_WORD = {"natural", "left", "right", "full", "inner", "cross", "outer", "join"}
-_COL_CONSTRAINT = {"primary", "not", "null", "unique", "default", "check", "collate", "references", "constraint"}
 
 
 def _split_statements(toks: list[_Tok]) -> list[list[_Tok]]:
@@ -1137,486 +1127,6 @@ def _unbounded_hole(stmt: list[_Tok]) -> bool:
             return True
     return False
 
-
-def _consume_paren(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or toks[i].kind != "punct" or toks[i].value != "(":
-        return None
-    depth = 0
-    while i < len(toks):
-        tok = toks[i]
-        if tok.kind == "punct" and tok.value == "(":
-            depth += 1
-        elif tok.kind == "punct" and tok.value == ")":
-            depth -= 1
-            i += 1
-            if depth == 0:
-                return i
-            continue
-        i += 1
-    return None
-
-
-def _consume_expr(toks: list[_Tok], i: int, extra_end: set[str] | None = None) -> int | None:
-    ends = _EXPR_END if not extra_end else _EXPR_END | extra_end
-    start = i
-    depth = 0
-    while i < len(toks):
-        tok = toks[i]
-        if tok.kind == "punct" and tok.value == "(":
-            depth += 1
-            i += 1
-            continue
-        if tok.kind == "punct" and tok.value == ")":
-            if depth == 0:
-                break
-            depth -= 1
-            i += 1
-            continue
-        if depth == 0 and tok.kind == "punct" and tok.value in {",", ";"}:
-            break
-        if depth == 0 and tok.kind == "ident" and tok.value in ends:
-            break
-        i += 1
-    if i == start or depth != 0:
-        return None
-    return i
-
-
-def _parse_expr_list(toks: list[_Tok], i: int) -> int | None:
-    i = _consume_expr(toks, i)
-    if i is None:
-        return None
-    while i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
-        nxt = _consume_expr(toks, i + 1)
-        if nxt is None:
-            return None
-        i = nxt
-    return i
-
-
-def _parse_order_list(toks: list[_Tok], i: int) -> int | None:
-    while True:
-        i = _consume_expr(toks, i)
-        if i is None:
-            return None
-        if i < len(toks) and _is_ident(toks[i]) and toks[i].value in {"asc", "desc"}:
-            i += 1
-        if i < len(toks) and _is_ident(toks[i], "nulls"):
-            if i + 1 < len(toks) and _is_ident(toks[i + 1]) and toks[i + 1].value in {"first", "last"}:
-                i += 2
-            else:
-                return None
-        if i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
-            i += 1
-            continue
-        return i
-
-
-def _maybe_alias(toks: list[_Tok], i: int) -> int | None:
-    if i < len(toks) and _is_ident(toks[i], "as"):
-        _name, nxt = _read_name(toks, i + 1)
-        return nxt if _name else None
-    if i < len(toks) and toks[i].kind in {"ident", "quoted"} and toks[i].value not in _NOT_ALIAS:
-        return i + 1
-    return i
-
-
-def _parse_table_ref(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks):
-        return None
-    if toks[i].kind == "punct" and toks[i].value == "(":
-        i = _consume_paren(toks, i)
-        if i is None:
-            return None
-        return _maybe_alias(toks, i)
-    name, i = _read_name(toks, i)
-    if not name:
-        return None
-    return _maybe_alias(toks, i)
-
-
-def _parse_from(toks: list[_Tok], i: int) -> int | None:
-    i = _parse_table_ref(toks, i)
-    if i is None:
-        return None
-    while i < len(toks):
-        tok = toks[i]
-        if tok.kind == "punct" and tok.value == ",":
-            i = _parse_table_ref(toks, i + 1)
-            if i is None:
-                return None
-            continue
-        if not (_is_ident(tok) and tok.value in _JOIN_WORD):
-            break
-        while i < len(toks) and _is_ident(toks[i]) and toks[i].value in _JOIN_WORD:
-            if toks[i].value == "join":
-                i += 1
-                break
-            i += 1
-        else:
-            return None
-        i = _parse_table_ref(toks, i)
-        if i is None:
-            return None
-        if i < len(toks) and _is_ident(toks[i], "on"):
-            i = _consume_expr(toks, i + 1)
-            if i is None:
-                return None
-        elif i < len(toks) and _is_ident(toks[i], "using"):
-            if i + 1 >= len(toks) or toks[i + 1].value != "(":
-                return None
-            i = _consume_paren(toks, i + 1)
-            if i is None:
-                return None
-    return i
-
-
-def _parse_select(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or not _is_ident(toks[i], "select"):
-        return None
-    i += 1
-    if i < len(toks) and _is_ident(toks[i]) and toks[i].value in {"distinct", "all"}:
-        i += 1
-    i = _parse_expr_list(toks, i)
-    if i is None:
-        return None
-    if i < len(toks) and _is_ident(toks[i], "into"):
-        return None
-    if i < len(toks) and _is_ident(toks[i], "from"):
-        i = _parse_from(toks, i + 1)
-        if i is None:
-            return None
-    while i < len(toks) and toks[i].kind == "ident":
-        word = toks[i].value
-        if word in {"where", "having"}:
-            i = _consume_expr(toks, i + 1)
-        elif word in {"group", "order"}:
-            if i + 1 >= len(toks) or not _is_ident(toks[i + 1], "by"):
-                return None
-            i = _parse_order_list(toks, i + 2) if word == "order" else _parse_expr_list(toks, i + 2)
-        elif word == "limit":
-            i = _consume_expr(toks, i + 1)
-            if i is not None and i < len(toks) and _is_ident(toks[i], "offset"):
-                i = _consume_expr(toks, i + 1)
-        elif word == "offset":
-            i = _consume_expr(toks, i + 1)
-        elif word in {"union", "except", "intersect"}:
-            i += 1
-            if i < len(toks) and _is_ident(toks[i], "all"):
-                i += 1
-            if i >= len(toks) or not _is_ident(toks[i], "select"):
-                return None
-            i = _parse_select(toks, i)
-        else:
-            break
-        if i is None:
-            return None
-    return i
-
-
-def _skip_if_not_exists(toks: list[_Tok], i: int) -> int:
-    if (
-        i + 2 < len(toks)
-        and _is_ident(toks[i], "if")
-        and _is_ident(toks[i + 1], "not")
-        and _is_ident(toks[i + 2], "exists")
-    ):
-        return i + 3
-    return i
-
-
-def _consume_default(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks):
-        return None
-    if toks[i].kind == "punct" and toks[i].value in {"+", "-"}:
-        i += 1
-    if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
-        return _consume_paren(toks, i)
-    if i < len(toks) and toks[i].kind in {"string", "number", "ident", "quoted", "placeholder", "hole"}:
-        return i + 1
-    return None
-
-
-def _parse_col_constraints(toks: list[_Tok], i: int) -> int | None:
-    while i < len(toks):
-        tok = toks[i]
-        if tok.kind == "punct" and tok.value in {",", ")"}:
-            return i
-        if tok.kind != "ident":
-            return None
-        word = tok.value
-        if word == "primary":
-            if i + 1 >= len(toks) or not _is_ident(toks[i + 1], "key"):
-                return None
-            i += 2
-        elif word == "not":
-            if i + 1 >= len(toks) or not _is_ident(toks[i + 1], "null"):
-                return None
-            i += 2
-        elif word in {"null", "unique"}:
-            i += 1
-        elif word == "default":
-            i = _consume_default(toks, i + 1)
-            if i is None:
-                return None
-        elif word == "check":
-            if i + 1 >= len(toks):
-                return None
-            i = _consume_paren(toks, i + 1)
-            if i is None:
-                return None
-        elif word == "collate":
-            _name, i = _read_name(toks, i + 1)
-            if not _name:
-                return None
-        elif word == "references":
-            _name, i = _read_name(toks, i + 1)
-            if not _name:
-                return None
-            if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
-                i = _consume_paren(toks, i)
-                if i is None:
-                    return None
-        elif word == "constraint":
-            _name, i = _read_name(toks, i + 1)
-            if not _name:
-                return None
-        else:
-            return None
-    return i
-
-
-def _parse_type(toks: list[_Tok], i: int) -> int | None:
-    if i < len(toks) and toks[i].kind == "ident" and toks[i].value not in _COL_CONSTRAINT:
-        i += 1
-        if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
-            i = _consume_paren(toks, i)
-    return i
-
-
-def _parse_create_table(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or not _is_ident(toks[i], "table"):
-        return None
-    i = _skip_if_not_exists(toks, i + 1)
-    name, i = _read_name(toks, i)
-    if not name or i >= len(toks) or toks[i].value != "(":
-        return None
-    i += 1
-    if i < len(toks) and toks[i].value == ")":
-        return i + 1
-    while i < len(toks):
-        if toks[i].kind == "ident" and toks[i].value in {"constraint", "primary", "unique", "check", "foreign"}:
-            if toks[i].value == "foreign":
-                return None
-            if toks[i].value == "constraint":
-                _name, i = _read_name(toks, i + 1)
-                if not _name:
-                    return None
-            i = _parse_col_constraints(toks, i)
-        else:
-            _name, i = _read_name(toks, i)
-            if not _name:
-                return None
-            i = _parse_type(toks, i)
-            if i is None:
-                return None
-            i = _parse_col_constraints(toks, i)
-        if i is None:
-            return None
-        if toks[i].kind == "punct" and toks[i].value == ",":
-            i += 1
-            continue
-        if toks[i].kind == "punct" and toks[i].value == ")":
-            return i + 1
-        return None
-    return None
-
-
-def _parse_create_index(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or not _is_ident(toks[i], "index"):
-        return None
-    i = _skip_if_not_exists(toks, i + 1)
-    _name, i = _read_name(toks, i)
-    if not _name or i >= len(toks) or not _is_ident(toks[i], "on"):
-        return None
-    table, i = _read_name(toks, i + 1)
-    if not table or i >= len(toks) or toks[i].value != "(":
-        return None
-    i = _consume_paren(toks, i)
-    if i is None:
-        return None
-    if i < len(toks) and _is_ident(toks[i], "where"):
-        return _consume_expr(toks, i + 1)
-    return i
-
-
-def _parse_create_virtual(toks: list[_Tok], i: int) -> int | None:
-    if i + 1 >= len(toks) or not _is_ident(toks[i], "virtual") or not _is_ident(toks[i + 1], "table"):
-        return None
-    i = _skip_if_not_exists(toks, i + 2)
-    _name, i = _read_name(toks, i)
-    if not _name or i >= len(toks) or not _is_ident(toks[i], "using"):
-        return None
-    module, i = _read_name(toks, i + 1)
-    if not module:
-        return None
-    if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
-        return _consume_paren(toks, i)
-    return i
-
-
-def _parse_create(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or not _is_ident(toks[i], "create"):
-        return None
-    i += 1
-    if i < len(toks) and _is_ident(toks[i]) and toks[i].value in {"temp", "temporary"}:
-        i += 1
-    if i < len(toks) and _is_ident(toks[i], "unique"):
-        return _parse_create_index(toks, i + 1)
-    if i < len(toks) and _is_ident(toks[i], "virtual"):
-        return _parse_create_virtual(toks, i)
-    if i < len(toks) and _is_ident(toks[i], "table"):
-        return _parse_create_table(toks, i)
-    if i < len(toks) and _is_ident(toks[i], "index"):
-        return _parse_create_index(toks, i)
-    return None
-
-
-def _parse_alter(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or not _is_ident(toks[i], "alter"):
-        return None
-    i += 1
-    if i >= len(toks) or not _is_ident(toks[i], "table"):
-        return None
-    name, i = _read_name(toks, i + 1)
-    if not name or i + 1 >= len(toks) or not _is_ident(toks[i], "add") or not _is_ident(toks[i + 1], "column"):
-        return None
-    col, i = _read_name(toks, i + 2)
-    if not col:
-        return None
-    i = _parse_type(toks, i)
-    if i is None:
-        return None
-    seen_default = False
-    seen_null = False
-    while i < len(toks):
-        if not _is_ident(toks[i]):
-            return None
-        word = toks[i].value
-        if word == "default" and not seen_default:
-            seen_default = True
-            i = _consume_default(toks, i + 1)
-            if i is None:
-                return None
-            continue
-        if word == "not" and not seen_null and i + 1 < len(toks) and _is_ident(toks[i + 1], "null"):
-            seen_null = True
-            i += 2
-            continue
-        if word == "null" and not seen_null:
-            seen_null = True
-            i += 1
-            continue
-        return None
-    return i
-
-
-def _parse_insert(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or not _is_ident(toks[i], "insert"):
-        return None
-    i += 1
-    if i < len(toks) and _is_ident(toks[i], "or"):
-        return None
-    if i >= len(toks) or not _is_ident(toks[i], "into"):
-        return None
-    name, i = _read_name(toks, i + 1)
-    if not name:
-        return None
-    if i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
-        cols, i, incomplete = _column_list(toks, i)
-        if incomplete or cols is None:
-            return None
-    if i < len(toks) and _is_ident(toks[i], "values"):
-        i += 1
-        if i >= len(toks) or toks[i].value != "(":
-            return None
-        while i < len(toks) and toks[i].kind == "punct" and toks[i].value == "(":
-            _row, i = _split_exprs(toks, i, paren=True)
-            if _row is None:
-                return None
-            if i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
-                i += 1
-                continue
-            break
-        return i
-    if i < len(toks) and _is_ident(toks[i], "select"):
-        return _parse_select(toks, i)
-    if i < len(toks) and _is_ident(toks[i], "default") and i + 1 < len(toks) and _is_ident(toks[i + 1], "values"):
-        return i + 2
-    return None
-
-
-def _parse_assignments(toks: list[_Tok], i: int) -> int | None:
-    while True:
-        target, i = _read_name(toks, i)
-        if not target or i >= len(toks) or toks[i].value != "=":
-            return None
-        i = _consume_expr(toks, i + 1)
-        if i is None:
-            return None
-        if i < len(toks) and toks[i].kind == "punct" and toks[i].value == ",":
-            i += 1
-            continue
-        return i
-
-
-def _parse_update(toks: list[_Tok], i: int) -> int | None:
-    if i >= len(toks) or not _is_ident(toks[i], "update"):
-        return None
-    i += 1
-    if i < len(toks) and _is_ident(toks[i], "or"):
-        return None
-    i = _parse_table_ref(toks, i)
-    if i is None or i >= len(toks) or not _is_ident(toks[i], "set"):
-        return None
-    i = _parse_assignments(toks, i + 1)
-    if i is None:
-        return None
-    if i < len(toks) and _is_ident(toks[i], "where"):
-        return _consume_expr(toks, i + 1)
-    return i
-
-
-def _parse_delete(toks: list[_Tok], i: int) -> int | None:
-    if i + 1 >= len(toks) or not _is_ident(toks[i], "delete") or not _is_ident(toks[i + 1], "from"):
-        return None
-    i = _parse_table_ref(toks, i + 2)
-    if i is None:
-        return None
-    if i < len(toks) and _is_ident(toks[i], "where"):
-        return _consume_expr(toks, i + 1)
-    return i
-
-
-def _is_plain(stmt: list[_Tok]) -> bool:
-    if not stmt or _forbidden_shape(stmt) or _unbounded_hole(stmt) or stmt[0].kind != "ident":
-        return False
-    word = stmt[0].value
-    if word == "select":
-        end = _parse_select(stmt, 0)
-    elif word == "insert":
-        end = _parse_insert(stmt, 0)
-    elif word == "update":
-        end = _parse_update(stmt, 0)
-    elif word == "delete":
-        end = _parse_delete(stmt, 0)
-    elif word == "alter":
-        end = _parse_alter(stmt, 0)
-    elif word == "create":
-        end = _parse_create(stmt, 0)
-    else:
-        return False
-    return end == len(stmt)
 
 
 def _scan_deletes(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool]:
@@ -1755,16 +1265,21 @@ def _column_default_verified(stmt: list[_Tok]) -> bool:
 
 
 def _judge_statement(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool, bool]:
+    """Counterexamples and coverage gaps. Nothing here is a conformance proof."""
     delete_bad, delete_gap, proved_safe, saw_delete = _scan_deletes(stmt)
     verified_bad, verified_gap = _scan_sets(stmt)
     insert_bad, insert_gap = _scan_inserts(stmt)
     verified_bad = verified_bad or insert_bad or _column_default_verified(stmt)
     verified_gap = verified_gap or insert_gap
-    if not _is_plain(stmt):
-        if _mentions_protected(stmt) and not delete_bad:
-            delete_gap = True
-        if _mentions_authority(stmt, 0, len(stmt)) and not verified_bad:
+    # A protected-table mention that is not a proved non-delete stays unproved.
+    if _mentions_protected(stmt) and not delete_bad and not proved_safe:
+        delete_gap = True
+    # Upsert, RETURNING, REPLACE, CTE, and an unbounded hole can hide a write.
+    if (_forbidden_shape(stmt) or _unbounded_hole(stmt)) and not verified_bad:
+        if _mentions_authority(stmt, 0, len(stmt)) or _mentions_protected(stmt):
             verified_gap = True
+    if (_forbidden_shape(stmt) or _unbounded_hole(stmt)) and _mentions_protected(stmt) and not delete_bad:
+        delete_gap = True
     unproved_delete = saw_delete and not delete_bad and not proved_safe
     return delete_bad, delete_gap, verified_bad, verified_gap, unproved_delete
 
@@ -1772,13 +1287,12 @@ def _judge_statement(stmt: list[_Tok]) -> tuple[bool, bool, bool, bool, bool]:
 def sql_write_flags(text: str, dynamic: bool) -> tuple[bool, bool, bool, bool]:
     """delete hit, delete gap, verified hit, verified gap for one folded SQL string.
 
-    A statement that names ``memory_claims``, ``observations``, or ``authority`` conforms
-    only when DELETE, UPDATE SET, INSERT columns/VALUES/SELECT, or a non-writing
-    SELECT, ALTER TABLE ADD COLUMN, or CREATE TABLE/INDEX consumes every token.
-    Upsert, RETURNING, CTE, trigger, and REPLACE stay unresolved unless a protected
-    DELETE or an assignment of the literal ``verified`` to ``authority`` is proved.
-    A ``\\x00`` with no source after it is an unbounded hole. Bracket, backtick, and
-    double-quoted identifiers count.
+    A proved ``DELETE`` from a protected table, or a proved assignment of the literal
+    ``verified`` to ``authority``, is a counterexample. A ``?`` placeholder and any
+    other untraced binding are gaps. An unrecognized statement that names a protected
+    table is a gap, never a reason to call the statement safe. Upsert, RETURNING, CTE,
+    trigger, and REPLACE stay gaps unless that counterexample is proved. A counterexample
+    is kept when a sibling statement is opaque.
     """
     delete_bad = False
     delete_gap = False

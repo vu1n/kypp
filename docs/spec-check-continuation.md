@@ -78,10 +78,59 @@ the Worker's rank implementation; the authority-body scan is unchanged.
 does not change those governed runtime paths. No new active decision was edited or
 ratified. The PR remains draft pending the user's separate merge decision.
 
-## Fail-closed conforms requirements
+## Assurance model
 
-A rule conforms only when every in-scope statement matches a shape that was proved. If no
-matcher fires, the verdict is unresolved. These are the shapes that still count as conforms.
+A recognized counterexample can defeat a claim. An unrecognized construction cannot support one.
+Semantic scanners do not emit a blanket pass.
+
+Report outcomes stay separate. They are not one green badge.
+
+| Outcome | Meaning |
+| --- | --- |
+| violation detected | a counterexample is established in the rule's scope |
+| candidate finding | a suspicious construction whose target or execution is unproved |
+| no counterexample found | the scan found none. This is not assurance |
+| unresolved / unsupported | the check does not answer |
+| bounded proposition | a closed-world sentence over an enumerated set, worded as that sentence |
+| test passed | a named test, the candidate SHA, and the environment. A skip is not a pass |
+| guard verified | unused |
+
+Bounded propositions in this tree: every examined `doc://kypp` ref in the enumerated file set resolves; each `aliases.yaml` latest entry equals the highest version file; every SIGNOFF line names an anchor present in the baseline spec; every feature-map glob matches a file in the enumerated head set; the fully parsed `TOOLS` initializer declares no `verify` property.
+
+`verified-authority-writer` stays unresolved. The `/sync` bullet lets a model-ratified revision land at `verified`, and the next bullet says only `MemoryStore.mark_verified` sets `verified`. That writer set is not ratified. A proved extra write is recorded on the unresolved verdict.
+
+SQL has no allow-list parser. `?` and other untraced bindings are unknown. A protected `DELETE` next to an opaque sibling is still a violation. Upsert, an early `compareRank` return, and a TypeScript concatenation never produce a positive assurance result.
+
+## Benchmark
+
+The split inventory is `tuning`, `regression`, `gap-holdout`, and `smoke`, defined once in `speccheck/bench.py`. An empty requested split fails. Exposed cases, including the nine worker signature cases, are regression. The headline is no longer a single false-conformance rate.
+
+| Split | Cases | Known-violation detection | Unresolved rate | False positives | Mutation detection |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| tuning | 18 | 1.000 | 0.333 | 0.000 | n/a |
+| regression | 22 | 1.000 | 0.182 | 0.000 | 1.000 |
+| gap-holdout | 49 | 1.000 | 0.510 | 0.000 | n/a |
+| smoke | 30 | — | — | 0.000 on clean changes | — |
+
+## Runtime contracts
+
+`tests/test_mcp_contract.py` builds the server with `build_mcp()` on `mcp.server.fastmcp` (tested `mcp` 1.30.0; `mcp` 2 renamed that module). It lists every tool, rejects a `verify` or `authority` schema property, calls every tool with ordinary arguments, then calls them again with `verify` and `authority='verified'` or `'human'`. Content may contain the word verify. A store row that kept a verifier fails the same assertion. `worker/test/mcp-contract.test.ts` does this through `handleMcp` `tools/list` and `tools/call` on the `node:sqlite` D1 double. `dispatch` does not re-check the schema, so the test reads the rows.
+
+`tests/test_verify_timeout.py` runs `sh -c sleep` through `kypp.verify.run_check` and requires the process to be killed and the check to fail.
+
+`tests/test_rank_oracle.py` and `worker/test/rank-oracle.test.ts` compare survivor selection with an oracle from the spec: authority beats conflicting confidence, status, evidence, and recency, in either argument order. A confidence-only early return does not match the oracle.
+
+Contract tests are CI failures. `speccheck check` stays advisory and exits 0.
+
+Tested locally: Python 3.12.3, mcp 1.30.0, pyturso 0.8.3, Node 22.21.0. Node 22.14's `node:sqlite` has no FTS5, so the worker job pins 22.21.
+
+## Backends, and why triggers wait
+
+The Python store is Turso via pyturso: MVCC and `BEGIN CONCURRENT`. The worker test double is `node:sqlite`. Production worker storage is D1. Trigger migrations are deferred. `store.py` splits `SCHEMA` on `;`, so a trigger body that contains semicolons would be executed as separate statements. `INSERT OR REPLACE` bypasses delete triggers unless `recursive_triggers` is on, and Turso does not support that pragma.
+
+## Historical fail-closed notes
+
+The table below is the previous allow-list experiment. It is not the current rule. A rule no longer conforms because a statement matched a grammar.
 
 | Rule | Conforms only when |
 | --- | --- |
@@ -124,4 +173,4 @@ Each of these was aimed at the old default-pass behaviour. The expected verdict 
 | `model_config = {**base, "extra": "forbid"}` | unresolved `mcp-no-verify-argument` |
 | `ClaimDraft(..., obscure(crit["name"]), ...)` | unresolved `no-grader-verbatim` |
 
-On the live tree, `no-delete-claims` is unresolved. The statements that fail the allow-list are the `SELECT … WHERE ` + `" AND ".join(where)` recalls in `kypp/store.py`, `INSERT OR IGNORE … FROM memory_claims` in `worker/migrations/0003_origin_projects.sql`, and the `UPDATE memory_claims … AND ${UNSORTED}` writes in `worker/src/store.ts`. `verified-authority-writer` still conforms: the only literal `verified` assignment is the allowed `mark_verified` update.
+On the live tree, `no-delete-claims` is a candidate finding. The unclassified statements include the `SELECT … WHERE ` + `" AND ".join(where)` recalls in `kypp/store.py`, `INSERT OR IGNORE … FROM memory_claims` in `worker/migrations/0003_origin_projects.sql`, and the `UPDATE memory_claims … AND ${UNSORTED}` writes in `worker/src/store.ts`. `verified-authority-writer` stays unresolved because the `/sync` bullet and the `mark_verified` bullet do not name one writer set.

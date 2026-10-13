@@ -179,12 +179,12 @@ def eval_mcp_no_verify(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     return (
         Verdict(
             rule_id="mcp-no-verify-argument",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=MCP_SCOPE,
             coverage=coverage,
-            detail="every tool in the defined scope was enumerated with no verify parameter or literal property key; Worker evidence covers initializer syntax only, not immutable runtime state or global absence",
+            detail="no verify parameter was found in the enumerated tools; this is not assurance that every runtime schema rejects verify",
             evidence="ast",
             clean_single_writer=group.clean_single_writer,
             code_revision=CODE_REVISION,
@@ -264,12 +264,12 @@ def eval_mcp_authority(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     return (
         Verdict(
             rule_id="mcp-no-human-or-verified-authority",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=AUTH_SCOPE,
             coverage=coverage,
-            detail="no constant authority=human or authority=verified in the MCP tool scope; POST /sync remains a separate writer and is not claimed absent",
+            detail="no constant authority=human or authority=verified was found in the MCP tool scope; this is not assurance, and POST /sync is a separate writer",
             evidence="ast",
             clean_single_writer=False,
             code_revision=CODE_REVISION,
@@ -426,12 +426,12 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
     return (
         Verdict(
             rule_id="authority-rank-order",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=RANK_SCOPE,
             coverage=coverage,
-            detail="agent < verified < human in Python and in worker/src/memory.ts, and both survivor keys use that order first",
+            detail="no rank-order counterexample in the recognized shapes; this is not assurance that survivor selection holds at runtime",
             evidence="ast",
             code_revision=CODE_REVISION,
         ),
@@ -523,12 +523,12 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
     return (
         Verdict(
             rule_id="schema-add-column",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=SCHEMA_SCOPE,
             coverage=coverage,
-            detail="every _MIGRATIONS entry is ADD COLUMN, and none is NOT NULL without a default",
+            detail="no non-additive migration counterexample was found; this is not assurance that every migration is additive",
             evidence="schema",
             code_revision=CODE_REVISION,
         ),
@@ -638,7 +638,8 @@ def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tupl
         return _pin_missing("no-delete-claims", spec, "baseline append-only-history@0001 does not contain the pinned DELETE bullet"), None
     facts = cached_delete_sql(cache, head)
     bad = [item for item in facts["bad"] if item.startswith("DELETE ")]
-    gaps = [item for item in facts["gaps"] if item.startswith("dynamic DELETE")]
+    # Every coverage failure counts, including "did not parse". Authority-only gaps belong to the writer rule.
+    gaps = [item for item in facts["gaps"] if not item.startswith("dynamic authority")]
     coverage = f"scanned {len(facts['scanned'])} file(s) for DELETE FROM memory_claims or observations"
     if bad:
         return (
@@ -658,23 +659,29 @@ def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tupl
             group,
         )
     if gaps:
-        return _absent(
-            "no-delete-claims",
-            spec,
-            group.display_text,
-            DELETE_SCOPE,
-            coverage + "; " + "; ".join(gaps[:6]),
-            "a DELETE or a statement naming memory_claims or observations was not proved to be a plain allow-listed statement",
-        ), group
+        return (
+            Verdict(
+                rule_id="no-delete-claims",
+                status="candidate",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=DELETE_SCOPE,
+                coverage=coverage + "; " + "; ".join(gaps[:6]),
+                detail="a statement naming a protected table, a dynamic DELETE, or a parse failure was not proved; this is not a violation and not assurance",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
     return (
         Verdict(
             rule_id="no-delete-claims",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=DELETE_SCOPE,
             coverage=coverage,
-            detail="no constant SQL deletes memory_claims or observations, and no dynamic DELETE was left unclassified",
+            detail="no protected DELETE counterexample was found; this is not assurance",
             evidence="ast",
             code_revision=CODE_REVISION,
         ),
@@ -691,42 +698,33 @@ def eval_mark_verified(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
         return _pin_missing("verified-authority-writer", spec, "baseline authority-order@0004 does not contain the pinned mark_verified bullet"), None
     facts = cached_verified_writes(cache, head)
     coverage = f"scanned {len(facts['scanned'])} python file(s) and {len(facts['sql_scanned'])} SQL-bearing file(s)"
+    # The /sync bullet lets a model-ratified revision land at verified. The next bullet says only
+    # MemoryStore.mark_verified sets verified. The writer set stays unresolved until that is ratified.
+    qualification = (
+        "authority-order@0004 lets POST /sync land a model-ratified revision at verified, "
+        "while the next bullet says only MemoryStore.mark_verified sets verified; "
+        "the writer set is unresolved until that qualification is ratified"
+    )
+    extra = ""
+    counterexample = None
     if facts["bad"]:
-        return (
-            Verdict(
-                rule_id="verified-authority-writer",
-                status="violates",
-                severity="high",
-                spec=spec,
-                claim_text=group.display_text,
-                scope=VERIFIED_SCOPE,
-                coverage=coverage,
-                detail="a write sets authority=verified outside MemoryStore.mark_verified",
-                counterexample="; ".join(facts["bad"][:8]),
-                evidence="ast",
-                code_revision=CODE_REVISION,
-            ),
-            group,
-        )
+        counterexample = "; ".join(facts["bad"][:8])
+        extra = " A write outside mark_verified was seen and is not treated as a settled violation."
     if facts["gaps"]:
-        return _absent(
-            "verified-authority-writer",
-            spec,
-            group.display_text,
-            VERIFIED_SCOPE,
-            coverage + "; " + "; ".join(facts["gaps"][:6]),
-            "an authority write was not proved to be a constant other than verified, or the SQL was outside the allow-listed grammar",
-        ), group
+        coverage += "; " + "; ".join(facts["gaps"][:6])
+        extra += " Some authority writes were not classified."
     return (
         Verdict(
             rule_id="verified-authority-writer",
-            status="conforms",
+            status="unresolved",
             spec=spec,
             claim_text=group.display_text,
             scope=VERIFIED_SCOPE,
             coverage=coverage,
-            detail="every proved authority write is a constant other than verified, or the verified SQL inside MemoryStore.mark_verified",
+            detail=qualification + "." + extra,
+            counterexample=counterexample,
             evidence="ast",
+            clean_single_writer=False,
             code_revision=CODE_REVISION,
         ),
         group,
@@ -795,12 +793,12 @@ def eval_grader_leak(index: SpecIndex, head: dict[str, str], cache: Cache) -> tu
     return (
         Verdict(
             rule_id="no-grader-verbatim",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=GRADER_SCOPE,
             coverage=coverage,
-            detail="every ClaimDraft subject and content is built from constants, counts, or the grader scheme",
+            detail="no verbatim criterion or feedback counterexample was found in the examined drafts; this is not assurance",
             evidence="ast",
             code_revision=CODE_REVISION,
         ),
@@ -810,11 +808,68 @@ def eval_grader_leak(index: SpecIndex, head: dict[str, str], cache: Cache) -> tu
 
 
 
+def eval_tools_initializer(head: dict[str, str], cache: Cache) -> tuple[Verdict | None, None]:
+    """Closed-world: a fully parsed TOOLS initializer declares no verify property."""
+    spec = "doc://kypp/verify-operator-only@0002#operator-only-verify"
+    claim = "the fully parsed TOOLS initializer declares no verify property"
+    scope = "the TOOLS array initializer in worker/src/mcp.ts"
+    ts = head.get("worker/src/mcp.ts")
+    if ts is None:
+        return (
+            Verdict(
+                rule_id="tools-initializer-no-verify",
+                status="unresolved",
+                spec=spec,
+                claim_text=claim,
+                scope=scope,
+                coverage="worker/src/mcp.ts is absent",
+                detail="the TOOLS initializer was not in the enumerated files",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            None,
+        )
+    facts = cached_ts_mcp(cache, ts)
+    if not facts["covered"] or not facts["tools"]:
+        return (
+            Verdict(
+                rule_id="tools-initializer-no-verify",
+                status="unresolved",
+                spec=spec,
+                claim_text=claim,
+                scope=scope,
+                coverage=facts.get("error") or "TOOLS initializer did not fully parse",
+                detail="the TOOLS initializer was not fully parsed, so the absence of a verify property is not a bounded proposition",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            None,
+        )
+    if any("verify" in (tool.get("params") or []) for tool in facts["tools"]):
+        return None, None
+    names = ", ".join(tool["name"] for tool in facts["tools"])
+    return (
+        Verdict(
+            rule_id="tools-initializer-no-verify",
+            status="bounded",
+            spec=spec,
+            claim_text=claim,
+            scope=scope,
+            coverage=f"fully parsed TOOLS initializer names {names}",
+            detail=claim,
+            evidence="ast",
+            code_revision=CODE_REVISION,
+        ),
+        None,
+    )
+
+
 def rule_verdicts(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[list[Verdict], set[tuple[str, int]]]:
     covered: set[tuple[str, int]] = set()
     verdicts: list[Verdict] = []
     evaluators = (
         lambda: eval_mcp_no_verify(index, head, cache),
+        lambda: eval_tools_initializer(head, cache),
         lambda: eval_mcp_authority(index, head, cache),
         lambda: eval_writers(index),
         lambda: eval_rank(index, head, cache),

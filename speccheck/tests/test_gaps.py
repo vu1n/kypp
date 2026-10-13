@@ -107,11 +107,11 @@ class SqlIdentifierTest(unittest.TestCase):
         )
         self.assertEqual(
             sql_write_flags("INSERT INTO memory_claims(authority) SELECT 'agent'", False),
-            (False, False, False, False),
+            (False, True, False, False),
         )
         self.assertEqual(
             sql_write_flags("INSERT INTO memory_claims(subject, authority) VALUES ('s', ?)", False),
-            (False, False, False, False),
+            (False, True, False, True),
         )
         _delete_bad, _delete_gap, verified_bad, verified_gap = sql_write_flags(
             "INSERT INTO memory_claims(subject, authority) SELECT * FROM other",
@@ -159,8 +159,24 @@ class SqlIdentifierTest(unittest.TestCase):
         )
         self.assertEqual(
             sql_write_flags("UPDATE memory_claims SET status='accepted' WHERE authority='verified'", False),
-            (False, False, False, False),
+            (False, True, False, False),
         )
+        sibling = sql_write_flags(
+            "SELECT * FROM memory_claims WHERE x = ?; DELETE FROM memory_claims",
+            False,
+        )
+        self.assertTrue(sibling[0])
+        tree = clean_tree()
+        tree["kypp/extra.py"] = (
+            "def promote(db):\n"
+            "    db.execute(\"INSERT INTO memory_claims(subject, authority) VALUES ('s', 'agent') "
+            "ON CONFLICT(subject) DO UPDATE SET authority='verified'\")\n"
+        )
+        verdict = next(item for item in _report(tree).verdicts if item.rule_id == "verified-authority-writer")
+        self.assertEqual(verdict.status, "unresolved")
+        self.assertIn("verified", verdict.counterexample or "")
+        self.assertIn("mark_verified", verdict.detail)
+        self.assertIn("POST /sync", verdict.detail)
 
     def test_bracket_delete_violates(self):
         tree = with_structural_specs(clean_tree())

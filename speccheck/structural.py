@@ -172,11 +172,11 @@ def doc_ref_verdicts(payload: dict) -> tuple[Verdict, list[Advisory]]:
     return (
         Verdict(
             rule_id="doc-refs",
-            status="conforms",
-            claim_text="doc:// refs resolve to a document id, a version that exists, and an anchor in that version",
+            status="bounded",
+            claim_text="every examined doc://kypp ref in the enumerated file set resolves",
             scope=scope,
             coverage=coverage,
-            detail="every examined ref resolved",
+            detail="every examined doc://kypp ref in the enumerated file set resolves",
             evidence="structural",
         ),
         advisories,
@@ -231,11 +231,11 @@ def alias_verdict(index: SpecIndex, files: dict[str, str]) -> Verdict:
         )
     return Verdict(
         rule_id="aliases",
-        status="conforms",
+        status="bounded",
         claim_text=claim,
         scope=scope,
         coverage=coverage,
-        detail="latest matches the version files",
+        detail="each aliases.yaml latest entry equals the highest version file in the enumerated spec set",
         evidence="structural",
     )
 
@@ -269,11 +269,11 @@ def signoff_verdict(head: dict[str, str], index: SpecIndex) -> Verdict | None:
         )
     return Verdict(
         rule_id="signoff-anchors",
-        status="conforms",
+        status="bounded",
         claim_text=claim,
         scope=scope,
         coverage=coverage,
-        detail="every sign-off anchor exists in the baseline spec; the reason text was not treated as evidence",
+        detail="every SIGNOFF line names an anchor present in the baseline spec; the reason text was not treated as evidence",
         evidence="structural",
     )
 
@@ -301,11 +301,11 @@ def feature_path_verdict(head: dict[str, str], head_paths: list[str]) -> Verdict
         )
     return Verdict(
         rule_id="feature-paths",
-        status="conforms",
+        status="bounded",
         claim_text=claim,
         scope=scope,
         coverage=coverage,
-        detail="every glob matches a file",
+        detail="every paths glob in the feature map matches at least one file in the enumerated head set",
         evidence="structural",
     )
 

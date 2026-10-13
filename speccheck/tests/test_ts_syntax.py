@@ -58,14 +58,14 @@ class TypeScriptSyntaxTest(unittest.TestCase):
         ]
         for source in sources:
             with self.subTest(source=source):
-                self.assertNotEqual(verdict(source).status, 'conforms')
+                self.assertNotIn(verdict(source).status, ('no_counterexample', 'bounded'))
 
     def test_literal_reference_is_syntax_evidence_only(self):
         source = 'const schema = {properties: {verify: {}}}; const TOOLS = [' + tool(schema='schema') + '];'
         self.assertEqual(verdict(source).status, 'violates')
         clean = source.replace('verify', 'subject')
-        self.assertEqual(verdict(clean).status, 'conforms')
-        self.assertIn('literal', verdict(clean).detail)
+        self.assertEqual(verdict(clean).status, 'no_counterexample')
+        self.assertIn('not assurance', verdict(clean).detail)
         changed = clean + ' schema.properties.verify = {};'
         self.assertEqual(verdict(changed).status, 'unresolved')
 

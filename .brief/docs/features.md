@@ -290,49 +290,45 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
 - The checker never writes `.brief/` or `.brief/SIGNOFF`. A report path under `.brief/` is refused.
 - Rule text comes from the baseline commit. `--baseline HEAD` is ignored when that commit's spec
   differs from `origin/main` or `main`, so a change is not judged against its own rules.
-- A `conforms` verdict needs a covered scope. `mcp.add_tool` counts when the callable resolves
-  to one function in the file; an unknown or ambiguous callable stays `unresolved`. Bare `**kwargs`
-  or `*args` stays `unresolved`. `Unpack[TypedDict]` and a pydantic/TypedDict parameter are checked
-  when that model is defined in the tree with a closed field list; an open, inherited, or imported
-  model that does not resolve stays `unresolved`. A model is closed only when every `extra` or
-  `model_config` setting is absent or a proved literal `forbid` or `ignore`. `extra = Extra.allow`,
-  a non-literal `model_config`, or any other unproved extra policy stays `unresolved`.
+- Semantic scanners do not emit `bounded`. `no_counterexample` is not assurance. `mcp.add_tool`
+  counts when the callable resolves to one function in the file; an unknown or ambiguous callable
+  stays `unresolved`. Bare `**kwargs` or `*args` stays `unresolved`. `Unpack[TypedDict]` and a
+  pydantic/TypedDict parameter are checked when that model is defined in the tree with a closed
+  field list; an open, inherited, or imported model that does not resolve stays `unresolved`.
+  A model is closed only when every `extra` or `model_config` setting is absent or a proved
+  literal `forbid` or `ignore`. `extra = Extra.allow`, a non-literal `model_config`, or any other
+  unproved extra policy stays `unresolved`. The only bounded MCP proposition is a fully parsed
+  `TOOLS` initializer that declares no `verify` property.
 - The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
   following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
 - `authority-rank-order` reads `kypp/vocab.py`, `kypp/arbiter.py`, and the `worker/src/memory.ts`
   mirror. The TypeScript order has to be proved equal to the Python order (`agent` < `verified` <
   `human`, higher rank wins). Divergence is a violation. A missing file, a parse failure, or an
-  expression the checker cannot classify stays `unresolved`. `compareRank` conforms only when the
-  body is the one proved shape: bindings of the two parameters to `rank(param)`, then a single
-  `for` whose comparisons are that pair, then `return 0`. An earlier return, an extra branch, or
-  an incidental `rank(` call stays `unresolved`. Negation or `reversed` on the Python `_rank`
-  is a violation.
+  expression the checker cannot classify stays `unresolved`. A recognized matching `compareRank`
+  is `no_counterexample`, not assurance. An earlier return, an extra branch, or an incidental
+  `rank(` call stays `unresolved`. Negation or `reversed` on the Python `_rank` is a violation.
+  Runtime order is the survivor oracle in `tests/test_rank_oracle.py` and
+  `worker/test/rank-oracle.test.ts`; an early return on confidence fails that oracle.
 - Stale `doc://` pins are one advisory per pin. The detail lists every path and line.
 - `no-delete-claims` checks SQL for `DELETE` against `memory_claims` or `observations`
   in `kypp/**/*.py` and `worker/**/*.{ts,sql}`. Bracket, backtick, and double-quoted identifiers
   count, including a schema prefix (`main.[memory_claims]`). Constant `+`, templates, and `"".join`
   are folded before the scan, in Python and in TypeScript; the leaves of that fold are not judged
-  on their own. A statement that names a protected table conforms only when plain DELETE, UPDATE
-  SET, INSERT, SELECT, ALTER TABLE ADD COLUMN, or CREATE TABLE/INDEX consumes it. Upsert,
-  RETURNING, a CTE, a trigger, REPLACE, and a trailing hole stay `unresolved` unless a protected
-  DELETE is actually visible. Docstrings are not SQL. The recall/briefing exclusion bullet and the
-  consolidation bullet stay unsupported: they are query and runtime behaviour, not a SQL literal.
-  On current main the rule is unresolved: several recalls are `SELECT … WHERE ` plus a join, and
-  `worker/src/store.ts` updates `memory_claims` through a trailing `${UNSORTED}` hole.
-- `verified-authority-writer` allows `authority='verified'` SQL inside `MemoryStore.mark_verified`
-  and constant `claim()` authority arguments other than `verified`. The same SQL in any other
-  Python file, or in a worker `.ts` or `.sql` string, is a violation. INSERT maps each column onto
-  its VALUES row or SELECT item, including multi-row VALUES and `INSERT ... SELECT`, and the same
-  bracket, backtick, and double-quoted spellings as DELETE. A mapped literal `verified`, or
-  `SET authority='verified'` inside `ON CONFLICT` or `REPLACE`, is a violation. A `WHERE
-  authority='verified'` filter is not. An allow-listed statement whose authority value is `?` is
-  not a violation. Anything that names `authority` but is not that grammar stays `unresolved`
-  unless the assignment is proved. A non-constant `authority=` on `claim()` stays `unresolved`.
-  A one-step local bound to `"verified"` is a violation.
-- `schema-add-column` conforms only when every `_MIGRATIONS` entry is one `ALTER TABLE ... ADD
-  COLUMN` with an optional `DEFAULT` and optional `NULL` / `NOT NULL`. `NOT NULL` without
-  `DEFAULT`, or a second statement, violates. `ADD COLUMN` with a `CHECK` or any other unparsed
-  tail stays `unresolved`. A version-table name violates this rule and `schema-idempotence`.
+  on their own. There is no SQL allow-list. A statement that names a protected table and is not a
+  proved non-delete is a `candidate`. A proved `DELETE` is a violation even when a sibling
+  statement is opaque. A `?` placeholder is unknown. Docstrings are not SQL. The recall/briefing
+  exclusion bullet and the consolidation bullet stay unsupported. On the live tree the rule is
+  `candidate`: recalls concatenate a `WHERE` clause, and `worker/src/store.ts` updates
+  `memory_claims` through a trailing `${UNSORTED}` hole.
+- `verified-authority-writer` stays `unresolved`. `POST /sync` may land a model-ratified revision
+  at `verified`, and the next bullet says only `MemoryStore.mark_verified` sets `verified`. The
+  writer set is not ratified. A proved `authority='verified'` assignment outside `mark_verified`
+  is recorded on that unresolved verdict, including `ON CONFLICT DO UPDATE`. It is not a settled
+  violation and not a pass. A `?` binding is a coverage gap. A `WHERE authority='verified'` filter
+  is not an assignment. A one-step local bound to `"verified"` is recorded the same way.
+- `schema-add-column` does not emit assurance. `NOT NULL` without `DEFAULT`, a second statement,
+  or a version-table name is a violation. `ADD COLUMN` with a `CHECK` stays `unresolved`. A scan
+  with no counterexample is `no_counterexample`.
 - `no-grader-verbatim` checks `ClaimDraft` subject and content. A proved read of a criterion
   `name` or `feedback` is a violation. Text copied from model JSON stays `unresolved`.
 - `memory-scope-decay` and `agent-mcp-surface-compose` have no `### Invariant` list, so their
