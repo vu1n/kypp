@@ -11,8 +11,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-
-import pytest
+import tempfile
+import unittest
 
 from speccheck.fixtures import clean_tree
 
@@ -55,9 +55,68 @@ CASES = (
     Case("worktree-valid-utf8-boundaries", "worktree", "kypp/boundary.py", "utf8", "finding"),
 )
 
-BROKEN_REFERENCE = "doc:" + "//kypp/corpus-absent@v0042#missing-anchor"
+BROKEN_REFERENCE = "doc:" + "//kypp/corpus-absent@0042#missing-anchor"
 REFERENCE_TEXT = f"# Inventory sentinel: {BROKEN_REFERENCE}\n"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+READ_DENIAL_BOOTSTRAP = r"""
+import builtins
+import io
+import os
+import sys
+
+original_io_open = io.open
+original_builtin_open = builtins.open
+original_os_open = os.open
+original_os_read = os.read
+
+
+def is_target(file, dir_fd=None):
+    try:
+        if isinstance(file, int):
+            path = os.readlink('/proc/self/fd/' + str(file))
+        else:
+            path = os.fsdecode(os.fspath(file))
+            if dir_fd is not None and not os.path.isabs(path):
+                path = os.path.join(os.readlink('/proc/self/fd/' + str(dir_fd)), path)
+        return os.path.abspath(path) == target
+    except (TypeError, ValueError, OSError):
+        return False
+
+
+def reject(file, dir_fd=None):
+    if is_target(file, dir_fd):
+        raise PermissionError(13, 'corpus-selected-source-permission-denied', target)
+
+
+def denied_io_open(file, *args, **kwargs):
+    reject(file)
+    return original_io_open(file, *args, **kwargs)
+
+
+def denied_builtin_open(file, *args, **kwargs):
+    reject(file)
+    return original_builtin_open(file, *args, **kwargs)
+
+
+def denied_os_open(file, *args, **kwargs):
+    reject(file, kwargs.get('dir_fd'))
+    return original_os_open(file, *args, **kwargs)
+
+
+def denied_os_read(fd, *args, **kwargs):
+    reject(fd)
+    return original_os_read(fd, *args, **kwargs)
+
+
+io.open = denied_io_open
+builtins.open = denied_builtin_open
+os.open = denied_os_open
+os.read = denied_os_read
+from speccheck.cli import main
+sys.exit(main(sys.argv[1:]))
+"""
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -79,8 +138,7 @@ def _write(repo: Path, path: str, content: bytes) -> Path:
     return dest
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
-def test_source_inventory_corpus(tmp_path: Path, case: Case) -> None:
+def run_case(tmp_path: Path, case: Case) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q")
@@ -143,20 +201,16 @@ def test_source_inventory_corpus(tmp_path: Path, case: Case) -> None:
         args.extend(["--head", head])
     bootstrap = "from speccheck.cli import main; import sys; sys.exit(main(sys.argv[1:]))"
     if case.kind == "read_denied":
-        # Inject the OS read boundary so root-run CI cannot defeat chmod(000).
-        bootstrap = (
-            "import io, os, sys; original = io.open; target = " + repr(str(target)) + "; "
-            "exec('def denied(file, *a, **kw):\\n"
-            "    if os.fspath(file) == target: raise PermissionError(13, \\\"corpus read denied\\\", target)\\n"
-            "    return original(file, *a, **kw)'); io.open = denied; "
-            "from speccheck.cli import main; sys.exit(main(sys.argv[1:]))"
-        )
+        # Fail only this source, across path-based and descriptor-based readers.
+        bootstrap = "target = " + repr(str(target)) + "\n" + READ_DENIAL_BOOTSTRAP
     env = dict(os.environ, PYTHONPATH=str(PROJECT_ROOT))
     result = subprocess.run([sys.executable, "-c", bootstrap, *args], env=env,
                             capture_output=True, text=True, timeout=15)
     if case.outcome == "failure":
         assert result.returncode != 0, (case.name, result.stdout, result.stderr)
         assert "speccheck:" in result.stderr
+        if case.kind == "read_denied":
+            assert "corpus-selected-source-permission-denied" in result.stderr, result.stderr
         assert not result.stdout.strip(), "read failure must not print a successful report"
         for dest in (output, json_output):
             if dest in before:
@@ -179,3 +233,15 @@ def test_source_inventory_corpus(tmp_path: Path, case: Case) -> None:
     else:
         assert all(v["status"] == "conforms" for v in references), references
         assert case.path not in "\n".join(v.get("counterexample") or "" for v in report["verdicts"])
+
+
+class SourceInventoryCorpusTests(unittest.TestCase):
+    def test_frozen_cases(self) -> None:
+        for case in CASES:
+            with self.subTest(case=case.name):
+                with tempfile.TemporaryDirectory(prefix="source-corpus-") as directory:
+                    run_case(Path(directory), case)
+
+
+if __name__ == "__main__":
+    unittest.main()
