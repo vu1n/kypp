@@ -173,10 +173,11 @@ class SqlIdentifierTest(unittest.TestCase):
             "ON CONFLICT(subject) DO UPDATE SET authority='verified'\")\n"
         )
         verdict = next(item for item in _report(tree).verdicts if item.rule_id == "verified-authority-writer")
-        self.assertEqual(verdict.status, "unresolved")
+        self.assertEqual(verdict.status, "violates")
+        self.assertEqual(verdict.severity, "high")
         self.assertIn("verified", verdict.counterexample or "")
         self.assertIn("mark_verified", verdict.detail)
-        self.assertIn("POST /sync", verdict.detail)
+        self.assertNotIn("conforms", verdict.status)
 
     def test_ordinary_sql_naming_a_protected_table_is_not_a_delete_finding(self):
         for table in ("memory_claims", "observations"):
@@ -207,6 +208,17 @@ class SqlIdentifierTest(unittest.TestCase):
         self.assertNotIn("dynamic DELETE", verdict.coverage)
         self.assertNotIn("dynamic DELETE", verdict.detail)
         self.assertNotIn("conforms", verdict.status)
+
+    def test_replace_function_in_a_read_only_query_is_not_delete_like(self):
+        for table in ("memory_claims", "observations"):
+            statement = f"SELECT replace(content, 'a', 'b') FROM {table}"
+            delete_bad, delete_gap, verified_bad, verified_gap = sql_write_flags(statement, False)
+            self.assertFalse(delete_bad, statement)
+            self.assertFalse(delete_gap, statement)
+            self.assertFalse(verified_bad, statement)
+            self.assertFalse(verified_gap, statement)
+        self.assertTrue(sql_write_flags("REPLACE INTO memory_claims(id) VALUES ('a')", False)[1])
+        self.assertTrue(sql_write_flags("INSERT OR REPLACE INTO observations(id) VALUES ('a')", False)[1])
 
     def test_delete_like_constructions_are_candidates_and_parse_failures_stay_visible(self):
         for statement in (

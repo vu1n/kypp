@@ -27,6 +27,7 @@ CODE_REVISION = PINS["code_revision"]
 
 VERIFY_BULLETS = PINS["bullets"]["verify-operator-only@0002"]
 AUTH_BULLETS = PINS["bullets"]["authority-order@0004"]
+AUTH6_BULLETS = PINS["bullets"]["authority-order@0006"]
 SCHEMA_BULLETS = PINS["bullets"]["additive-migrations@0002"]
 DELETE_BULLETS = PINS["bullets"]["append-only-history@0001"]
 GRADER_BULLETS = PINS["bullets"]["no-grader-leak@0001"]
@@ -708,40 +709,66 @@ def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tupl
     )
 
 
-# Context: doc://kypp/authority-order@0004#authority-dominates — only MemoryStore.mark_verified sets authority=verified.
+# Context: doc://kypp/authority-order@0006#authority-dominates — MemoryStore.mark_verified is the only local path that grants verified; POST /sync is a separate import that is not built yet.
 def eval_mark_verified(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None]:
-    spec = "doc://kypp/authority-order@0004#authority-dominates"
-    _path, groups = _groups(index, "authority-order", 4, "authority-dominates")
-    group = _group_containing(groups, AUTH_BULLETS[3])
+    spec = "doc://kypp/authority-order@0006#authority-dominates"
+    _path, groups = _groups(index, "authority-order", 6, "authority-dominates")
+    group = _group_containing(groups, AUTH6_BULLETS[2])
     if group is None:
-        return _pin_missing("verified-authority-writer", spec, "baseline authority-order@0004 does not contain the pinned mark_verified bullet"), None
+        return _pin_missing("verified-authority-writer", spec, "baseline authority-order@0006 does not contain the pinned mark_verified bullet"), None
     facts = cached_verified_writes(cache, head)
     coverage = f"scanned {len(facts['scanned'])} python file(s) and {len(facts['sql_scanned'])} SQL-bearing file(s)"
-    # The /sync bullet lets a model-ratified revision land at verified. The next bullet says only
-    # MemoryStore.mark_verified sets verified. The writer set stays unresolved until that is ratified.
-    qualification = (
-        "authority-order@0004 lets POST /sync land a model-ratified revision at verified, "
-        "while the next bullet says only MemoryStore.mark_verified sets verified; "
-        "the writer set is unresolved until that qualification is ratified"
-    )
-    extra = ""
-    counterexample = None
-    if facts["bad"]:
-        counterexample = "; ".join(facts["bad"][:8])
-        extra = " A write outside mark_verified was seen and is not treated as a settled violation."
     if facts["gaps"]:
         coverage += "; " + "; ".join(facts["gaps"][:6])
-        extra += " Some authority writes were not classified."
+    if facts["bad"]:
+        return (
+            Verdict(
+                rule_id="verified-authority-writer",
+                status="violates",
+                severity="high",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=VERIFIED_SCOPE,
+                coverage=coverage,
+                detail=(
+                    "a proved write sets authority to verified outside MemoryStore.mark_verified. "
+                    "POST /sync is not built, so it is not an allowed writer in this tree"
+                ),
+                counterexample="; ".join(facts["bad"][:8]),
+                evidence="ast",
+                clean_single_writer=False,
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    if facts["gaps"]:
+        return (
+            Verdict(
+                rule_id="verified-authority-writer",
+                status="unresolved",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=VERIFIED_SCOPE,
+                coverage=coverage,
+                detail="an authority write was not classified. This is not a violation and not assurance",
+                evidence="ast",
+                clean_single_writer=False,
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
     return (
         Verdict(
             rule_id="verified-authority-writer",
-            status="unresolved",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=VERIFIED_SCOPE,
             coverage=coverage,
-            detail=qualification + "." + extra,
-            counterexample=counterexample,
+            detail=(
+                "no proved write of authority=verified was found outside MemoryStore.mark_verified; "
+                "this is not assurance. Ratifying the writer rule is not evidence, and POST /sync is not in this tree"
+            ),
             evidence="ast",
             clean_single_writer=False,
             code_revision=CODE_REVISION,

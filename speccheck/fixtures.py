@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import copy
 
-from .evaluate import AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
+from .evaluate import AUTH6_BULLETS, AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
 
 
 def _doc(doc_id: str, anchor: str, status: str, related: list[str], bullets: list[str], title: str) -> str:
@@ -36,7 +36,7 @@ def _aliases() -> str:
         "verify-operator-only:\n"
         "  latest: 2\n"
         "authority-order:\n"
-        "  latest: 4\n"
+        "  latest: 6\n"
         "additive-migrations:\n"
         "  latest: 2\n"
     )
@@ -135,12 +135,20 @@ def clean_tree() -> dict[str, str]:
         VERIFY_BULLETS,
         "Only an operator attaches or runs verify commands",
     )
-    authority = _doc(
+    authority_v4 = _doc(
         "authority-order",
         "authority-dominates",
         "active",
         ["kypp/vocab.py", "kypp/arbiter.py"],
         AUTH_BULLETS,
+        "Rank survivors by authority first",
+    )
+    authority = _doc(
+        "authority-order",
+        "authority-dominates",
+        "active",
+        ["kypp/vocab.py", "kypp/arbiter.py"],
+        AUTH6_BULLETS,
         "Rank survivors by authority first",
     )
     schema = _doc(
@@ -156,7 +164,8 @@ def clean_tree() -> dict[str, str]:
         ".brief/docs/verify-operator-only.md": verify,
         ".brief/docs/verify-operator-only/versions/v0002.md": verify,
         ".brief/docs/authority-order.md": authority,
-        ".brief/docs/authority-order/versions/v0004.md": authority,
+        ".brief/docs/authority-order/versions/v0004.md": authority_v4,
+        ".brief/docs/authority-order/versions/v0006.md": authority,
         ".brief/docs/additive-migrations.md": schema,
         ".brief/docs/additive-migrations/versions/v0002.md": schema,
         "kypp/mcp_server.py": MCP_PY,

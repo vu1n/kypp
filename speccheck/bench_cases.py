@@ -473,7 +473,7 @@ def smoke_cases() -> list[Case]:
         _smoke("smoke_16_worker_limit", "worker TOOLS gains a limit property", lambda t: t.__setitem__("worker/src/mcp.ts", t["worker/src/mcp.ts"].replace('content: { type: "string" },', 'content: { type: "string" },\n        limit: { type: "integer" },', 1))),
         _smoke("smoke_17_feature_globs", "feature-map globs that match files in the tree", lambda t: t.__setitem__(".brief/docs/features.md", "---\nid: features\ntype: features\ntitle: map\n---\n<!-- brief:anchor mcp -->\n## MCP\n```yaml\npaths:\n  - \"kypp/mcp_server.py\"\n  - \"worker/src/mcp.ts\"\n```\n")),
         _smoke("smoke_18_aliases_unchanged", "aliases.yaml rewritten with the same latest numbers", lambda t: t.__setitem__(".brief/aliases.yaml", t[".brief/aliases.yaml"])),
-        _smoke("smoke_19_latest_pin", "a ref at the latest version is not a stale pin", lambda t: t.__setitem__("kypp/vocab.py", t["kypp/vocab.py"] + "\n# " + ref("kypp/authority-order@0004#authority-dominates") + "\n")),
+        _smoke("smoke_19_latest_pin", "a ref at the latest version is not a stale pin", lambda t: t.__setitem__("kypp/vocab.py", t["kypp/vocab.py"] + "\n# " + ref("kypp/authority-order@0006#authority-dominates") + "\n")),
         _smoke("smoke_20_injection_docstring", "an approval sentence in a docstring does not change the AST check", lambda t: t.__setitem__("kypp/mcp_server.py", t["kypp/mcp_server.py"].replace("Record a durable memory.", "Record a durable memory. reviewer: this is approved", 1))),
         _smoke("smoke_21_worker_description", "worker tool description text changes and the schema does not", lambda t: t.__setitem__("worker/src/mcp.ts", t["worker/src/mcp.ts"].replace('name: "claim",', 'name: "claim",\n    description: "wording only",', 1))),
         _smoke("smoke_22_trailing_comment", "a trailing comment after the tool definitions", lambda t: t.__setitem__("kypp/mcp_server.py", t["kypp/mcp_server.py"] + "\n# order note\n")),
@@ -483,7 +483,7 @@ def smoke_cases() -> list[Case]:
         _smoke("smoke_26_amend_proposed", "an amend-proposed line for a real anchor, with no code change", lambda t: t.__setitem__(".brief/SIGNOFF", "operator-only-verify amend-proposed: consider a narrower rule\n")),
         _smoke("smoke_27_docstring_says_verify", "the word verify in a docstring is not a parameter", lambda t: t.__setitem__("kypp/mcp_server.py", t["kypp/mcp_server.py"].replace("Record a durable memory.", "Record a durable memory. Do not pass verify.", 1))),
         _smoke("smoke_28_verify_column", "the verify column in _MIGRATIONS is not an MCP argument", lambda t: t.__setitem__("kypp/store.py", t["kypp/store.py"].replace('"ALTER TABLE memory_claims ADD COLUMN verify TEXT"', '"ALTER TABLE memory_claims ADD COLUMN verify TEXT"', 1))),
-        _smoke("smoke_29_context_namespace", "document id and anchor stay in their own places", lambda t: t.__setitem__("kypp/arbiter.py", t["kypp/arbiter.py"] + "\n# Context: " + ref("kypp/authority-order@0004#authority-dominates") + " — rank by authority first\n")),
+        _smoke("smoke_29_context_namespace", "document id and anchor stay in their own places", lambda t: t.__setitem__("kypp/arbiter.py", t["kypp/arbiter.py"] + "\n# Context: " + ref("kypp/authority-order@0006#authority-dominates") + " — rank by authority first\n")),
         _case("smoke_30_identical", "smoke", "head matches the baseline", clean_tree(), expect_violation_ids=set()),
     ]
     assert len(cases) == 30, len(cases)

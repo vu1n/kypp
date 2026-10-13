@@ -1111,7 +1111,10 @@ def _forbidden_shape(stmt: list[_Tok]) -> bool:
             continue
         if depth != 0 or tok.kind != "ident":
             continue
-        if tok.value in {"returning", "replace", "trigger", "with"}:
+        if tok.value in {"returning", "trigger", "with"}:
+            return True
+        # REPLACE INTO can hide a write. replace() is a function call.
+        if tok.value == "replace" and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "into"):
             return True
         if tok.value == "on" and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "conflict"):
             return True
@@ -1267,11 +1270,17 @@ def _column_default_verified(stmt: list[_Tok]) -> bool:
 
 
 def _delete_like(stmt: list[_Tok]) -> bool:
-    """DELETE, REPLACE, INSERT OR REPLACE, DROP, or TRUNCATE. Naming a table is not enough."""
+    """DELETE, REPLACE INTO, INSERT OR REPLACE, DROP, or TRUNCATE.
+
+    Naming a table is not enough. ``replace(...)`` is the SQL function, not a
+    REPLACE statement.
+    """
     for index, tok in enumerate(stmt):
         if tok.kind != "ident":
             continue
-        if tok.value in {"delete", "drop", "truncate", "replace"}:
+        if tok.value in {"delete", "drop", "truncate"}:
+            return True
+        if tok.value == "replace" and index + 1 < len(stmt) and _is_ident(stmt[index + 1], "into"):
             return True
         if (
             tok.value == "insert"
