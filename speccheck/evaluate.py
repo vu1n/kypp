@@ -54,7 +54,10 @@ VERIFIED_SCOPE = (
     "in kypp/**/*.py, plus SQL literals in worker/**/*.ts and worker/**/*.sql"
 )
 GRADER_SCOPE = "subject and content expressions of every ClaimDraft(...) in kypp/distill.py"
-SCHEMA_SCOPE = "string literals of _MIGRATIONS in kypp/store.py"
+SCHEMA_SCOPE = (
+    "bounded SQL syntax in literal _MIGRATIONS initializer entries in kypp/store.py; "
+    "the retired additive-migrations@0002 bullet, not engine acceptance or runtime proof"
+)
 
 _TS_AUTH_BAD = re.compile(r"""authority\s*[:=]\s*(['"])(human|verified)\1""")
 _TS_AUTH_DYN = re.compile(r"""authority\s*[:=]\s*(?!['"\s\n])""")
@@ -465,7 +468,7 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             group,
         )
     facts = cached_python_migrations(cache, source)
-    if not facts["covered"]:
+    if not facts["covered"] and not facts["entries"]:
         return (
             Verdict(
                 rule_id="schema-add-column",
@@ -480,15 +483,21 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             ),
             group,
         )
+    from .sqlsyntax import analyze_migration
+
     bad = []
-    unknown = []
+    gaps = []
     for i, sql in enumerate(facts["entries"]):
-        kind = classify_migration(sql)
-        if kind in {"not_add_column", "not_null_without_default", "version_table"}:
-            bad.append(f"[{i}] {kind}: {sql}")
-        elif kind == "unrecognized":
-            unknown.append(f"[{i}] unrecognized: {sql}")
-    coverage = f"classified all {len(facts['entries'])} _MIGRATIONS entries"
+        if sql is None:
+            gaps.append(f"[{i}] nonliteral migration entry")
+            continue
+        analysis = analyze_migration(sql)
+        gaps.extend(f"[{i}] {gap}" for gap in analysis.gaps)
+        if analysis.kind in {"not_add_column", "not_null_without_default", "version_table"}:
+            bad.append(f"[{i}] {analysis.kind}: {sql}")
+        elif analysis.kind == "unknown" and not analysis.gaps:
+            gaps.append(f"[{i}] {'; '.join(analysis.reasons)}")
+    coverage = f"analyzed {len(facts['entries'])} entries; gaps: {'; '.join(gaps) or 'none'}"
     if bad:
         return (
             Verdict(
@@ -506,7 +515,7 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             ),
             group,
         )
-    if unknown:
+    if gaps:
         return (
             Verdict(
                 rule_id="schema-add-column",
@@ -514,8 +523,8 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
                 spec=spec,
                 claim_text=group.display_text,
                 scope=SCHEMA_SCOPE,
-                coverage=coverage + "; " + "; ".join(unknown[:6]),
-                detail="an ADD COLUMN migration was not the allow-listed shape, so it was not proved additive",
+                coverage=coverage,
+                detail="unsupported SQL or a nonliteral entry was not classified. This is not a violation and not assurance",
                 evidence="schema",
                 code_revision=CODE_REVISION,
             ),
@@ -529,7 +538,10 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             claim_text=group.display_text,
             scope=SCHEMA_SCOPE,
             coverage=coverage,
-            detail="no non-additive migration counterexample was found; this is not assurance that every migration is additive",
+            detail=(
+                "no non-additive migration counterexample was found; this is not assurance that every migration is additive. "
+                "DEFAULT presence does not prove default semantics or engine acceptance"
+            ),
             evidence="schema",
             code_revision=CODE_REVISION,
         ),
@@ -544,13 +556,12 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
     if group is None:
         return _pin_missing("schema-idempotence", spec, "baseline additive-migrations@0002 does not contain the pinned version-table bullet"), None
     source = head.get("kypp/store.py")
-    entries: list[str] = []
-    covered = False
+    entries: list[str | None] = []
     if source is not None:
         facts = cached_python_migrations(cache, source)
-        covered = bool(facts["covered"])
-        entries = facts["entries"] if covered else []
-    version_tables = [sql for sql in entries if classify_migration(sql) == "version_table"]
+        entries = facts["entries"]
+    coverage = f"examined {sum(sql is not None for sql in entries)} literal entries among {len(entries)} initializer positions for covered CREATE TABLE evidence"
+    version_tables = [sql for sql in entries if sql is not None and classify_migration(sql) == "version_table"]
     if version_tables:
         return (
             Verdict(
@@ -560,8 +571,8 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
                 spec=spec,
                 claim_text=group.display_text,
                 scope=SCHEMA_SCOPE,
-                coverage=f"scanned {len(entries)} entries for a schema version table",
-                detail="a counterexample shows a schema version table; the rest of the bullet is still not fully checked",
+                coverage=coverage,
+                detail="a CREATE TABLE counterexample violates the retired registry bullet; runtime idempotence is not checked",
                 counterexample="; ".join(version_tables),
                 evidence="schema",
                 code_revision=CODE_REVISION,
@@ -575,11 +586,7 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
             spec=spec,
             claim_text=group.display_text,
             scope=SCHEMA_SCOPE,
-            coverage=(
-                f"no schema version table in {len(entries)} parsed entries"
-                if covered
-                else "migrations were not parsed"
-            ),
+            coverage=coverage + "; no covered counterexample is not proof of absence",
             detail=(
                 "the bullet also says idempotence comes from swallowing duplicate-column errors only. "
                 "That is behaviour. A missing test does not make it verified, so this is not conformance."

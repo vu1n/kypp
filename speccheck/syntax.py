@@ -433,12 +433,12 @@ def python_migrations(source: str) -> dict:
             target, value = node.target, node.value
         if target is None:
             continue
-        if not isinstance(value, ast.List) or not all(isinstance(elt, ast.Constant) and isinstance(elt.value, str) for elt in value.elts):
+        if not isinstance(value, ast.List):
             return {"covered": False, "error": "_MIGRATIONS is not a list of string literals", "entries": []}
-        found.append([elt.value for elt in value.elts])  # type: ignore[union-attr]
+        found.append([elt.value if isinstance(elt, ast.Constant) and isinstance(elt.value, str) else None for elt in value.elts])
     if len(found) != 1:
         return {"covered": False, "error": f"expected one _MIGRATIONS list, found {len(found)}", "entries": []}
-    return {"covered": True, "error": None, "entries": found[0]}
+    return {"covered": all(entry is not None for entry in found[0]), "error": "nonliteral migration entry" if None in found[0] else None, "entries": found[0]}
 
 
 def _assigned(tree: ast.AST, name: str) -> ast.AST | None:
@@ -644,31 +644,15 @@ def python_authority_rank(vocab_source: str, arbiter_source: str) -> dict:
         "rank_order": rank_order,
         "survivor_uses_rank": survivor_ok,
     }
-
-
-_VERSION_NAMES = {"schema_version", "schema_migrations", "schema_versions", "alembic_version"}
-
-
 def classify_migration(sql: str) -> str:
-    """Counterexamples only. ``ok`` means no recognized non-additive pattern, not a proof.
+    """Bounded migration evidence. ``ok`` is not assurance, and ``unknown`` is unsupported syntax.
 
-    A second statement or a missing ``ADD COLUMN`` is a non-additive counterexample.
-    ``CHECK`` is unrecognized. ``NOT NULL`` without ``DEFAULT`` is a counterexample.
+    Comments, strings, and quoted names are not clauses. A known non-additive statement
+    stays a counterexample when a sibling statement is opaque.
     """
-    toks = _tokenize_sql(sql)
-    if any(tok.kind in {"ident", "quoted"} and tok.value in _VERSION_NAMES for tok in toks):
-        return "version_table"
-    stmts = [stmt for stmt in _split_statements(toks) if stmt]
-    if len(stmts) != 1 or not _has_add_column(stmts[0]):
-        return "not_add_column"
-    stmt = stmts[0]
-    if any(_is_ident(tok, "check") for tok in stmt):
-        return "unrecognized"
-    if not stmt or not _is_ident(stmt[0], "alter"):
-        return "unrecognized"
-    if _alter_not_null_without_default(stmt):
-        return "not_null_without_default"
-    return "ok"
+    from .sqlsyntax import analyze_migration
+
+    return analyze_migration(sql).kind
 
 
 def cached_python_mcp(
@@ -688,7 +672,8 @@ def cached_python_mcp(
 
 
 def cached_python_migrations(cache: Cache, source: str) -> dict:
-    return cache.syntax(source, "py-migrations-v2", lambda: python_migrations(source))
+    # partial-v2 keeps literal entries beside a nonliteral slot. The older all-or-nothing row does not.
+    return cache.syntax(source, "py-migrations-partial-v2", lambda: python_migrations(source))
 
 
 def cached_rank(cache: Cache, vocab_source: str, arbiter_source: str) -> dict:
