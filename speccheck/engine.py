@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from .cache import Cache
 from .evaluate import CODE_REVISION, rule_verdicts, unsupported_verdicts
 from .model import Report
@@ -34,6 +36,7 @@ def run_check(
     spec = load_spec(baseline)
     notes = list(notes or [])
     notes.append(f"registry code revision {CODE_REVISION}")
+    notes.append(f"environment python {sys.version.split()[0]}")
     notes.append("rule text comes from the baseline spec; head spec edits are amendments, not the rules")
 
     def build() -> dict:
@@ -51,7 +54,14 @@ def run_check(
     rule_rows, covered = rule_verdicts(spec, head, cache)
     verdicts.extend(rule_rows)
     verdicts.extend(unsupported_verdicts(spec, covered))
-    order = {"violates": 0, "unresolved": 1, "unsupported": 2, "conforms": 3}
+    order = {
+        "violates": 0,
+        "candidate": 1,
+        "unresolved": 2,
+        "unsupported": 3,
+        "no_counterexample": 4,
+        "bounded": 5,
+    }
     verdicts.sort(key=lambda v: (order.get(v.status, 9), v.rule_id))
     advisories = ref_advisories + overlap_advisories(spec, head_paths)
     return Report(

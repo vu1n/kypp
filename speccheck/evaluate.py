@@ -10,10 +10,14 @@ from .cache import Cache
 from .model import Verdict
 from .specindex import SpecIndex
 from .syntax import (
+    cached_delete_sql,
+    cached_grader,
     cached_python_mcp,
     cached_python_migrations,
     cached_rank,
     cached_ts_mcp,
+    cached_ts_rank,
+    cached_verified_writes,
     classify_migration,
 )
 from .textscan import ClaimGroup, group_bullets, normalize_ws
@@ -24,11 +28,15 @@ CODE_REVISION = PINS["code_revision"]
 VERIFY_BULLETS = PINS["bullets"]["verify-operator-only@0002"]
 AUTH_BULLETS = PINS["bullets"]["authority-order@0004"]
 SCHEMA_BULLETS = PINS["bullets"]["additive-migrations@0002"]
+DELETE_BULLETS = PINS["bullets"]["append-only-history@0001"]
+GRADER_BULLETS = PINS["bullets"]["no-grader-leak@0001"]
 
 MCP_SCOPE = (
-    "parameters of every function decorated @mcp.tool in kypp/mcp_server.py, "
-    "and literal inputSchema properties keys of every entry in the module-level const TOOLS "
-    "initializer in worker/src/mcp.ts; Worker evidence does not prove runtime immutability or global absence"
+    "parameters of every function decorated @mcp.tool or registered with mcp.add_tool "
+    "in kypp/mcp_server.py, including a pydantic BaseModel or TypedDict parameter when that "
+    "model's fields are closed in the tree, and literal inputSchema properties keys of every entry "
+    "in the module-level const TOOLS initializer in worker/src/mcp.ts; Worker evidence does not "
+    "prove runtime immutability or global absence"
 )
 AUTH_SCOPE = (
     "constant authority arguments inside those @mcp.tool functions, "
@@ -36,8 +44,15 @@ AUTH_SCOPE = (
 )
 RANK_SCOPE = (
     "Authority / AUTHORITIES / AUTHORITY_RANK in kypp/vocab.py, "
-    "and _rank / _survivor in kypp/arbiter.py"
+    "_rank / _survivor in kypp/arbiter.py, "
+    "and AUTHORITIES / rank / survivor in worker/src/memory.ts"
 )
+DELETE_SCOPE = "string literals and constant-folded SQL in kypp/**/*.py, worker/**/*.ts, and worker/**/*.sql"
+VERIFIED_SCOPE = (
+    "claim() authority arguments and SQL literals that set authority to verified "
+    "in kypp/**/*.py, plus SQL literals in worker/**/*.ts and worker/**/*.sql"
+)
+GRADER_SCOPE = "subject and content expressions of every ClaimDraft(...) in kypp/distill.py"
 SCHEMA_SCOPE = "string literals of _MIGRATIONS in kypp/store.py"
 
 _TS_AUTH_BAD = re.compile(r"""authority\s*[:=]\s*(['"])(human|verified)\1""")
@@ -105,12 +120,12 @@ def eval_mcp_no_verify(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     if py is None:
         gaps.append("kypp/mcp_server.py is absent")
     else:
-        facts = cached_python_mcp(cache, py)
+        modules = {path: text for path, text in head.items() if path.endswith(".py")}
+        facts = cached_python_mcp(cache, py, modules, "kypp/mcp_server.py")
         if not facts["covered"]:
             gaps.append(facts["error"] or "python MCP surface did not parse")
         else:
-            if facts["add_tool"]:
-                gaps.append("mcp.add_tool is outside the @mcp.tool enumeration")
+            gaps.extend(facts.get("gaps") or [])
             for tool in facts["tools"]:
                 examined.append(f"py:{tool['name']}@{tool['lineno']}")
                 if "verify" in tool["params"]:
@@ -164,12 +179,12 @@ def eval_mcp_no_verify(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     return (
         Verdict(
             rule_id="mcp-no-verify-argument",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=MCP_SCOPE,
             coverage=coverage,
-            detail="every tool in the defined scope was enumerated with no verify parameter or literal property key; Worker evidence covers initializer syntax only, not immutable runtime state or global absence",
+            detail="no verify parameter was found in the enumerated tools; this is not assurance that every runtime schema rejects verify",
             evidence="ast",
             clean_single_writer=group.clean_single_writer,
             code_revision=CODE_REVISION,
@@ -192,10 +207,12 @@ def eval_mcp_authority(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     if py is None:
         gaps.append("kypp/mcp_server.py is absent")
     else:
-        facts = cached_python_mcp(cache, py)
+        modules = {path: text for path, text in head.items() if path.endswith(".py")}
+        facts = cached_python_mcp(cache, py, modules, "kypp/mcp_server.py")
         if not facts["covered"]:
             gaps.append(facts["error"] or "python MCP surface did not parse")
         else:
+            gaps.extend(facts.get("gaps") or [])
             for tool in facts["tools"]:
                 for hit in tool["authority"]:
                     if hit["dynamic"]:
@@ -247,12 +264,12 @@ def eval_mcp_authority(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
     return (
         Verdict(
             rule_id="mcp-no-human-or-verified-authority",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=AUTH_SCOPE,
             coverage=coverage,
-            detail="no constant authority=human or authority=verified in the MCP tool scope; POST /sync remains a separate writer and is not claimed absent",
+            detail="no constant authority=human or authority=verified was found in the MCP tool scope; this is not assurance, and POST /sync is a separate writer",
             evidence="ast",
             clean_single_writer=False,
             code_revision=CODE_REVISION,
@@ -304,8 +321,9 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
         return _pin_missing("authority-rank-order", spec, "baseline authority-order@0004 does not contain the pinned rank bullet"), None
     vocab = head.get("kypp/vocab.py")
     arbiter = head.get("kypp/arbiter.py")
+    memory = head.get("worker/src/memory.ts")
+    missing = [p for p, text in (("kypp/vocab.py", vocab), ("kypp/arbiter.py", arbiter), ("worker/src/memory.ts", memory)) if text is None]
     if vocab is None or arbiter is None:
-        missing = [p for p, t in (("kypp/vocab.py", vocab), ("kypp/arbiter.py", arbiter)) if t is None]
         return (
             Verdict(
                 rule_id="authority-rank-order",
@@ -314,13 +332,14 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
                 claim_text=group.display_text,
                 scope=RANK_SCOPE,
                 coverage=f"missing {', '.join(missing)}",
-                detail="the rank scope is not fully present",
+                detail="the rank scope is not fully present, so the Python and TypeScript orders were not both proved",
                 evidence="ast",
                 code_revision=CODE_REVISION,
             ),
             group,
         )
     facts = cached_rank(cache, vocab, arbiter)
+    ts = cached_ts_rank(cache, memory) if memory is not None else {"order": "unknown", "error": "worker/src/memory.ts is absent"}
     if not facts["covered"]:
         return (
             Verdict(
@@ -348,7 +367,14 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
         problems.append("_rank does not put AUTHORITY_RANK first")
     if not facts["survivor_uses_rank"]:
         problems.append("_survivor does not use key=_rank")
-    coverage = "parsed vocab.Authority, AUTHORITY_RANK, arbiter._rank, and arbiter._survivor"
+    ts_order = ts.get("order")
+    ts_unproved = ts_order in (None, "unknown") or not isinstance(ts_order, list)
+    if ts_order == "absent":
+        problems.append("worker/src/memory.ts rank() does not order AUTHORITIES")
+        ts_unproved = False
+    elif isinstance(ts_order, list) and ts_order != facts.get("literal"):
+        problems.append(f"worker/src/memory.ts order {ts_order} diverges from Python {facts.get('literal')}")
+    coverage = "parsed vocab.Authority, AUTHORITY_RANK, arbiter._rank, arbiter._survivor, and worker/src/memory.ts rank/survivor"
     if order == "unknown" and not problems:
         return (
             Verdict(
@@ -374,14 +400,15 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
                 claim_text=group.display_text,
                 scope=RANK_SCOPE,
                 coverage=coverage,
-                detail="the survivor order does not match the pinned authority ranking",
+                detail="the survivor order does not match the pinned authority ranking, or the TypeScript mirror diverges from it",
                 counterexample="; ".join(problems),
                 evidence="ast",
                 code_revision=CODE_REVISION,
             ),
             group,
         )
-    if order != "ascending":
+    if order != "ascending" or ts_unproved:
+        why = "the TypeScript order was not proved" if ts_unproved else "the first element of _rank was not proved to order AUTHORITY_RANK ascending"
         return (
             Verdict(
                 rule_id="authority-rank-order",
@@ -389,7 +416,7 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
                 spec=spec,
                 claim_text=group.display_text,
                 scope=RANK_SCOPE,
-                coverage=coverage + "; the first element of _rank was not proved to order AUTHORITY_RANK ascending",
+                coverage=coverage + "; " + why,
                 detail="the analysis could not prove the survivor order, so this is not conformance",
                 evidence="ast",
                 code_revision=CODE_REVISION,
@@ -399,17 +426,19 @@ def eval_rank(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Ver
     return (
         Verdict(
             rule_id="authority-rank-order",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=RANK_SCOPE,
             coverage=coverage,
-            detail="agent < verified < human, and the arbiter survivor key uses AUTHORITY_RANK first",
+            detail="no rank-order counterexample in the recognized shapes; this is not assurance that survivor selection holds at runtime",
             evidence="ast",
             code_revision=CODE_REVISION,
         ),
         group,
     )
+
+
 
 
 def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None]:
@@ -451,10 +480,13 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             group,
         )
     bad = []
+    unknown = []
     for i, sql in enumerate(facts["entries"]):
         kind = classify_migration(sql)
-        if kind in {"not_add_column", "not_null_without_default"}:
+        if kind in {"not_add_column", "not_null_without_default", "version_table"}:
             bad.append(f"[{i}] {kind}: {sql}")
+        elif kind == "unrecognized":
+            unknown.append(f"[{i}] unrecognized: {sql}")
     coverage = f"classified all {len(facts['entries'])} _MIGRATIONS entries"
     if bad:
         return (
@@ -473,15 +505,30 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             ),
             group,
         )
+    if unknown:
+        return (
+            Verdict(
+                rule_id="schema-add-column",
+                status="unresolved",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=SCHEMA_SCOPE,
+                coverage=coverage + "; " + "; ".join(unknown[:6]),
+                detail="an ADD COLUMN migration was not the allow-listed shape, so it was not proved additive",
+                evidence="schema",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
     return (
         Verdict(
             rule_id="schema-add-column",
-            status="conforms",
+            status="no_counterexample",
             spec=spec,
             claim_text=group.display_text,
             scope=SCHEMA_SCOPE,
             coverage=coverage,
-            detail="every _MIGRATIONS entry is ADD COLUMN, and none is NOT NULL without a default",
+            detail="no non-additive migration counterexample was found; this is not assurance that every migration is additive",
             evidence="schema",
             code_revision=CODE_REVISION,
         ),
@@ -566,20 +613,296 @@ def eval_verify_timeout(index: SpecIndex) -> tuple[Verdict, ClaimGroup | None]:
     )
 
 
+def _absent(rule_id: str, spec: str, claim: str, scope: str, coverage: str, detail: str) -> Verdict:
+    return Verdict(
+        rule_id=rule_id,
+        status="unresolved",
+        spec=spec,
+        claim_text=claim,
+        scope=scope,
+        coverage=coverage,
+        detail=detail,
+        evidence="ast",
+        code_revision=CODE_REVISION,
+    )
+
+
+# Context: doc://kypp/append-only-history@0001#never-delete — no DELETE against memory_claims or observations.
+def eval_no_delete(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None] | tuple[None, None]:
+    spec = "doc://kypp/append-only-history@0001#never-delete"
+    if index.version("append-only-history", 1) is None:
+        return None, None
+    _path, groups = _groups(index, "append-only-history", 1, "never-delete")
+    group = _group_containing(groups, DELETE_BULLETS[0])
+    if group is None:
+        return _pin_missing("no-delete-claims", spec, "baseline append-only-history@0001 does not contain the pinned DELETE bullet"), None
+    facts = cached_delete_sql(cache, head)
+    bad = [item for item in facts["bad"] if item.startswith("DELETE ")]
+    # Authority-only gaps belong to the writer rule. Delete-like holes are candidates.
+    # Parser failures and other coverage holes stay unresolved, and stay visible.
+    gaps = [item for item in facts["gaps"] if not item.startswith("dynamic authority")]
+    delete_like = [item for item in gaps if item.startswith("delete-like ")]
+    coverage_gaps = [item for item in gaps if not item.startswith("delete-like ")]
+    coverage = f"scanned {len(facts['scanned'])} file(s) for DELETE FROM memory_claims or observations"
+    if bad:
+        return (
+            Verdict(
+                rule_id="no-delete-claims",
+                status="violates",
+                severity="high",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=DELETE_SCOPE,
+                coverage=coverage,
+                detail="a SQL string deletes memory_claims or observations",
+                counterexample="; ".join(bad[:8]),
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    if delete_like:
+        shown = delete_like + coverage_gaps
+        return (
+            Verdict(
+                rule_id="no-delete-claims",
+                status="candidate",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=DELETE_SCOPE,
+                coverage=coverage + "; " + "; ".join(shown[:6]),
+                detail="a DELETE, REPLACE, INSERT OR REPLACE, DROP, or TRUNCATE construction was not proved; this is not a violation and not assurance",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    if coverage_gaps:
+        return (
+            Verdict(
+                rule_id="no-delete-claims",
+                status="unresolved",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=DELETE_SCOPE,
+                coverage=coverage + "; " + "; ".join(coverage_gaps[:6]),
+                detail="a parser failure or an unclassified hole was not resolved; this is not a violation and not assurance",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    return (
+        Verdict(
+            rule_id="no-delete-claims",
+            status="no_counterexample",
+            spec=spec,
+            claim_text=group.display_text,
+            scope=DELETE_SCOPE,
+            coverage=coverage,
+            detail="no protected DELETE counterexample was found; this is not assurance",
+            evidence="ast",
+            code_revision=CODE_REVISION,
+        ),
+        group,
+    )
+
+
+# Context: doc://kypp/authority-order@0004#authority-dominates — only MemoryStore.mark_verified sets authority=verified.
+def eval_mark_verified(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None]:
+    spec = "doc://kypp/authority-order@0004#authority-dominates"
+    _path, groups = _groups(index, "authority-order", 4, "authority-dominates")
+    group = _group_containing(groups, AUTH_BULLETS[3])
+    if group is None:
+        return _pin_missing("verified-authority-writer", spec, "baseline authority-order@0004 does not contain the pinned mark_verified bullet"), None
+    facts = cached_verified_writes(cache, head)
+    coverage = f"scanned {len(facts['scanned'])} python file(s) and {len(facts['sql_scanned'])} SQL-bearing file(s)"
+    # The /sync bullet lets a model-ratified revision land at verified. The next bullet says only
+    # MemoryStore.mark_verified sets verified. The writer set stays unresolved until that is ratified.
+    qualification = (
+        "authority-order@0004 lets POST /sync land a model-ratified revision at verified, "
+        "while the next bullet says only MemoryStore.mark_verified sets verified; "
+        "the writer set is unresolved until that qualification is ratified"
+    )
+    extra = ""
+    counterexample = None
+    if facts["bad"]:
+        counterexample = "; ".join(facts["bad"][:8])
+        extra = " A write outside mark_verified was seen and is not treated as a settled violation."
+    if facts["gaps"]:
+        coverage += "; " + "; ".join(facts["gaps"][:6])
+        extra += " Some authority writes were not classified."
+    return (
+        Verdict(
+            rule_id="verified-authority-writer",
+            status="unresolved",
+            spec=spec,
+            claim_text=group.display_text,
+            scope=VERIFIED_SCOPE,
+            coverage=coverage,
+            detail=qualification + "." + extra,
+            counterexample=counterexample,
+            evidence="ast",
+            clean_single_writer=False,
+            code_revision=CODE_REVISION,
+        ),
+        group,
+    )
+
+
+# Context: doc://kypp/no-grader-leak@0001#signal-only-rubric — a distilled claim never contains verbatim criterion names or feedback.
+def eval_grader_leak(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[Verdict, ClaimGroup | None] | tuple[None, None]:
+    spec = "doc://kypp/no-grader-leak@0001#signal-only-rubric"
+    if index.version("no-grader-leak", 1) is None:
+        return None, None
+    _path, groups = _groups(index, "no-grader-leak", 1, "signal-only-rubric")
+    group = _group_containing(groups, GRADER_BULLETS[0])
+    if group is None:
+        return _pin_missing("no-grader-verbatim", spec, "baseline no-grader-leak@0001 does not contain the pinned bullet"), None
+    source = head.get("kypp/distill.py")
+    if source is None:
+        return _absent(
+            "no-grader-verbatim",
+            spec,
+            group.display_text,
+            GRADER_SCOPE,
+            "kypp/distill.py is absent",
+            "the distiller was not in the tree, so claim text was not proved free of criterion names or feedback",
+        ), group
+    facts = cached_grader(cache, source)
+    if not facts["covered"]:
+        return _absent(
+            "no-grader-verbatim",
+            spec,
+            group.display_text,
+            GRADER_SCOPE,
+            facts.get("error") or "distill.py did not parse",
+            "claim text was not classified",
+        ), group
+    leaks = [row for row in facts["results"] if row["class"] == "leak"]
+    unknown = [row for row in facts["results"] if row["class"] == "unknown"]
+    coverage = f"classified {len(facts['results'])} ClaimDraft construction(s)"
+    if leaks:
+        return (
+            Verdict(
+                rule_id="no-grader-verbatim",
+                status="violates",
+                severity="medium",
+                spec=spec,
+                claim_text=group.display_text,
+                scope=GRADER_SCOPE,
+                coverage=coverage,
+                detail="a ClaimDraft subject or content reads a criterion name or feedback field",
+                counterexample="; ".join(f"kypp/distill.py:{row['lineno']}" for row in leaks[:8]),
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            group,
+        )
+    if unknown or not facts["results"]:
+        why = "no ClaimDraft construction was found" if not facts["results"] else "a ClaimDraft subject or content is not a proved count or scheme"
+        return _absent(
+            "no-grader-verbatim",
+            spec,
+            group.display_text,
+            GRADER_SCOPE,
+            coverage + ("; " + "; ".join(f"kypp/distill.py:{row['lineno']}" for row in unknown[:6]) if unknown else ""),
+            why + ". Model JSON copied into a claim is not proof that criterion text is absent.",
+        ), group
+    return (
+        Verdict(
+            rule_id="no-grader-verbatim",
+            status="no_counterexample",
+            spec=spec,
+            claim_text=group.display_text,
+            scope=GRADER_SCOPE,
+            coverage=coverage,
+            detail="no verbatim criterion or feedback counterexample was found in the examined drafts; this is not assurance",
+            evidence="ast",
+            code_revision=CODE_REVISION,
+        ),
+        group,
+    )
+
+
+
+
+def eval_tools_initializer(head: dict[str, str], cache: Cache) -> tuple[Verdict | None, None]:
+    """Closed-world: a fully parsed TOOLS initializer declares no verify property."""
+    spec = "doc://kypp/verify-operator-only@0002#operator-only-verify"
+    claim = "the fully parsed TOOLS initializer declares no verify property"
+    scope = "the TOOLS array initializer in worker/src/mcp.ts"
+    ts = head.get("worker/src/mcp.ts")
+    if ts is None:
+        return (
+            Verdict(
+                rule_id="tools-initializer-no-verify",
+                status="unresolved",
+                spec=spec,
+                claim_text=claim,
+                scope=scope,
+                coverage="worker/src/mcp.ts is absent",
+                detail="the TOOLS initializer was not in the enumerated files",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            None,
+        )
+    facts = cached_ts_mcp(cache, ts)
+    if not facts["covered"] or not facts["tools"]:
+        return (
+            Verdict(
+                rule_id="tools-initializer-no-verify",
+                status="unresolved",
+                spec=spec,
+                claim_text=claim,
+                scope=scope,
+                coverage=facts.get("error") or "TOOLS initializer did not fully parse",
+                detail="the TOOLS initializer was not fully parsed, so the absence of a verify property is not a bounded proposition",
+                evidence="ast",
+                code_revision=CODE_REVISION,
+            ),
+            None,
+        )
+    if any("verify" in (tool.get("params") or []) for tool in facts["tools"]):
+        return None, None
+    names = ", ".join(tool["name"] for tool in facts["tools"])
+    return (
+        Verdict(
+            rule_id="tools-initializer-no-verify",
+            status="bounded",
+            spec=spec,
+            claim_text=claim,
+            scope=scope,
+            coverage=f"fully parsed TOOLS initializer names {names}",
+            detail=claim,
+            evidence="ast",
+            code_revision=CODE_REVISION,
+        ),
+        None,
+    )
+
+
 def rule_verdicts(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple[list[Verdict], set[tuple[str, int]]]:
     covered: set[tuple[str, int]] = set()
     verdicts: list[Verdict] = []
     evaluators = (
         lambda: eval_mcp_no_verify(index, head, cache),
+        lambda: eval_tools_initializer(head, cache),
         lambda: eval_mcp_authority(index, head, cache),
         lambda: eval_writers(index),
         lambda: eval_rank(index, head, cache),
         lambda: eval_schema_columns(index, head, cache),
         lambda: eval_schema_idempotence(index, head, cache),
         lambda: eval_verify_timeout(index),
+        lambda: eval_no_delete(index, head, cache),
+        lambda: eval_mark_verified(index, head, cache),
+        lambda: eval_grader_leak(index, head, cache),
     )
     for evaluate in evaluators:
         verdict, group = evaluate()
+        if verdict is None:
+            continue
         verdicts.append(verdict)
         if group is not None and verdict.status != "unresolved":
             for idx in group.bullet_indexes:
@@ -592,6 +915,9 @@ def rule_verdicts(index: SpecIndex, head: dict[str, str], cache: Cache) -> tuple
             "mcp-no-human-or-verified-authority",
             "authority-rank-order",
             "schema-add-column",
+            "no-delete-claims",
+            "verified-authority-writer",
+            "no-grader-verbatim",
         }:
             # The bullet was claimed by a rule even when the verdict abstains.
             if "pinned" not in verdict.coverage:

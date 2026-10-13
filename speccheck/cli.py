@@ -85,7 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     check.set_defaults(func=cmd_check)
 
     bench = sub.add_parser("bench", help="false-conformance, abstention, and coverage")
-    bench.add_argument("--split", choices=("tuning", "regression", "holdout", "smoke", "all"), default="all")
+    from .bench import BENCHMARK_SPLITS
+
+    bench.add_argument("--split", choices=(*BENCHMARK_SPLITS, "all"), default="all")
     bench.set_defaults(func=cmd_bench)
 
     args = parser.parse_args(argv)

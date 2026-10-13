@@ -219,7 +219,8 @@ def glob_matches(pattern: str, paths: list[str]) -> bool:
 
 def iter_doc_refs(text: str):
     for match in DOC_REF_RE.finditer(text):
-        yield match.group(0), match.group(1), match.group(2), match.group(3), match.group(4)
+        line = text.count("\n", 0, match.start()) + 1
+        yield match.group(0), match.group(1), match.group(2), match.group(3), match.group(4), line
 
 
 SIGNOFF_RE = re.compile(r"^([A-Za-z0-9_-]+)\s+(conforms|amend-proposed)\s*:\s*(.*)$")
