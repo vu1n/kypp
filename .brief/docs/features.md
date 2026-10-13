@@ -312,3 +312,7 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   in `docs/spec-check-evaluation.md`; smoke controls are not accuracy evidence.
 - A reference-index cache hit for the same head SHA is reused only when the dependency hash
   still matches. A baseline spec change rebuilds the index.
+- Source loading requires every selected file to be regular UTF-8 text. A read, decoding or
+  file-type failure aborts the check before report/cache writes; it never supplies empty evidence.
+- Git filenames are NUL-delimited and literal. Worktree deletions leave both content and path
+  inventories; selected symlinks, including symlinked parent directories, are rejected.

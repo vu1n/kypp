@@ -114,10 +114,6 @@ def _worktree_entry(repo: Path, path: str, read: bool) -> str | None:
             os.close(fd)
 
 
-def _read_worktree_file(repo: Path, path: str) -> str | None:
-    return _worktree_entry(repo, path, read=True)
-
-
 def load_files(repo: Path, rev: str | None) -> tuple[dict[str, str], list[str]]:
     paths = list_paths(repo, rev)
     snapshot_paths: list[str] = []
@@ -125,7 +121,7 @@ def load_files(repo: Path, rev: str | None) -> tuple[dict[str, str], list[str]]:
     for path in paths:
         selected = want_content(path)
         if rev is None:
-            text = _read_worktree_file(repo, path) if selected else _worktree_entry(repo, path, read=False)
+            text = _worktree_entry(repo, path, read=selected)
             if text is None:
                 continue
         elif selected:
