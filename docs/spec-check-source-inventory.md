@@ -54,9 +54,9 @@ These small synthetic sets do not estimate a population error rate.
 
 ## Validation
 
-- Full checker suite: 71 unittest methods passed, including 26 named corpus subtests.
+- Full checker suite: 72 unittest methods passed, including 26 named corpus subtests.
 - All existing tuning, regression, previously exposed holdout and smoke benchmark splits passed.
-- Fourteen meaningful mutants were killed. Initial survivors prompted tests for
+- Fifteen meaningful mutants were killed. Initial survivors prompted tests for
   replacement between stat/open, duplicate unmerged Git index entries, and descriptor cleanup.
 - Independent structural review found no high-confidence structural blocker.
 - Required Brief check and pin passed; doctor retained only the three pre-existing stale pins.
@@ -66,6 +66,9 @@ in the draft PR, since they follow this local validation.
 The first correctness review identified strict traversal applied to excluded
 symlinked asset directories. Its red-first regression now passes after keeping
 those paths in the existence-only inventory; the settled fix receives a fresh review.
+Another fresh review identified excluded descendants after a directory is replaced
+by a file. Those descendants now count as absent, with a red-first regression;
+selected-source traversal still rejects nonregular parents.
 
 This branch starts directly from main. Open PR25 extends semantic rule coverage;
 open PR26 supplies SQL migration evidence. Neither is included or required here.

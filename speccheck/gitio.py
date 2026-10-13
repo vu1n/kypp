@@ -82,7 +82,10 @@ def _worktree_entry(repo: Path, path: str, read: bool) -> str | None:
     try:
         if not read:
             missing_is_deletion = True
-            (repo / path).lstat()
+            try:
+                (repo / path).lstat()
+            except NotADirectoryError:
+                return None
             return ""
         parent = os.open(repo, os.O_RDONLY | os.O_DIRECTORY)
         descriptors.append(parent)

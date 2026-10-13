@@ -208,6 +208,14 @@ class GitSnapshotTest(unittest.TestCase):
         image.unlink()
         self.assertEqual(load_files(self.repo, None), ({}, ['assets']))
 
+    def test_unselected_directory_replaced_by_file_removes_descendants(self):
+        dest = self.write('assets/image.bin', b'\xff')
+        self.commit()
+        dest.unlink()
+        dest.parent.rmdir()
+        dest.parent.write_bytes(b'\xff')
+        self.assertEqual(load_files(self.repo, None), ({}, ['assets']))
+
     def test_committed_gitlink_is_not_source(self):
         self.write('outside.txt')
         self.commit()
