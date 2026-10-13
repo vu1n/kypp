@@ -105,6 +105,7 @@ depends_on: [SQL-001, SQL-002]
 footprint:
   modifies:
     - "PLAN.md::*"
+    - ".brief/docs/features.md::*"
   creates:
     - "docs/spec-check-sql-migrations.md"
 gate: "Required local tests/governance and frozen evaluation pass; exact pushed head clears independent correctness and separate security review; draft PR has actual exact-head CI evidence and no PR24 dependency"

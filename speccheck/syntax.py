@@ -308,10 +308,6 @@ def python_authority_rank(vocab_source: str, arbiter_source: str) -> dict:
         "rank_order": rank_order,
         "survivor_uses_rank": survivor_ok,
     }
-
-
-
-
 def classify_migration(sql: str) -> str:
     """Compatibility facade for bounded SQL policy analysis."""
     from .sqlsyntax import analyze_migration

@@ -8,11 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import Literal
+
+Kind = Literal['ok', 'unknown', 'not_add_column', 'not_null_without_default', 'version_table']
 
 
 @dataclass(frozen=True)
 class Analysis:
-    kind: str
+    kind: Kind
     reasons: tuple[str, ...]
     version_table: bool = False
 

@@ -310,5 +310,11 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   Missing parser dependencies abstain without caching a result that could mask a later install.
 - The original PR23 holdout is regression data. Fresh holdout provenance and exposure are recorded
   in `docs/spec-check-evaluation.md`; smoke controls are not accuracy evidence.
+- SQL migration evidence covers literal initializer entries and a bounded statement grammar.
+  Comments, strings and quoted names cannot supply clauses. Unknown syntax abstains; a known
+  non-additive statement survives unrelated entry gaps. SQL is never executed by the checker.
+- The additive-migrations@0002 registry bullet is retired. Its syntax verdict is not active
+  governance or proof of database acceptance/default semantics/runtime idempotence. Independent
+  schema evaluation and its exposure are recorded in `docs/spec-check-schema-evaluation.md`.
 - A reference-index cache hit for the same head SHA is reused only when the dependency hash
   still matches. A baseline spec change rebuilds the index.

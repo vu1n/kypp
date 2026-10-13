@@ -31,6 +31,7 @@ Unsupported or ambiguous syntax abstains. Known counterexamples remain visible
 alongside unrelated SQL or nonliteral initializer gaps. Partial Python migration
 facts retain original entry positions and use a new cache namespace, so older
 all-or-nothing facts cannot hide retained literals.
+The inventory covers a unique list initializer, not later runtime mutations.
 
 Lexing has character, token, parenthesis-depth and statement limits. Crossing a
 limit yields an unresolved coverage gap. This deliberately bounded grammar is

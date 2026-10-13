@@ -38,7 +38,7 @@ RANK_SCOPE = (
     "Authority / AUTHORITIES / AUTHORITY_RANK in kypp/vocab.py, "
     "and _rank / _survivor in kypp/arbiter.py"
 )
-SCHEMA_SCOPE = "bounded SQL syntax in literal _MIGRATIONS entries in kypp/store.py; retired additive-migrations@0002 registry bullet, not active governance or engine/runtime proof"
+SCHEMA_SCOPE = "bounded SQL syntax in literal _MIGRATIONS initializer entries in kypp/store.py; retired additive-migrations@0002 registry bullet, not active governance or engine/runtime proof"
 
 _TS_AUTH_BAD = re.compile(r"""authority\s*[:=]\s*(['"])(human|verified)\1""")
 _TS_AUTH_DYN = re.compile(r"""authority\s*[:=]\s*(?!['"\s\n])""")
