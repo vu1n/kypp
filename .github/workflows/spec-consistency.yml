@@ -1,0 +1,41 @@
+name: spec-consistency
+on:
+  pull_request:
+    paths:
+      - "speccheck/**"
+      - "kypp/**"
+      - "worker/src/**"
+      - "worker/migrations/**"
+      - ".brief/**"
+      - ".github/workflows/spec-consistency.yml"
+      - "pyproject.toml"
+  workflow_dispatch:
+concurrency:
+  group: spec-consistency-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  advisory:
+    runs-on: ${{ vars.RUNNER_LABEL == 'netcup' && fromJSON('["self-hosted","netcup"]') || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: spec consistency (advisory)
+        run: |
+          if [ -n "${{ github.base_ref }}" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            git fetch origin main --depth=1
+            base="origin/main"
+          fi
+          python -m speccheck check --repo . --baseline "$base" --out spec-consistency-report.md --json spec-consistency-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spec-consistency-report
+          path: |
+            spec-consistency-report.md
+            spec-consistency-report.json
