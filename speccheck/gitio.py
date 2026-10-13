@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -22,10 +24,13 @@ READ_PREFIXES = (
 
 
 def _git(repo: Path, args: list[str]) -> str:
-    proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    try:
+        proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True)
+    except OSError as exc:
+        raise GitError(f"cannot run git: {exc}") from exc
     if proc.returncode != 0:
-        raise GitError(proc.stderr.strip() or f"git {' '.join(args)} failed")
-    return proc.stdout
+        raise GitError(proc.stderr.decode("utf-8", errors="replace").strip() or f"git {' '.join(args)} failed")
+    return proc.stdout.decode("utf-8", errors="surrogateescape")
 
 
 def rev_parse(repo: Path, rev: str) -> str:
@@ -45,41 +50,90 @@ def want_content(path: str) -> bool:
 
 def list_paths(repo: Path, rev: str | None) -> list[str]:
     if rev is None:
-        tracked = _git(repo, ["ls-files", "-c", "-o", "--exclude-standard"])
-        return [line for line in tracked.splitlines() if line]
-    return [line for line in _git(repo, ["ls-tree", "-r", "--name-only", rev]).splitlines() if line]
+        output = _git(repo, ["ls-files", "-z", "-c", "-o", "--exclude-standard"])
+    else:
+        output = _git(repo, ["ls-tree", "-z", "-r", "--name-only", rev])
+    return list(dict.fromkeys(path for path in output.split("\0") if path))
 
 
-def _read_rev_file(repo: Path, rev: str, path: str) -> str | None:
-    proc = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
-    if proc.returncode != 0:
-        return None
+def _read_rev_file(repo: Path, rev: str, path: str) -> str:
+    entry = _git(repo, ["--literal-pathspecs", "ls-tree", "-z", rev, "--", path])
+    metadata, separator, name = entry.rstrip("\0").partition("\t")
+    if not separator or name != path or metadata.split()[:2] not in (
+        ["100644", "blob"], ["100755", "blob"]
+    ):
+        raise GitError(f"selected entry is not a regular file: {path!r} at {rev}")
     try:
-        return proc.stdout.decode()
-    except UnicodeDecodeError:
-        return None
+        proc = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
+    except OSError as exc:
+        raise GitError(f"cannot read {path!r} at {rev}: {exc}") from exc
+    if proc.returncode != 0:
+        raise GitError(f"cannot read {path!r} at {rev}: " + proc.stderr.decode("utf-8", errors="replace").strip())
+    try:
+        return proc.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GitError(f"cannot decode {path!r} at {rev} as UTF-8: {exc}") from exc
+
+
+def _worktree_entry(repo: Path, path: str, read: bool) -> str | None:
+    """Traverse with directory descriptors so no symlink can escape the tree."""
+    descriptors: list[int] = []
+    missing_is_deletion = False
+    try:
+        parent = os.open(repo, os.O_RDONLY | os.O_DIRECTORY)
+        descriptors.append(parent)
+        missing_is_deletion = True
+        parts = path.split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            raise GitError(f"invalid Git path: {path!r}")
+        for part in parts[:-1]:
+            parent = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            descriptors.append(parent)
+        info = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+        missing_is_deletion = False
+        if not read:
+            return ""
+        if not stat.S_ISREG(info.st_mode):
+            raise GitError(f"selected entry is not a regular file: {path!r}")
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        descriptors.append(fd)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise GitError(f"selected entry is not a regular file: {path!r}")
+        chunks = []
+        while chunk := os.read(fd, 65536):
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8")
+    except FileNotFoundError as exc:
+        if missing_is_deletion:
+            return None
+        raise GitError(f"cannot read worktree entry {path!r}: {exc}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GitError(f"cannot read worktree entry {path!r}: {exc}") from exc
+    finally:
+        for fd in reversed(descriptors):
+            os.close(fd)
 
 
 def _read_worktree_file(repo: Path, path: str) -> str | None:
-    file = repo / path
-    if not file.is_file():
-        return None
-    try:
-        return file.read_text()
-    except (OSError, UnicodeDecodeError):
-        return None
+    return _worktree_entry(repo, path, read=True)
 
 
 def load_files(repo: Path, rev: str | None) -> tuple[dict[str, str], list[str]]:
     paths = list_paths(repo, rev)
+    snapshot_paths: list[str] = []
     files: dict[str, str] = {}
     for path in paths:
-        if not want_content(path):
-            continue
-        text = _read_worktree_file(repo, path) if rev is None else _read_rev_file(repo, rev, path)
-        if text is not None:
+        selected = want_content(path)
+        if rev is None:
+            text = _read_worktree_file(repo, path) if selected else _worktree_entry(repo, path, read=False)
+            if text is None:
+                continue
+        elif selected:
+            text = _read_rev_file(repo, rev, path)
+        snapshot_paths.append(path)
+        if selected:
             files[path] = text
-    return files, paths
+    return files, snapshot_paths
 
 
 def spec_fingerprint(files: dict[str, str]) -> str:
