@@ -21,7 +21,8 @@ governance, and clean controls. Conformance requires covered enumeration of boun
 literal signatures, not runtime schema evaluation or global absence. A direct
 covered counterexample remains a violation despite unrelated coverage gaps.
 
-Freeze commit: recorded in the following documentation commit after freezing.
+Freeze commit: `91eb908c83e6cce8ffbb62f0a7ef013657ecd15a` (fresh corpus and expectations).
+The following documentation-only commit records that immutable freeze identity.
 Fresh canonical SHA-256: `2412362ea7918456293bfeee26dfc3cb99d65f7bce1b77b2cd9baef0f4573c31`.
 
 All 13 exposed PR23 holdout inputs are now regression data. Their old `holdout_`
