@@ -294,25 +294,34 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   to one function in the file; an unknown or ambiguous callable stays `unresolved`. Bare `**kwargs`
   or `*args` stays `unresolved`. `Unpack[TypedDict]` and a pydantic/TypedDict parameter are checked
   when that model is defined in the tree with a closed field list; an open, inherited, or imported
-  model that does not resolve stays `unresolved`.
+  model that does not resolve stays `unresolved`. A model is closed only when every `extra` or
+  `model_config` setting is absent or a proved literal `forbid` or `ignore`. `extra = Extra.allow`,
+  a non-literal `model_config`, or any other unproved extra policy stays `unresolved`.
 - The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
   following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
 - `authority-rank-order` reads `kypp/vocab.py`, `kypp/arbiter.py`, and the `worker/src/memory.ts`
   mirror. The TypeScript order has to be proved equal to the Python order (`agent` < `verified` <
   `human`, higher rank wins). Divergence is a violation. A missing file, a parse failure, or an
-  expression the checker cannot classify stays `unresolved`. Negation or `reversed` on the Python
-  `_rank` is a violation.
+  expression the checker cannot classify stays `unresolved`. `compareRank` conforms only when the
+  compared names are bound directly to `rank` of its two parameters and those names are what the
+  comparison indexes. An incidental `rank(` call stays `unresolved`. Negation or `reversed` on the
+  Python `_rank` is a violation.
 - Stale `doc://` pins are one advisory per pin. The detail lists every path and line.
 - `no-delete-claims` checks constant SQL for `DELETE` against `memory_claims` or `observations`
-  in `kypp/**/*.py` and `worker/**/*.{ts,sql}`. Adjacent literals, `+`, and `"".join` of string
-  literals are one constant, including a name bound to one of those in the same function.
+  in `kypp/**/*.py` and `worker/**/*.{ts,sql}`. Bracket, backtick, and double-quoted identifiers
+  count, including a schema prefix (`main.[memory_claims]`). Adjacent literals, `+`, and `"".join`
+  of string literals are one constant, including a name bound to one of those in the same function.
   A dynamic `DELETE` whose target is not a constant stays `unresolved`. Docstrings are not SQL.
   The recall/briefing exclusion bullet and the consolidation bullet stay unsupported: they are
   query and runtime behaviour, not a SQL literal.
 - `verified-authority-writer` allows `authority='verified'` SQL inside `MemoryStore.mark_verified`
   and constant `claim()` authority arguments other than `verified`. The same SQL in any other
-  Python file, or in a worker `.ts` or `.sql` string, is a violation. A non-constant `authority=`
-  on `claim()` stays `unresolved`. A one-step local bound to `"verified"` is a violation.
+  Python file, or in a worker `.ts` or `.sql` string, is a violation. INSERT maps each column onto
+  its VALUES row or SELECT item, including multi-row VALUES and `INSERT ... SELECT`, and the same
+  bracket, backtick, and double-quoted spellings as DELETE. A mapped literal `verified` is a
+  violation. A mapped literal other than `verified`, or a `?` placeholder, is not. An INSERT that
+  mentions `authority` but whose columns cannot be aligned stays `unresolved`. A non-constant
+  `authority=` on `claim()` stays `unresolved`. A one-step local bound to `"verified"` is a violation.
 - `no-grader-verbatim` checks `ClaimDraft` subject and content. A proved read of a criterion
   `name` or `feedback` is a violation. Text copied from model JSON stays `unresolved`.
 - `memory-scope-decay` and `agent-mcp-surface-compose` have no `### Invariant` list, so their

@@ -409,15 +409,136 @@ def _ts_string_array(source: str, name: str) -> list[str] | None:
     return values
 
 
-def _ts_comparator(body: str) -> str:
-    flat = re.sub(r"\s+", " ", body)
-    if "rank(" not in flat:
+def _direct_rank_arg(value) -> str | None:
+    """The parameter name when ``value`` is exactly ``rank(<identifier>)``."""
+    value = _unwrap(value)
+    if value is None or value.type != "call_expression":
+        return None
+    func = value.child_by_field_name("function")
+    if func is None or func.type != "identifier" or _text(func) != "rank":
+        return None
+    args = value.child_by_field_name("arguments")
+    if args is None:
+        return None
+    got = list(args.named_children)
+    if len(got) != 1 or got[0].type != "identifier":
+        return None
+    return _text(got[0])
+
+
+def _rank_bindings(body) -> dict[str, str]:
+    """Names bound directly to ``rank(<identifier>)``. A second binding drops the name."""
+    found: dict[str, str] = {}
+    dropped: set[str] = set()
+    for node in _walk(body):
+        if node.type != "variable_declarator":
+            continue
+        ident = node.child_by_field_name("name")
+        if ident is None or ident.type != "identifier":
+            continue
+        name = _text(ident)
+        arg = _direct_rank_arg(node.child_by_field_name("value"))
+        if arg is None:
+            if name in found:
+                dropped.add(name)
+            continue
+        if name in found or name in dropped:
+            dropped.add(name)
+            found.pop(name, None)
+            continue
+        found[name] = arg
+    return found
+
+
+def _returned_int(stmt) -> int | None:
+    kids = [child for child in stmt.named_children]
+    if len(kids) != 1:
+        return None
+    node = _unwrap(kids[0])
+    if node is None:
+        return None
+    if node.type == "number" and _text(node).isdigit():
+        return int(_text(node))
+    if node.type == "unary_expression":
+        op = next((child.text.decode("utf8") for child in node.children if not child.is_named), "")
+        nums = [child for child in node.named_children if child.type == "number"]
+        if len(nums) == 1 and _text(nums[0]).isdigit() and op in {"-", "+"}:
+            value = int(_text(nums[0]))
+            return value if op == "+" else -value
+    return None
+
+
+def _if_return(node) -> int | None:
+    if node.type == "return_statement":
+        return _returned_int(node)
+    if node.type == "statement_block":
+        stmts = [child for child in node.named_children if child.type != "comment"]
+        if len(stmts) == 1 and stmts[0].type == "return_statement":
+            return _returned_int(stmts[0])
+    return None
+
+
+def _subscript_pair(expr):
+    expr = _unwrap(expr)
+    if expr is None or expr.type != "binary_expression":
+        return None
+    op = next((child.text.decode("utf8") for child in expr.children if not child.is_named), "")
+    if op not in {"<", ">"}:
+        return None
+    sides = [child for child in expr.named_children if child.type == "subscript_expression"]
+    if len(sides) != 2:
+        return None
+    names = []
+    indexes = []
+    for side in sides:
+        obj = side.child_by_field_name("object")
+        index = side.child_by_field_name("index")
+        if obj is None or obj.type != "identifier" or index is None:
+            return None
+        names.append(_text(obj))
+        indexes.append(_text(index))
+    if indexes[0] != indexes[1]:
+        return None
+    return names[0], names[1], op
+
+
+def _ts_comparator(fn) -> str:
+    """natural/inverted only when the compared names are ``rank`` of the two parameters."""
+    if fn is None:
         return "unknown"
-    natural = "if (ra[i] < rb[i]) return -1" in flat and "if (ra[i] > rb[i]) return 1" in flat
-    inverted = "if (ra[i] < rb[i]) return 1" in flat and "if (ra[i] > rb[i]) return -1" in flat
-    if natural and not inverted:
+    params = fn.child_by_field_name("parameters")
+    body = fn.child_by_field_name("body")
+    if params is None or body is None:
+        return "unknown"
+    names: list[str] = []
+    for child in params.named_children:
+        if child.type not in {"required_parameter", "optional_parameter"}:
+            return "unknown"
+        pattern = child.child_by_field_name("pattern")
+        if pattern is None or pattern.type != "identifier":
+            return "unknown"
+        names.append(_text(pattern))
+    if len(names) != 2:
+        return "unknown"
+    bound = _rank_bindings(body)
+    less = greater = None
+    for node in _walk(body):
+        if node.type != "if_statement":
+            continue
+        pair = _subscript_pair(_unwrap(node.child_by_field_name("condition")))
+        returned = _if_return(node.child_by_field_name("consequence"))
+        if pair is None or returned not in {-1, 1}:
+            continue
+        left, right, op = pair
+        if bound.get(left) != names[0] or bound.get(right) != names[1]:
+            continue
+        if op == "<":
+            less = returned
+        elif op == ">":
+            greater = returned
+    if less == -1 and greater == 1:
         return "natural"
-    if inverted and not natural:
+    if less == 1 and greater == -1:
         return "inverted"
     return "unknown"
 
@@ -443,16 +564,22 @@ def _ts_survivor_picks(body: str, comparator: str) -> str:
 
 
 
-def _function_body(root, name: str) -> str | None:
+def _function_decl(root, name: str):
     for node in _walk(root):
         if node.type != "function_declaration":
             continue
         ident = node.child_by_field_name("name")
-        if ident is None or _text(ident) != name:
-            continue
-        body = node.child_by_field_name("body")
-        return None if body is None else _text(body)
+        if ident is not None and _text(ident) == name:
+            return node
     return None
+
+
+def _function_body(root, name: str) -> str | None:
+    node = _function_decl(root, name)
+    if node is None:
+        return None
+    body = node.child_by_field_name("body")
+    return None if body is None else _text(body)
 
 
 def _authorities_array(root) -> list[str] | None:
@@ -487,7 +614,7 @@ def typescript_authority_rank(source: str) -> dict:
         return {"covered": True, "order": "unknown", "error": "TypeScript parse error"}
     array = _authorities_array(root)
     rank_body = _function_body(root, "rank")
-    compare_body = _function_body(root, "compareRank")
+    compare = _function_decl(root, "compareRank")
     survivor_body = _function_body(root, "survivor")
     if array is None or rank_body is None:
         return {"covered": True, "order": "unknown", "error": "AUTHORITIES or rank() was not recognized"}
@@ -496,9 +623,9 @@ def typescript_authority_rank(source: str) -> dict:
     polarity = _ts_rank_polarity(first or "")
     if polarity in {"unknown", "absent"}:
         return {"covered": True, "order": polarity, "error": None}
-    if compare_body is None or survivor_body is None:
+    if compare is None or survivor_body is None:
         return {"covered": True, "order": "unknown", "error": "compareRank or survivor was not recognized"}
-    direction = _ts_survivor_picks(_strip_ts_comments(survivor_body), _ts_comparator(_strip_ts_comments(compare_body)))
+    direction = _ts_survivor_picks(_strip_ts_comments(survivor_body), _ts_comparator(compare))
     if direction == "unknown":
         return {"covered": True, "order": "unknown", "error": "survivor direction was not proved"}
     order = list(array)
@@ -509,28 +636,22 @@ def typescript_authority_rank(source: str) -> dict:
     return {"covered": True, "order": order, "error": None}
 
 
-_SQL_DELETE_TARGET = re.compile(r"\bDELETE\s+FROM\s+[\"'`]?(memory_claims|observations)\b", re.I)
-_SQL_DELETE_WORD = re.compile(r"\bDELETE\b", re.I)
-_SQL_VERIFIED = re.compile(
-    r"\b(?:UPDATE|INSERT)\b[\s\S]*?(?:"
-    r"\bauthority\s*=\s*['\"]verified['\"]"
-    r"|\bauthority\b[\s\S]{0,160}?ELSE\s+['\"]verified['\"]"
-    r")",
-    re.I,
-)
-
-
 def _note_sql(text: str | None, fragments: str, dynamic: bool, where: str) -> tuple[list[str], list[str]]:
+    from .syntax import sql_write_flags
+
     bad: list[str] = []
     gaps: list[str] = []
     shown = text if text is not None else fragments
-    if shown and _SQL_DELETE_TARGET.search(shown):
+    if not shown or not any(ch.isalnum() for ch in shown):
+        return bad, gaps
+    delete_bad, delete_gap, verified_bad, verified_gap = sql_write_flags(shown, dynamic)
+    if delete_bad:
         bad.append(f"DELETE {where}")
-    elif dynamic and _SQL_DELETE_WORD.search(fragments):
+    elif delete_gap:
         gaps.append(f"dynamic DELETE {where}")
-    if shown and _SQL_VERIFIED.search(shown):
+    if verified_bad:
         bad.append(f"verified SQL {where}")
-    elif dynamic and re.search(r"\bauthority\s*=\s*['\"]?\s*$", fragments) and re.search(r"\b(?:UPDATE|INSERT)\b", fragments, re.I):
+    elif verified_gap:
         gaps.append(f"dynamic authority SQL {where}")
     return bad, gaps
 
@@ -560,8 +681,12 @@ def typescript_sql_findings(path: str, source: str) -> tuple[list[str], list[str
             text = _string(node)
             if text is None:
                 raw = _text(node)
-                if _SQL_DELETE_WORD.search(raw) or _SQL_VERIFIED.search(raw):
-                    gaps.append(f"dynamic DELETE {where}" if _SQL_DELETE_WORD.search(raw) else f"dynamic authority SQL {where}")
+                found, holes = _note_sql(raw, raw, True, where)
+                gaps.extend(holes)
+                if any(item.startswith("DELETE ") for item in found):
+                    gaps.append(f"dynamic DELETE {where}")
+                if any(item.startswith("verified SQL ") for item in found):
+                    gaps.append(f"dynamic authority SQL {where}")
                 continue
             found, holes = _note_sql(text, text, False, where)
             bad.extend(found)
@@ -572,10 +697,11 @@ def typescript_sql_findings(path: str, source: str) -> tuple[list[str], list[str
             for child in node.named_children:
                 if child.type == "template_substitution":
                     dynamic = True
+                    fragments.append("\x00")
                 elif child.type == "string_fragment":
                     fragments.append(_text(child))
             static = "".join(fragments)
-            found, holes = _note_sql(None if dynamic else static, static, dynamic, where)
+            found, holes = _note_sql(static, static, dynamic, where)
             bad.extend(found)
             gaps.extend(holes)
     return list(dict.fromkeys(bad)), list(dict.fromkeys(gaps))

@@ -71,25 +71,62 @@ def _import_file(current: str, module: str | None, level: int) -> str | None:
     return module.replace(".", "/") + ".py"
 
 
+_CLOSED_EXTRA = {"forbid", "ignore"}
+
+
+def _closed_extra_literal(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value in _CLOSED_EXTRA
+
+
+def _target_name(target: ast.AST) -> str:
+    if isinstance(target, ast.Name):
+        return target.id
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    return ""
+
+
+def _model_config_open(value: ast.AST) -> bool:
+    """True unless this config expression proves extra is absent or a literal forbid/ignore."""
+    if isinstance(value, ast.Dict):
+        for key, item in zip(value.keys, value.values):
+            if key is None or not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                return True
+            if key.value == "extra" and not _closed_extra_literal(item):
+                return True
+        return False
+    if isinstance(value, ast.Call):
+        func = _dotted_name(value.func)
+        leaf = func.split(".")[-1] if func else ""
+        if leaf not in {"ConfigDict", "dict"} or value.args:
+            return True
+        for kw in value.keywords:
+            if kw.arg is None or (kw.arg == "extra" and not _closed_extra_literal(kw.value)):
+                return True
+        return False
+    return True
+
+
+def _class_level_assigns(cls: ast.ClassDef):
+    for stmt in cls.body:
+        if isinstance(stmt, ast.ClassDef):
+            yield from _class_level_assigns(stmt)
+        elif isinstance(stmt, ast.Assign):
+            yield stmt.targets, stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            yield [stmt.target], stmt.value
+
+
 def _class_extra_open(cls: ast.ClassDef) -> str | None:
-    for node in ast.walk(cls):
-        if isinstance(node, ast.keyword) and node.arg == "extra":
-            if isinstance(node.value, ast.Constant) and node.value.value == "allow":
-                return f"{cls.name} sets extra=allow"
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                attr = target.attr if isinstance(target, ast.Attribute) else target.id if isinstance(target, ast.Name) else ""
-                if attr == "extra" and isinstance(node.value, ast.Constant) and node.value.value == "allow":
-                    return f"{cls.name} sets extra=allow"
-        if isinstance(node, ast.Dict):
-            for key, value in zip(node.keys, node.values):
-                if (
-                    isinstance(key, ast.Constant)
-                    and key.value == "extra"
-                    and isinstance(value, ast.Constant)
-                    and value.value == "allow"
-                ):
-                    return f"{cls.name} sets extra=allow"
+    # Only a proved literal forbid/ignore is closed. Extra.allow, a name, or any other
+    # non-literal policy is open: callers can still pass a field the model does not declare.
+    for targets, value in _class_level_assigns(cls):
+        for target in targets:
+            name = _target_name(target)
+            if name == "extra" and not _closed_extra_literal(value):
+                return f"{cls.name} extra policy is not a literal forbid or ignore"
+            if name == "model_config" and _model_config_open(value):
+                return f"{cls.name} extra policy is not a literal forbid or ignore"
     return None
 
 
@@ -609,10 +646,18 @@ def python_authority_rank(vocab_source: str, arbiter_source: str) -> dict:
     }
 
 
+def _sql_ident(name: str) -> str:
+    """Bare, double-quoted, backtick, or SQLite [bracket] identifier."""
+    return rf"(?:\[{name}\]|`{name}`|\"{name}\"|\b{name}\b)"
+
+
 _ADD_COLUMN = re.compile(r"\bADD\s+COLUMN\b", re.I)
 _NOT_NULL = re.compile(r"\bNOT\s+NULL\b", re.I)
 _DEFAULT = re.compile(r"\bDEFAULT\b", re.I)
-_VERSION_TABLE = re.compile(r"\b(schema_version|schema_migrations|schema_versions|alembic_version)\b", re.I)
+_VERSION_TABLE = re.compile(
+    "|".join(_sql_ident(name) for name in ("schema_version", "schema_migrations", "schema_versions", "alembic_version")),
+    re.I,
+)
 
 
 def classify_migration(sql: str) -> str:
@@ -659,15 +704,407 @@ def cached_ts_mcp(cache: Cache, source: str) -> dict:
     return cache.syntax(source, kind, lambda: typescript_mcp_tools(source))
 
 
-_DELETE_TARGET = re.compile(r"\bDELETE\s+FROM\s+[\"'`]?(memory_claims|observations)\b", re.I)
-_DELETE_WORD = re.compile(r"\bDELETE\b", re.I)
-_VERIFIED_SQL = re.compile(
-    r"\b(?:UPDATE|INSERT)\b[\s\S]*?(?:"
-    r"\bauthority\s*=\s*['\"]verified['\"]"
-    r"|\bauthority\b[\s\S]{0,160}?ELSE\s+['\"]verified['\"]"
-    r")",
-    re.I,
-)
+_SQL_HOLE = "\x00"
+_PROTECTED_TABLES = {"memory_claims", "observations"}
+_SQL_STOP = {"from", "where", "group", "order", "limit", "union", "except", "intersect", "returning"}
+_SQL_LITERAL = {"null", "current_timestamp", "current_date", "current_time", "true", "false"}
+
+
+class _Tok:
+    __slots__ = ("kind", "value")
+
+    def __init__(self, kind: str, value: str) -> None:
+        self.kind = kind
+        self.value = value
+
+
+def _scan_bracket(text: str, i: int) -> tuple[int, str]:
+    i += 1
+    buf: list[str] = []
+    n = len(text)
+    while i < n:
+        if text[i] == _SQL_HOLE:
+            return i + 1, _SQL_HOLE
+        if text[i] == "]":
+            if i + 1 < n and text[i + 1] == "]":
+                buf.append("]")
+                i += 2
+                continue
+            return i + 1, "".join(buf)
+        buf.append(text[i])
+        i += 1
+    return i, "".join(buf)
+
+
+def _scan_quoted(text: str, i: int, close: str, escape: str) -> tuple[int, str]:
+    i += 1
+    buf: list[str] = []
+    n = len(text)
+    while i < n:
+        if text[i] == _SQL_HOLE:
+            return i + 1, _SQL_HOLE
+        if text[i] == close:
+            if escape and i + 1 < n and text[i + 1] == escape:
+                buf.append(close)
+                i += 2
+                continue
+            return i + 1, "".join(buf)
+        buf.append(text[i])
+        i += 1
+    return i, "".join(buf)
+
+
+def _tokenize_sql(text: str) -> list[_Tok]:
+    out: list[_Tok] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == _SQL_HOLE:
+            out.append(_Tok("hole", ""))
+            i += 1
+            continue
+        if ch.isspace():
+            i += 1
+            continue
+        if ch == "-" and i + 1 < n and text[i + 1] == "-":
+            i += 2
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i = min(n, i + 2)
+            continue
+        if ch == "'":
+            i, value = _scan_quoted(text, i, "'", "'")
+            out.append(_Tok("hole", "") if value == _SQL_HOLE else _Tok("string", value.lower()))
+            continue
+        if ch in {'"', "`"}:
+            i, value = _scan_quoted(text, i, ch, ch)
+            out.append(_Tok("hole", "") if value == _SQL_HOLE else _Tok("quoted", value.lower()))
+            continue
+        if ch == "[":
+            i, value = _scan_bracket(text, i)
+            out.append(_Tok("hole", "") if value == _SQL_HOLE else _Tok("quoted", value.lower()))
+            continue
+        if ch == "?":
+            out.append(_Tok("placeholder", "?"))
+            i += 1
+            continue
+        if ch in "$@:" and i + 1 < n and (text[i + 1].isalnum() or text[i + 1] == "_"):
+            j = i + 1
+            if ch == "$" and text[j].isdigit():
+                while j < n and text[j].isdigit():
+                    j += 1
+            elif text[j].isalpha() or text[j] == "_":
+                j += 1
+                while j < n and (text[j].isalnum() or text[j] == "_"):
+                    j += 1
+            else:
+                out.append(_Tok("punct", ch))
+                i += 1
+                continue
+            out.append(_Tok("placeholder", text[i:j]))
+            i = j
+            continue
+        if ch.isalpha() or ch == "_":
+            j = i + 1
+            while j < n and (text[j].isalnum() or text[j] == "_"):
+                j += 1
+            out.append(_Tok("ident", text[i:j].lower()))
+            i = j
+            continue
+        if ch.isdigit():
+            j = i + 1
+            while j < n and (text[j].isdigit() or text[j] == "."):
+                j += 1
+            out.append(_Tok("number", text[i:j]))
+            i = j
+            continue
+        out.append(_Tok("punct", ch))
+        i += 1
+    return out
+
+
+def _is_ident(tok: _Tok, word: str | None = None) -> bool:
+    if tok.kind != "ident":
+        return False
+    return word is None or tok.value == word
+
+
+def _read_name(toks: list[_Tok], i: int) -> tuple[str | None, int]:
+    """Return the identifier, ``None`` for a hole, and the index after it. Missing stays put."""
+    if i >= len(toks):
+        return "", i
+    tok = toks[i]
+    if tok.kind == "hole":
+        return None, i + 1
+    if tok.kind not in {"ident", "quoted"}:
+        return "", i
+    if (
+        i + 2 < len(toks)
+        and toks[i + 1].kind == "punct"
+        and toks[i + 1].value == "."
+        and toks[i + 2].kind in {"ident", "quoted", "hole"}
+    ):
+        if toks[i + 2].kind == "hole":
+            return None, i + 3
+        return toks[i + 2].value, i + 3
+    return tok.value, i + 1
+
+
+def _mentions_authority(toks: list[_Tok], start: int, end: int) -> bool:
+    return any(tok.kind in {"ident", "quoted"} and tok.value == "authority" for tok in toks[start:end])
+
+
+def _sets_verified(expr: list[_Tok]) -> bool:
+    if len(expr) == 1 and expr[0].kind in {"string", "quoted"} and expr[0].value == "verified":
+        return True
+    for index, tok in enumerate(expr):
+        if tok.kind != "ident" or tok.value != "else":
+            continue
+        nxt = index + 1
+        if nxt < len(expr) and expr[nxt].kind == "punct" and expr[nxt].value == "(":
+            nxt += 1
+        if nxt < len(expr) and expr[nxt].kind in {"string", "quoted"} and expr[nxt].value == "verified":
+            return True
+    return False
+
+
+def _expr_kind(expr: list[_Tok]) -> str:
+    """verified, other (proved not the literal), or unknown."""
+    if not expr:
+        return "unknown"
+    if _sets_verified(expr):
+        return "verified"
+    if any(tok.kind == "hole" for tok in expr):
+        return "unknown"
+    if len(expr) == 1:
+        tok = expr[0]
+        if tok.kind in {"string", "quoted", "number", "placeholder"}:
+            return "other"
+        if tok.kind == "ident" and tok.value in _SQL_LITERAL:
+            return "other"
+    return "unknown"
+
+
+def _split_exprs(toks: list[_Tok], i: int, *, paren: bool) -> tuple[list[list[_Tok]] | None, int]:
+    """Split a comma-separated expression list. ``None`` when a surrounding paren does not close."""
+    depth = 0
+    if paren:
+        if i >= len(toks) or toks[i].value != "(":
+            return None, i
+        i += 1
+        depth = 1
+    cur: list[_Tok] = []
+    items: list[list[_Tok]] = []
+    while i < len(toks):
+        tok = toks[i]
+        if tok.kind == "punct" and tok.value == "(":
+            depth += 1
+            if not (paren and depth == 1 and not cur):
+                cur.append(tok)
+            i += 1
+            continue
+        if tok.kind == "punct" and tok.value == ")":
+            depth -= 1
+            if paren and depth == 0:
+                items.append(cur)
+                return items, i + 1
+            cur.append(tok)
+            i += 1
+            continue
+        if depth == (1 if paren else 0) and tok.kind == "punct" and tok.value == ",":
+            items.append(cur)
+            cur = []
+            i += 1
+            continue
+        if not paren and depth == 0 and (
+            (tok.kind == "punct" and tok.value == ";")
+            or (tok.kind == "ident" and tok.value in _SQL_STOP)
+        ):
+            items.append(cur)
+            return items, i
+        cur.append(tok)
+        i += 1
+    if paren:
+        return None, i
+    items.append(cur)
+    return items, i
+
+
+def _authority_rows(cols: list[str] | None, rows: list[list[list[_Tok]]], mentioned: bool) -> tuple[bool, bool]:
+    if cols is None:
+        return False, mentioned
+    if "authority" not in cols:
+        return False, False
+    bad = False
+    for row in rows:
+        if len(row) != len(cols):
+            return bad, True
+        for col, expr in zip(cols, row):
+            if col != "authority":
+                continue
+            kind = _expr_kind(expr)
+            if kind == "verified":
+                bad = True
+            elif kind == "unknown":
+                return bad, True
+    return bad, False
+
+
+def _column_list(toks: list[_Tok], i: int) -> tuple[list[str] | None, int, bool]:
+    """(columns, index, incomplete). A hole or a non-name means the list cannot be mapped."""
+    names, i = _split_exprs(toks, i, paren=True)
+    if names is None:
+        return None, i, True
+    cols: list[str] = []
+    for expr in names:
+        if len(expr) == 1 and expr[0].kind == "hole":
+            return None, i, False
+        if len(expr) == 1 and expr[0].kind in {"ident", "quoted"}:
+            cols.append(expr[0].value)
+            continue
+        return None, i, False
+    return cols, i, False
+
+
+def _insert_authority(toks: list[_Tok], i: int) -> tuple[bool, bool, int]:
+    j = i + 1
+    if j < len(toks) and _is_ident(toks[j], "or"):
+        j = min(len(toks), j + 2)
+    if j >= len(toks) or not _is_ident(toks[j], "into"):
+        return False, False, i + 1
+    j += 1
+    _table, j = _read_name(toks, j)
+    cols: list[str] | None = None
+    if j < len(toks) and toks[j].kind == "punct" and toks[j].value == "(":
+        cols, j, incomplete = _column_list(toks, j)
+        if incomplete:
+            return False, False, max(j, i + 1)
+        if cols is None:
+            return False, _mentions_authority(toks, i, j), j
+    if j < len(toks) and _is_ident(toks[j], "values"):
+        j += 1
+        rows: list[list[list[_Tok]]] = []
+        while j < len(toks) and toks[j].kind == "punct" and toks[j].value == "(":
+            row, j = _split_exprs(toks, j, paren=True)
+            if row is None:
+                return False, False, max(j, i + 1)
+            rows.append(row)
+            if j < len(toks) and toks[j].kind == "punct" and toks[j].value == ",":
+                j += 1
+                continue
+            break
+        if not rows:
+            return False, False, max(j, i + 1)
+        bad, gap = _authority_rows(cols, rows, _mentions_authority(toks, i, j))
+        return bad, gap, j
+    if j < len(toks) and _is_ident(toks[j], "select"):
+        items, j = _split_exprs(toks, j + 1, paren=False)
+        if items is None:
+            return False, False, max(j, i + 1)
+        bad, gap = _authority_rows(cols, [items], _mentions_authority(toks, i, j))
+        return bad, gap, j
+    if j < len(toks) and _is_ident(toks[j], "default"):
+        end = min(len(toks), j + 2)
+        mentioned = (cols is not None and "authority" in cols) or _mentions_authority(toks, i, end)
+        return False, mentioned, end
+    return False, False, max(j, i + 1)
+
+
+def _update_authority(toks: list[_Tok], i: int) -> tuple[bool, bool, int]:
+    j = i + 1
+    _table, j = _read_name(toks, j)
+    if j >= len(toks) or not _is_ident(toks[j], "set"):
+        return False, False, max(j, i + 1)
+    j += 1
+    bad = False
+    gap = False
+    while j < len(toks):
+        if toks[j].kind == "ident" and toks[j].value in {"where", "returning", "from"}:
+            break
+        if toks[j].kind == "punct" and toks[j].value == ";":
+            break
+        target, j = _read_name(toks, j)
+        if target == "":
+            return bad, _mentions_authority(toks, i, len(toks)), max(j, i + 1)
+        if j >= len(toks) or toks[j].value != "=":
+            return bad, target == "authority" or _mentions_authority(toks, i, len(toks)), max(j, i + 1)
+        j += 1
+        expr: list[_Tok] = []
+        depth = 0
+        while j < len(toks):
+            tok = toks[j]
+            if tok.kind == "punct" and tok.value == "(":
+                depth += 1
+            elif tok.kind == "punct" and tok.value == ")" and depth:
+                depth -= 1
+            if depth == 0 and (
+                (tok.kind == "punct" and tok.value in {",", ";"})
+                or (tok.kind == "ident" and tok.value in {"where", "returning"})
+            ):
+                break
+            expr.append(tok)
+            j += 1
+        if target == "authority":
+            kind = _expr_kind(expr)
+            if kind == "verified":
+                bad = True
+            elif kind == "unknown":
+                gap = True
+        if j < len(toks) and toks[j].kind == "punct" and toks[j].value == ",":
+            j += 1
+            continue
+        break
+    return bad, gap, j
+
+
+def sql_write_flags(text: str, dynamic: bool) -> tuple[bool, bool, bool, bool]:
+    """delete hit, delete gap, verified hit, verified gap for one SQL string.
+
+    A ``\\x00`` marks a folded hole. INSERT maps column lists onto VALUES rows and
+    SELECT lists; an INSERT that names authority but cannot be mapped is a gap.
+    Bracket, backtick, and double-quoted identifiers count as the protected names.
+    """
+    toks = _tokenize_sql(text)
+    delete_bad = False
+    delete_gap = False
+    verified_bad = False
+    verified_gap = False
+    saw_delete = False
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        if _is_ident(tok, "delete"):
+            saw_delete = True
+            if i + 1 < len(toks) and _is_ident(toks[i + 1], "from"):
+                name, nxt = _read_name(toks, i + 2)
+                if name in _PROTECTED_TABLES:
+                    delete_bad = True
+                elif name is None:
+                    delete_gap = True
+                i = max(nxt, i + 1)
+                continue
+        elif _is_ident(tok, "insert"):
+            bad, gap, nxt = _insert_authority(toks, i)
+            verified_bad = verified_bad or bad
+            verified_gap = verified_gap or gap
+            i = max(nxt, i + 1)
+            continue
+        elif _is_ident(tok, "update"):
+            bad, gap, nxt = _update_authority(toks, i)
+            verified_bad = verified_bad or bad
+            verified_gap = verified_gap or gap
+            i = max(nxt, i + 1)
+            continue
+        i += 1
+    if dynamic and saw_delete and not delete_bad:
+        delete_gap = True
+    return delete_bad, delete_gap, verified_bad, verified_gap
 
 
 def _const_text(node: ast.AST | None) -> str | None:
@@ -677,14 +1114,14 @@ def _const_text(node: ast.AST | None) -> str | None:
 
 
 def _fold_sql(node: ast.AST | None, env: dict[str, str | None]) -> tuple[str | None, str, bool]:
-    """(full string or None, constant fragments, has a dynamic hole)."""
+    """(full string or None, fragments with \\x00 holes, has a dynamic hole)."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value, node.value, False
     if isinstance(node, ast.Name):
         if node.id in env and env[node.id] is not None:
             value = env[node.id] or ""
             return value, value, False
-        return None, "", True
+        return None, _SQL_HOLE, True
     if isinstance(node, ast.JoinedStr):
         parts: list[str] = []
         dynamic = False
@@ -693,19 +1130,21 @@ def _fold_sql(node: ast.AST | None, env: dict[str, str | None]) -> tuple[str | N
                 parts.append(value.value)
                 continue
             if isinstance(value, ast.FormattedValue):
-                folded, _frag, hole = _fold_sql(value.value, env)
+                folded, frag, hole = _fold_sql(value.value, env)
                 if hole or folded is None:
                     dynamic = True
+                    parts.append(frag or _SQL_HOLE)
                 else:
                     parts.append(folded)
                 continue
             dynamic = True
+            parts.append(_SQL_HOLE)
         text = "".join(parts)
         return (None if dynamic else text), text, dynamic
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         left, lfrag, lhole = _fold_sql(node.left, env)
         right, rfrag, rhole = _fold_sql(node.right, env)
-        if left is not None and right is not None:
+        if left is not None and right is not None and not lhole and not rhole:
             return left + right, left + right, False
         return None, lfrag + rfrag, True
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join":
@@ -714,30 +1153,13 @@ def _fold_sql(node: ast.AST | None, env: dict[str, str | None]) -> tuple[str | N
             if isinstance(arg, (ast.List, ast.Tuple)):
                 bits: list[str] = []
                 for elt in arg.elts:
-                    folded, _frag, hole = _fold_sql(elt, env)
+                    folded, frag, hole = _fold_sql(elt, env)
                     if hole or folded is None:
-                        return None, "".join(bits), True
+                        return None, "".join(bits) + (frag or _SQL_HOLE), True
                     bits.append(folded)
                 text = "".join(bits)
                 return text, text, False
     return None, "", False
-
-
-def _sql_findings(folded: str | None, fragments: str, dynamic: bool, where: str, kind: str) -> tuple[list[str], list[str]]:
-    bad: list[str] = []
-    gaps: list[str] = []
-    text = folded if folded is not None else fragments
-    if kind == "delete":
-        if text and _DELETE_TARGET.search(text):
-            bad.append(where)
-        elif dynamic and _DELETE_WORD.search(fragments):
-            gaps.append(where)
-    elif kind == "verified":
-        if text and _VERIFIED_SQL.search(text):
-            bad.append(where)
-        elif dynamic and re.search(r"\bauthority\s*=\s*['\"]?\s*$", fragments) and re.search(r"\b(?:UPDATE|INSERT)\b", fragments, re.I):
-            gaps.append(where)
-    return bad, gaps
 
 
 def _walk_sql_strings(tree: ast.AST, path: str) -> tuple[list[str], list[str]]:
@@ -747,16 +1169,19 @@ def _walk_sql_strings(tree: ast.AST, path: str) -> tuple[list[str], list[str]]:
 
     def note(node: ast.AST, lineno: int) -> None:
         folded, fragments, dynamic = _fold_sql(node, env)
-        if not fragments and folded is None:
+        text = folded if folded is not None else fragments
+        if not text or not any(ch.isalnum() for ch in text):
             return
-        for kind in ("delete", "verified"):
-            found, holes = _sql_findings(folded, fragments, dynamic, f"{path}:{lineno}", kind)
-            if kind == "delete":
-                bad.extend(f"DELETE {item}" for item in found)
-                gaps.extend(f"dynamic DELETE {item}" for item in holes)
-            else:
-                bad.extend(f"verified SQL {item}" for item in found)
-                gaps.extend(f"dynamic authority SQL {item}" for item in holes)
+        where = f"{path}:{lineno}"
+        delete_bad, delete_gap, verified_bad, verified_gap = sql_write_flags(text, dynamic)
+        if delete_bad:
+            bad.append(f"DELETE {where}")
+        elif delete_gap:
+            gaps.append(f"dynamic DELETE {where}")
+        if verified_bad:
+            bad.append(f"verified SQL {where}")
+        elif verified_gap:
+            gaps.append(f"dynamic authority SQL {where}")
 
     def bind(target: ast.AST, value: ast.AST) -> None:
         if isinstance(target, ast.Name):
