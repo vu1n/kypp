@@ -367,3 +367,15 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   `docs/spec-check-schema-evaluation.md`.
 - A reference-index cache hit for the same head SHA is reused only when the dependency hash
   still matches. A baseline spec change rebuilds the index.
+- Source loading requires every selected file to be regular UTF-8 text. A read, decoding, or
+  file-type failure aborts the check before report or cache writes. It is not a silent omission
+  and it does not become an empty file or a `bounded` `doc-refs` result. A loaded broken
+  reference violates. A complete scan whose refs resolve is `bounded`, not assurance.
+- A selected path that `git ls-files -v` tags `S` or `s` and that is absent from the worktree
+  is the same load failure. Sparse checkout and skip-worktree leave the path in `ls-files -c`
+  without writing it to disk; that is not an intentional deletion and must not yield a `bounded`
+  report. A selected skip-worktree path that is still on disk is read. An unselected omitted
+  path stays existence-only and does not fail the check.
+- Git filenames are NUL-delimited and literal. A worktree deletion of a materialized index entry
+  leaves both content and path inventories; selected symlinks, including symlinked parent
+  directories, are rejected.
