@@ -17,7 +17,7 @@ def _worker(case_id: str, description: str, source: str, status: str) -> Case:
     rule = "mcp-no-verify-argument"
     return Case(
         id=case_id,
-        split="holdout",
+        split="regression",
         description=description,
         baseline=baseline,
         head=head,
@@ -92,7 +92,7 @@ const TOOLS = [{ name: "inspect", inputSchema: inspectInput }];
   } } },
 ];
 """,
-            "conforms",
+            "no_counterexample",
         ),
         _worker(
             "worker_fresh_08",
@@ -103,7 +103,7 @@ const TOOLS = [{ name: "inspect",
   inputSchema: { type: "object", properties: { subject: { type: "string" } } }
 }];
 """,
-            "conforms",
+            "no_counterexample",
         ),
         _worker(
             "worker_fresh_09",
@@ -113,6 +113,6 @@ const TOOLS = [{ name: "inspect",
 } };
 const TOOLS = [{ name: "inspect", inputSchema: inspectInput }];
 """,
-            "conforms",
+            "no_counterexample",
         ),
     ]

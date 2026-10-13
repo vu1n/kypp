@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from speccheck.engine import run_check
-from speccheck.evaluate import AUTH_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
+from speccheck.evaluate import AUTH6_BULLETS, AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
 from speccheck.fixtures import clean_tree
 from speccheck.gitio import load_files, rev_parse
 from speccheck.textscan import group_bullets, invariant_bullets, split_front_matter
@@ -21,7 +21,10 @@ class AdjoiningTest(unittest.TestCase):
     def test_pins_match_ratified_specs(self):
         self.assertEqual(_bullets(ROOT / ".brief/docs/verify-operator-only/versions/v0002.md"), VERIFY_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/authority-order/versions/v0004.md"), AUTH_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/authority-order/versions/v0006.md"), AUTH6_BULLETS)
         self.assertEqual(_bullets(ROOT / ".brief/docs/additive-migrations/versions/v0002.md"), SCHEMA_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/append-only-history/versions/v0001.md"), DELETE_BULLETS)
+        self.assertEqual(_bullets(ROOT / ".brief/docs/no-grader-leak/versions/v0001.md"), GRADER_BULLETS)
 
     def test_post_sync_not_clean_single_writer(self):
         bullets = _bullets(ROOT / ".brief/docs/authority-order/versions/v0004.md")
@@ -57,12 +60,35 @@ class LiveRepoTest(unittest.TestCase):
         sha = rev_parse(ROOT, "HEAD")
         report = run_check(files, files, baseline_sha=sha, head_sha=sha + "-live", baseline_paths=paths, head_paths=paths)
         self.assertEqual(report.by_status("violates"), [])
-        conforms = {v.rule_id for v in report.by_status("conforms")}
-        self.assertIn("mcp-no-verify-argument", conforms)
-        self.assertIn("mcp-no-human-or-verified-authority", conforms)
-        self.assertIn("authority-rank-order", conforms)
-        self.assertIn("schema-add-column", conforms)
-        self.assertIn("doc-refs", conforms)
+        quiet = {v.rule_id for v in report.by_status("no_counterexample")}
+        self.assertIn("mcp-no-verify-argument", quiet)
+        self.assertIn("mcp-no-human-or-verified-authority", quiet)
+        self.assertIn("authority-rank-order", quiet)
+        self.assertIn("schema-add-column", quiet)
+        bounded = {v.rule_id for v in report.by_status("bounded")}
+        self.assertIn("doc-refs", bounded)
+        self.assertIn("tools-initializer-no-verify", bounded)
+        tools = next(v for v in report.verdicts if v.rule_id == "tools-initializer-no-verify")
+        self.assertEqual(tools.detail, "the fully parsed TOOLS initializer declares no verify property")
+        writer = next(v for v in report.verdicts if v.rule_id == "verified-authority-writer")
+        self.assertEqual(writer.status, "unresolved")
+        self.assertEqual(writer.spec, "doc://kypp/authority-order@0006#authority-dominates")
+        self.assertIn("mark_verified", writer.claim_text)
+        self.assertIn("not classified", writer.detail)
+        self.assertIn("dynamic authority SQL kypp/store.py:282", writer.coverage)
+        self.assertIn("dynamic authority SQL worker/src/store.ts:232", writer.coverage)
+        self.assertIn("dynamic authority SQL worker/src/store.ts:269", writer.coverage)
+        self.assertIsNone(writer.counterexample)
+        deleted = next(v for v in report.verdicts if v.rule_id == "no-delete-claims")
+        self.assertEqual(deleted.status, "unresolved")
+        self.assertIn("coverage worker/src/store.ts", deleted.coverage)
+        self.assertNotIn("dynamic DELETE", deleted.coverage)
+        self.assertNotIn("dynamic DELETE", deleted.detail)
+        grader = next(v for v in report.verdicts if v.rule_id == "no-grader-verbatim")
+        self.assertEqual(grader.status, "unresolved")
+        stale = [a for a in report.advisories if a.code == "stale-pin"]
+        pins = [a.detail.split(" resolves", 1)[0] for a in stale]
+        self.assertEqual(len(pins), len(set(pins)))
         timeout = next(v for v in report.verdicts if v.rule_id == "verify-timeout-behaviour")
         self.assertEqual(timeout.status, "unresolved")
         for verdict in report.verdicts:

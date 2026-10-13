@@ -1,14 +1,16 @@
-"""Render one advisory report. The checker does not post it and does not block merge."""
+"""Render one advisory report. Outcomes are not collapsed into one badge."""
 
 from __future__ import annotations
 
 from .model import Report
 
 _TITLES = (
-    ("violates", "Violated"),
-    ("conforms", "Checked (conforms)"),
-    ("unsupported", "Unsupported"),
+    ("violates", "Violation detected"),
+    ("candidate", "Candidate finding"),
     ("unresolved", "Unresolved"),
+    ("unsupported", "Unsupported"),
+    ("no_counterexample", "No counterexample found (not assurance)"),
+    ("bounded", "Bounded proposition"),
 )
 
 
@@ -25,16 +27,15 @@ def render_markdown(report: Report) -> str:
         "# Spec consistency (advisory)",
         "",
         "This report does not block merge. The checker does not write `.brief/` or SIGNOFF and does not ratify anything.",
+        "A bounded proposition is only the sentence in that row. No counterexample found is not assurance.",
+        "A skipped or missing test is not a pass. Guard verified is unused.",
         "",
         f"Baseline: `{report.baseline_sha}`",
         f"Head: `{report.head_sha}`",
-        "",
-        (
-            f"checked (conforms): {counts['conforms']} | violated: {counts['violates']} | "
-            f"unsupported: {counts['unsupported']} | unresolved: {counts['unresolved']}"
-        ),
-        "",
     ]
+    if report.environment:
+        lines.append(f"Environment: `{report.environment}`")
+    lines.extend(["", " | ".join(f"{name}: {counts[name]}" for name in counts), ""])
     for note in report.notes:
         lines.append(f"- {note}")
     if report.notes:
@@ -61,6 +62,22 @@ def render_markdown(report: Report) -> str:
             if row.counterexample:
                 lines.append(f"  - counterexample: {_clip(row.counterexample, 400)}")
         lines.append("")
+    lines.append(f"## Test passed ({len(report.tests_passed)})")
+    lines.append("")
+    if not report.tests_passed:
+        lines.append("None. Contract tests are a separate CI job. A skip is not a pass.")
+        lines.append("")
+    else:
+        for item in report.tests_passed:
+            lines.append(f"- {item}")
+        lines.append("")
+    lines.append(f"## Guard verified ({len(report.guards_verified)})")
+    lines.append("")
+    lines.append("None. Unused." if not report.guards_verified else "")
+    if report.guards_verified:
+        for item in report.guards_verified:
+            lines.append(f"- {item}")
+    lines.append("")
     lines.append(f"## Proposed spec amendments ({len(report.amendments)})")
     lines.append("")
     if not report.amendments:

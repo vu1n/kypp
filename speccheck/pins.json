@@ -11,9 +11,23 @@
       "The one other writer is the hosted Worker's `POST /sync` (amended 2026-10-11, ratified by Vu). The org's CI calls it after `brief ratify` publishes a revision, authenticated by `KYPP_SYNC_TOKEN` (a Worker secret apart from agent OAuth grants and `KYPP_API_TOKENS`; unset means the route answers 404; never reachable through `/mcp`). It upserts an accepted org claim holding the pinned `doc://` ref and the one-line rule. The authority comes from the revision's archive stamp, never from the caller: a person-ratified revision lands at `human`, a model-ratified one (`ratified_via: model`) at `verified`. Every sync is logged in `defrag_log` with the ref and the stamp. No MCP tool passes `authority=\"human\"` or `\"verified\"`: on the agent surface, \"a human told me\" is the agent's word, and one confused or prompt-injected agent must not be able to override verified facts across the swarm. MCP `correct` lands accepted at agent authority and top confidence instead.",
       "Only `MemoryStore.mark_verified` (the `kypp verify` path) sets `authority=verified`."
     ],
+    "authority-order@0006": [
+      "`AUTHORITY_RANK` in `vocab.py` is the single ordering, and the arbiter's survivor key uses it first.",
+      "The operator's `kypp correct` (`shell.correct_main`) is the only local writer of `authority=human`, and it supersedes the subject's other live claims. Authenticated `POST /sync` is the sole other writer of human authority, and only as an import of a person-ratified revision; that route is not built yet, and the contract binds when it lands.",
+      "`MemoryStore.mark_verified` (the `kypp verify` path) is the only local runtime-verification path that grants verified authority. The hosted Worker's authenticated `POST /sync` is a separate import path for ratified Brief revisions, not built yet; the contract binds when it lands (amended 2026-10-11, ratified by Vu): person-ratified revisions receive human authority and model-ratified revisions receive verified authority, derived from the trusted archive stamp, not caller-selected authority. A model ratification is stamped `ratified_via: model`, so a consumer can tell it apart from a deterministic `verify` result. Neither privileged path is available through MCP. No other writer is authorized.",
+      "When `POST /sync` lands, the org's CI calls it after `brief ratify` publishes a revision, authenticated by `KYPP_SYNC_TOKEN` (a Worker secret apart from agent OAuth grants and `KYPP_API_TOKENS`; unset means the route answers 404; never reachable through `/mcp`). It upserts an accepted org claim holding the pinned `doc://` ref and the one-line rule. Every sync is logged in `defrag_log` with the ref and the stamp. No MCP tool passes `authority=\"human\"` or `\"verified\"`: on the agent surface, \"a human told me\" is the agent's word, and one confused or prompt-injected agent must not be able to override verified facts across the swarm. MCP `correct` lands accepted at agent authority and top confidence instead."
+    ],
     "additive-migrations@0002": [
       "Every `_MIGRATIONS` entry is `ADD COLUMN`, and none is `NOT NULL` without a default.",
       "No schema version table; idempotence comes from swallowing duplicate-column errors only."
+    ],
+    "append-only-history@0001": [
+      "No `DELETE` against `memory_claims` or `observations` in kypp code.",
+      "Recall and briefing exclude `superseded` and `rejected`; `expand`/`get` still returns them.",
+      "Consolidation supersedes losers; it does not drop them."
+    ],
+    "no-grader-leak@0001": [
+      "A distilled claim never contains a grader's verbatim criterion names or feedback."
     ]
   }
 }

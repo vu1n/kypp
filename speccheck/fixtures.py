@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import copy
 
-from .evaluate import AUTH_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
+from .evaluate import AUTH6_BULLETS, AUTH_BULLETS, DELETE_BULLETS, GRADER_BULLETS, SCHEMA_BULLETS, VERIFY_BULLETS
 
 
 def _doc(doc_id: str, anchor: str, status: str, related: list[str], bullets: list[str], title: str) -> str:
@@ -36,7 +36,7 @@ def _aliases() -> str:
         "verify-operator-only:\n"
         "  latest: 2\n"
         "authority-order:\n"
-        "  latest: 4\n"
+        "  latest: 6\n"
         "additive-migrations:\n"
         "  latest: 2\n"
     )
@@ -103,6 +103,28 @@ def _survivor(members):
     return max(members, key=_rank)
 '''
 
+MEMORY_TS = '''\
+export const AUTHORITIES = ["agent", "verified", "human"] as const;
+
+export function rank(c: Claim): [number, number, number, number, string] {
+  return [AUTHORITIES.indexOf(c.authority), c.status === "accepted" ? 1 : 0, c.confidence ?? 0,
+    c.source_ids.length, c.updated_at];
+}
+
+function compareRank(a: Claim, b: Claim): number {
+  const ra = rank(a), rb = rank(b);
+  for (let i = 0; i < ra.length; i++) {
+    if (ra[i] < rb[i]) return -1;
+    if (ra[i] > rb[i]) return 1;
+  }
+  return 0;
+}
+
+export function survivor(members: Claim[]): Claim {
+  return members.reduce((best, c) => (compareRank(c, best) > 0 ? c : best));
+}
+'''
+
 
 def clean_tree() -> dict[str, str]:
     verify = _doc(
@@ -113,12 +135,20 @@ def clean_tree() -> dict[str, str]:
         VERIFY_BULLETS,
         "Only an operator attaches or runs verify commands",
     )
-    authority = _doc(
+    authority_v4 = _doc(
         "authority-order",
         "authority-dominates",
         "active",
         ["kypp/vocab.py", "kypp/arbiter.py"],
         AUTH_BULLETS,
+        "Rank survivors by authority first",
+    )
+    authority = _doc(
+        "authority-order",
+        "authority-dominates",
+        "active",
+        ["kypp/vocab.py", "kypp/arbiter.py"],
+        AUTH6_BULLETS,
         "Rank survivors by authority first",
     )
     schema = _doc(
@@ -134,7 +164,8 @@ def clean_tree() -> dict[str, str]:
         ".brief/docs/verify-operator-only.md": verify,
         ".brief/docs/verify-operator-only/versions/v0002.md": verify,
         ".brief/docs/authority-order.md": authority,
-        ".brief/docs/authority-order/versions/v0004.md": authority,
+        ".brief/docs/authority-order/versions/v0004.md": authority_v4,
+        ".brief/docs/authority-order/versions/v0006.md": authority,
         ".brief/docs/additive-migrations.md": schema,
         ".brief/docs/additive-migrations/versions/v0002.md": schema,
         "kypp/mcp_server.py": MCP_PY,
@@ -142,7 +173,37 @@ def clean_tree() -> dict[str, str]:
         "kypp/store.py": STORE_PY,
         "kypp/vocab.py": VOCAB_PY,
         "kypp/arbiter.py": ARBITER_PY,
+        "worker/src/memory.ts": MEMORY_TS,
     }
+
+
+def with_structural_specs(tree: dict[str, str]) -> dict[str, str]:
+    """Baseline copies of the append-only and no-grader decisions, so those rules run."""
+    out = copy.deepcopy(tree)
+    delete = _doc(
+        "append-only-history",
+        "never-delete",
+        "active",
+        ["kypp/store.py"],
+        DELETE_BULLETS,
+        "Append-only history",
+    )
+    grader = _doc(
+        "no-grader-leak",
+        "signal-only-rubric",
+        "active",
+        ["kypp/distill.py"],
+        GRADER_BULLETS,
+        "No grader leak",
+    )
+    out[".brief/docs/append-only-history.md"] = delete
+    out[".brief/docs/append-only-history/versions/v0001.md"] = delete
+    out[".brief/docs/no-grader-leak.md"] = grader
+    out[".brief/docs/no-grader-leak/versions/v0001.md"] = grader
+    extra = "append-only-history:\n  latest: 1\nno-grader-leak:\n  latest: 1\n"
+    if "append-only-history:" not in out[".brief/aliases.yaml"]:
+        out[".brief/aliases.yaml"] += extra
+    return out
 
 
 def with_pr22(tree: dict[str, str]) -> dict[str, str]:
