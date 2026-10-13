@@ -26,10 +26,16 @@ jobs:
         with:
           python-version: "3.12"
       - name: install checker dependencies
-        run: python -m pip install ".[speccheck]" "mcp>=1,<2"
+        run: |
+          python -m pip install ".[speccheck]" "mcp>=1,<2"
+          # The mcp_server self-test grounds a temp file with ripgrep. ubuntu-24.04
+          # runner images do not ship rg, so grounding comes back empty without it.
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
       - name: record runtime versions
         run: |
           python -c "import sys, importlib.metadata as m; print('python', sys.version); print('mcp', m.version('mcp')); print('pyturso', m.version('pyturso')); print('tree-sitter', m.version('tree-sitter'))"
+          rg --version | head -n 1
       - name: checker tests and benchmark
         run: |
           python -m unittest discover -s speccheck/tests -v
