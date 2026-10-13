@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from tree_sitter import Node, Parser
 
 
-PARSER_VERSION = 'ts-mcp-tree-sitter-v2'
+PARSER_VERSION = 'ts-mcp-tree-sitter-v3'
 
 
 def parser_cache_key() -> str:
@@ -133,6 +133,11 @@ def typescript_mcp_tools(source: str) -> dict:
         return {'covered': False, 'error': 'TOOLS is not a const literal array initializer', 'tools': []}
     gaps = []
     tools = []
+    literal_tool_ids = set()
+    for entry in _children(array):
+        literal = _unwrap(entry)
+        if literal is not None and literal.type == 'object':
+            literal_tool_ids.add(literal.id)
     # Named children do not contain elisions: count comma runs using actual tokens.
     previous = '['
     for child in array.children:
@@ -158,10 +163,13 @@ def typescript_mcp_tools(source: str) -> dict:
                 binding, owner = matches[0]
                 uses = [n for n in _walk(root) if n.type == 'identifier' and _text(n) == identifier]
                 permitted = {binding.child_by_field_name('name').id, schema.id}
-                # Multiple direct inputSchema uses are also harmless for initializer facts.
+                # Only direct schema positions in this TOOLS initializer are harmless.
+                # A similarly named pair in an opaque call can expose the same object.
                 for use in uses:
                     parent = use.parent
-                    if parent.type == 'pair' and parent.child_by_field_name('value') == use and _key(parent.child_by_field_name('key')) == 'inputSchema':
+                    if (parent.type == 'pair' and parent.parent.id in literal_tool_ids
+                        and parent.child_by_field_name('value') == use
+                        and _key(parent.child_by_field_name('key')) == 'inputSchema'):
                         permitted.add(use.id)
                 if owner.children[0].type != 'const' or any(n.id not in permitted for n in uses):
                     entry_gaps.append(f'inputSchema {identifier} may be changed or escape; const is not immutable')

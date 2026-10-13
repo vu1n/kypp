@@ -123,7 +123,7 @@ gate: "Required tests/governance pass; frozen evaluation results and mutant resu
   landed as `e98ece0` and `1019dd0`. The implementation did not inspect fresh cases.
 - First fresh-corpus evaluation at integrated `1019dd07991fb451bca996216a0344f6ffb10255`:
   all nine expectations passed; false conformance 0, abstention 1/3, coverage 2/3.
-- Integrated checker suite: 35 tests passed. Advisory live report: 8 conforms,
+- Final checker suite: 38 tests passed. Advisory live report: 8 conforms,
   0 violates, 7 unsupported, 3 unresolved; this is scoped evidence, not ratification.
 - Independent structural review found no high-confidence structural blocker.
 - Correctness/security review and exact-head CI evidence will be recorded in the draft PR.
@@ -135,6 +135,12 @@ gate: "Required tests/governance pass; frozen evaluation results and mutant resu
   This clarifies the existing covered scope without expanding runtime behavior.
 - The corpus lane also fixed missing-verdict metric denominators, verified with
   independent mocked reports. An omitted row now counts as an uncovered abstention.
+- First correctness review found that schema references in unrelated `inputSchema`
+  pairs were wrongly whitelisted. The parent restricted permitted positions to
+  direct TOOLS entries, added a red-first regression, and advanced parser cache
+  identity. These fixes were driven by independent review, not holdout outcomes.
+- Mutation testing found a missing dependency-version cache regression. Added
+  tests for runtime/grammar changes and previous whitelist facts.
 
 ## Graph
 

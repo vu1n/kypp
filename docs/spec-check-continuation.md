@@ -40,11 +40,16 @@ freeze hash, preserved PR23 cases, metric denominators, and disclosure rules.
 
 ## Validation and review
 
-- Integrated `python -m unittest discover -s speccheck/tests -v`: 35 tests passed.
+- Final `python -m unittest discover -s speccheck/tests -v`: 38 tests passed.
 - `python -m speccheck bench`: all four splits passed their expectations.
 - Live advisory check against `origin/main`: 8 conforms, 0 violates, 7 unsupported,
   3 unresolved. Exit 0 means the report was produced.
 - Independent structural review found no high-confidence structural finding.
+- The first pushed-head correctness review found an overbroad reference-use
+  whitelist. A schema passed through an `inputSchema` pair outside TOOLS now
+  abstains; its regression went red before the fix. The parser cache version was
+  advanced so earlier whitelist facts cannot survive the correction. Dependency
+  version invalidation is tested separately for runtime and grammar changes.
 - Exact pushed-head correctness review, separate static security review, mutant
   results, and GitHub CI conclusions are recorded in the draft PR.
 
