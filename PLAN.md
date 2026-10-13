@@ -1,41 +1,46 @@
-# Plan: sound Worker MCP signature checks
+# Plan: SQL migration evidence for the spec checker
 
-Repository: `vu1n/kypp`. Base: `92dc50c05d0688b6644e89c6b0a6343b29d67713`.
-Starting checkout: clean `main`; no staged, unstaged, or untracked task files.
-Integration branch: `codex/speccheck-worker-signatures`.
-Executor pin: GPT 6.1 Sol Fast (`gpt-6.1-sol`, low reasoning), for delegated work.
+Repository: `vu1n/kypp`. Initial base: `92dc50c05d0688b6644e89c6b0a6343b29d67713`.
+Current review/PR base: `0e80abc1bcafa1aed1ff312bc2827126a9290011` (published PR24 merge).
+Starting checkout: clean PR24 branch at `98db85cf222ebb21379b11362efcd745beeba1d1`.
+New independent integration branch: `codex/speccheck-sql-migrations`, from main.
+PR24 was initially open and ready for review. Another actor merged it at 02:36:37 UTC
+as `0e80abc1bcafa1aed1ff312bc2827126a9290011`; this task did not merge or rewrite it.
+Its published changes are integrated before testing the combined checker.
 
-PR23 is merged and already guards reference-cache dependencies, baseline authority,
-and the POST /sync exception. Continue its deterministic MVP with syntax-tree
-enumeration of the Worker's TOOLS input schemas. Unknown array entries or schema
-constructs must prevent conformance; a covered verify parameter remains a
-counterexample even when another entry is unknown. This is scoped signature
-checking, not runtime schema evaluation or a proof of global absence.
+Use `/workspace/dev/codex-skills/ship-it/SKILL.md`; this is the cloud equivalent of
+the requested skill. Keep the existing task rather than switching runtimes.
+Delegated executors are pinned to `gpt-6.1-sol` with low reasoning; the tool API
+does not expose a Fast-tier readback. No verified tier switch is claimed.
 
-The corpus lane independently relabels the exposed PR23 holdout as regressions and
-freezes fresh cases before inspecting the implementation. The implementation lane
-must not read that lane's files. Evaluate the frozen corpus only after implementation
-settles; if results lead to fixes, disclose exposure and move those cases to
-regressions. No CI result or reviewer silence implies claim conformance.
+The next deterministic MVP increment replaces SQL word searches with bounded
+statement evidence. A comment containing DEFAULT cannot satisfy a NOT NULL column;
+ADD COLUMN in a string/comment cannot turn DROP into an additive migration;
+creating a named version table cannot fall through the additive rule as conforming.
+Unknown syntax abstains, while known violations survive unrelated entry gaps.
+The retired additive-migrations@0002 bullet remains the existing registry source;
+do not pretend it is an active governance constraint, rewrite it, or test against
+head proposals. Runtime idempotence remains unresolved.
 
-Authorization covers branch/push/draft-PR actions and in-scope fixes. No merge,
-deployment, decision ratification, billed cloud review, or use of the separate
-stateless-agent attachment is authorized here. Ratified docs remain unchanged.
+This work is independent of PR24: no TypeScript parser, Worker behavior, benchmark
+split/CLI changes, optional dependency changes, or competing CI test-step additions.
+No Kypp/Huddles substrate design or Pillbox worker-usage changes. No merge/deploy.
 
-## SC-001 — Worker syntax and evidence
+## SQL-001 — SQL statement analysis and evaluator
 
-Replace the Worker text scanner with a bounded TypeScript syntax-tree parser.
-Use tree-sitter with an optional checker dependency group and lazy loading; absence
-of parser dependencies produces an explicit coverage gap. Retain same-file literal
-schema support, reject unsupported syntax conservatively, preserve partial known
-counterexamples, and invalidate syntax facts produced by the old scanner. Remove
-obsolete scanner helpers. Tests must exercise real parser shapes and the evaluator,
-with red-first evidence for skipped entries and lost counterexamples. CI must
-install the checker extras and run the checker tests and benchmark before emitting
-the advisory report. Existing CLI exit/report/no-write contracts remain intact.
+Implement a stdlib-only, bounded SQLite-shaped lexical/structural analyzer without
+executing supplied SQL. Distinguish comments, strings, quoted identifiers, clause
+positions and statement boundaries. Conservatively support the ordinary literal
+ADD COLUMN declarations in this repo; valid unsupported/ambiguous syntax stays
+unresolved. This is syntax/policy checking, not proof of engine acceptance, default
+semantics, existing-row compatibility or runtime idempotence. Preserve scalar
+classify_migration compatibility where practical and expose reasons to the evaluator.
+Only actual version-table creation supports the version-table counterexample.
+Known non-additive operations and NOT NULL without a real DEFAULT must violate;
+literal contents or unrelated identifiers cannot supply SQL clauses.
 
 ```yaml
-id: SC-001
+id: SQL-001
 task_type: bug_fix
 depth: deep
 executor: gpt-6.1-sol-low
@@ -43,112 +48,103 @@ depends_on: []
 footprint:
   modifies:
     - "speccheck/syntax.py::*"
-    - "speccheck/evaluate.py::eval_mcp_no_verify"
-    - "speccheck/evaluate.py::MCP_SCOPE"
-    - "pyproject.toml::*"
-    - ".github/workflows/spec-consistency.yml::*"
+    - "speccheck/evaluate.py::eval_schema_columns"
+    - "speccheck/evaluate.py::eval_schema_idempotence"
+    - "speccheck/evaluate.py::SCHEMA_SCOPE"
   creates:
-    - "speccheck/ts_syntax.py"
-    - "speccheck/tests/test_ts_syntax.py"
+    - "speccheck/sqlsyntax.py"
+    - "speccheck/tests/test_sqlsyntax.py"
 produces:
-  - "speccheck/ts_syntax.py::typescript_mcp_tools"
-  - "speccheck/syntax.py::cached_ts_mcp"
-gate: "Checker tests pass with real tree-sitter dependencies; literal verify findings survive unrelated coverage gaps; unsupported entries never conform; old disk syntax facts are not reused"
+  - "speccheck/sqlsyntax.py::analyze_migration"
+  - "speccheck/syntax.py::classify_migration"
+gate: "Real parser/evaluator tests pass; comment/string decoys cannot conform; unsupported syntax abstains; known counterexamples survive entry gaps; real version-table creation violates both relevant registry checks"
 ```
 
-## SC-002 — Independent evaluation corpus
+## SQL-002 — Independent schema corpus
 
-Reclassify every exposed holdout case from PR23 as regression data. Update CLI,
-benchmark, and split tests accordingly. Author and freeze a small independent
-Worker-signature holdout before reading SC-001. Record provenance and the exact
-freeze commit in a Markdown evaluation document; report false conformance,
-abstention, and coverage separately for tuning, regression, holdout, and smoke.
-Do not alter the checker to make cases pass. Preserve existing case inputs and
-the smoke-only accuracy caveat. The parent will evaluate the frozen cases.
+Author and commit a small fresh corpus from the pinned bullet and SQLite grammar
+before reading SQL-001. Read fixture/model/engine interfaces only; do not inspect
+new implementation or its workspace. Freeze expected labels before evaluating.
+Keep the corpus as runnable unit tests so PR24's future discovery step can pick it
+up without duplicate CI work. The parent will evaluate it after implementation
+settles and record false conformance, abstention and coverage using existing metric
+definitions. Do not tune expectations from results. Exposed cases become regression
+confirmation after first evaluation; document the freeze identity and limits.
 
 ```yaml
-id: SC-002
+id: SQL-002
 task_type: test
 depth: routine
 executor: gpt-6.1-sol-low
 depends_on: []
 footprint:
-  modifies:
-    - "speccheck/bench_cases.py::*"
-    - "speccheck/bench.py::*"
-    - "speccheck/cli.py::*"
-    - "speccheck/tests/test_bench.py::*"
   creates:
-    - "speccheck/holdout_cases.py"
-    - "docs/spec-check-evaluation.md"
+    - "speccheck/tests/test_schema_corpus.py"
+    - "docs/spec-check-schema-evaluation.md"
 produces:
-  - "speccheck/bench_cases.py::all_cases"
-  - "speccheck/holdout_cases.py::holdout_cases"
-gate: "All 13 exposed PR23 holdout inputs remain as regressions; fresh cases are committed before implementation inspection; split selection and metric tests pass; no holdout tuning is claimed"
+  - "speccheck/tests/test_schema_corpus.py::CASES"
+gate: "Corpus expectations committed before implementation inspection or scoring; literal clean controls and adverse/unknown cases are independently labeled; freeze hash/provenance are durable"
 ```
 
-## SC-003 — Integrate, test, review, and draft PR
+## SQL-003 — Integration, review, exact-head CI and draft PR
 
-Integrate the disjoint lanes, run required checks, evaluate the frozen corpus, and
-record actual results. Run tighten and structural review. Commit and push the
-complete diff; verify a clean task scope and identical remote head before a fresh
-blank-context correctness reviewer reads immutable base/head commits. Run mutants
-in a scratch worktree. Request a separate static security pass after correctness.
-Open a draft PR only after correctness clears; monitor exact-head CI and address
-in-scope findings. CI's draft mergeability refusal is expected and is reported
-separately from check conclusions. Leave the PR draft for the user's merge decision.
+Integrate the disjoint lanes, run the full checker tests and benchmark, and evaluate
+the frozen corpus. Tighten, structural review, mutant checks in scratch, and fresh
+blank-context correctness review of a clean pushed immutable head precede the PR.
+Request separate static security finder/refuter after correctness. Publish a draft
+PR against main with no PR24 dependency. Exact-head CI must pass; the already-published PR24 workflow discovers the new unit
+tests and runs the benchmark, so no duplicate test step is added here.
+The draft merge-gate refusal is expected and distinct from check conclusions.
 
 ```yaml
-id: SC-003
+id: SQL-003
 task_type: generic
 depth: deep
 executor: gpt-6.1-sol-low
-depends_on: [SC-001, SC-002]
+depends_on: [SQL-001, SQL-002]
 footprint:
   modifies:
     - "PLAN.md::*"
     - ".brief/docs/features.md::*"
   creates:
-    - "docs/spec-check-continuation.md"
-gate: "Required tests/governance pass; frozen evaluation results and mutant results are durable; pushed exact head receives independent correctness and separate security review; draft PR has exact-head CI evidence and remaining limits"
+    - "docs/spec-check-sql-migrations.md"
+gate: "Required local tests/governance and frozen evaluation pass; exact pushed head clears independent correctness and separate security review; draft PR has actual exact-head CI evidence and no PR24 dependency"
 ```
 
 ## Status
 
-- Initial checker baseline: 19 tests passed.
-- kypp MCP tools absent after tool discovery; briefing/recall/claim skipped per AGENTS.md.
-- Cloud skill: `/workspace/dev/codex-skills/ship-it/SKILL.md`; repo `.agents/` absent.
-- CLI Brief uses the workflow-pinned v0.4.2 with cache under `/workspace`.
-- SC-001 landed from `ee9860d`; SC-002 freeze `91eb908` and documentation `c38752f`
-  landed as `e98ece0` and `1019dd0`. The implementation did not inspect fresh cases.
-- First fresh-corpus evaluation at integrated `1019dd07991fb451bca996216a0344f6ffb10255`:
-  all nine expectations passed; false conformance 0, abstention 1/3, coverage 2/3.
-- Final checker suite: 40 tests passed. Advisory live report: 8 conforms,
-  0 violates, 7 unsupported, 3 unresolved; this is scoped evidence, not ratification.
-- Independent structural review found no high-confidence structural blocker.
-- Correctness/security review and exact-head CI evidence will be recorded in the draft PR.
-- No merge or deployment is authorized; final handoff leaves the PR draft.
+- Main baseline checker suite: 19 tests passed.
+- kypp MCP tools absent after discovery; skip memory calls per AGENTS.md.
+- Cloud ship-it available; repository `.agents/` directory absent.
+- Brief v0.4.2 uses writable cache/tool dirs under `/workspace/.cache`.
+- No active decision edits, runtime changes, merge or deployment are authorized.
 
-## Deviations
+## Integration deviation
 
-- Approved the narrow SC-001 `MCP_SCOPE` edit to state initializer-only evidence.
-  This clarifies the existing covered scope without expanding runtime behavior.
-- The corpus lane also fixed missing-verdict metric denominators, verified with
-  independent mocked reports. An omitted row now counts as an uncovered abstention.
-- First correctness review found that schema references in unrelated `inputSchema`
-  pairs were wrongly whitelisted. The parent restricted permitted positions to
-  direct TOOLS entries, added a red-first regression, and advanced parser cache
-  identity. These fixes were driven by independent review, not holdout outcomes.
-- Mutation testing found a missing dependency-version cache regression. Added
-  tests for runtime/grammar changes and previous whitelist facts.
-- Fresh correctness review identified shorthand reference escapes. Red-first tests
-  also proved escaped identifier spellings unsafe to compare as raw text. The
-  scanner now treats both conservatively and advances its cache namespace again.
+- PR24 merged externally while lanes ran. Integrated current main after both
+  independent lanes landed; retained its TypeScript analyzer and SQL changes together.
+- Resolved the syntactic conflict by removing both obsolete scanner helpers and
+  obsolete SQL regexes. PLAN now describes this increment; PR24's plan remains in
+  Git history and its evidence documents remain in the combined tree.
+- SQL implementation commit: `a92939f`; corpus freeze: `22f68268b268d3d52133ed88c98bb9a1f44831c1`.
+- First evaluation at `6716f88` found zero false conformance, 27.3% column
+  abstention and 72.7% coverage, with one missed DROP INDEX counterexample.
+  Added its structural shape without changing labels; all cases are now exposed.
+- Added meaningful migration-cache and budget checks. A red-first boundary test
+  found that a final statement without a semicolon escaped the 128-statement
+  limit; it now abstains. No SQL is executed by these checks.
+- Initial pushed-head review cleared `8bf7738` with risk low. Mutation testing
+  killed 11 changes and exposed a missing token-budget assertion; its regression
+  was added before a new immutable final-head review.
+- Fresh review at `d563e25` found that a later unsupported token suppressed
+  completed-statement evidence. Opaque-token retention now preserves safe boundaries
+  and records mixed statement gaps, with a red-first regression. Resource limits
+  and malformed quote/comment boundaries still abstain conservatively.
 
 ## Graph
 
 ```mermaid
 flowchart TD
-    SC_001["SC-001 Worker syntax · deep · 6.1 Sol Fast"] ==> SC_003["SC-003 Integrate/review/draft · deep · 6.1 Sol Fast"]
-    SC_002["SC-002 Independent corpus · routine · 6.1 Sol Fast"] ==> SC_003
+    SQL_001["SQL-001 SQL evidence · deep · 6.1 Sol Fast requested"] ==> SQL_003["SQL-003 Integrate/review/draft · deep · 6.1 Sol Fast requested"]
+    SQL_002["SQL-002 Independent corpus · routine · 6.1 Sol Fast requested"] ==> SQL_003
 ```
