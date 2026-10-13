@@ -14,6 +14,9 @@ MARKERS = {
     "eval_mcp_authority": "doc://kypp/authority-order@0004#authority-dominates",
     "eval_writers": "doc://kypp/authority-order@0004#authority-dominates",
     "eval_rank": "doc://kypp/authority-order@0004#authority-dominates",
+    "eval_no_delete": "doc://kypp/append-only-history@0001#never-delete",
+    "eval_mark_verified": "doc://kypp/authority-order@0004#authority-dominates",
+    "eval_grader_leak": "doc://kypp/no-grader-leak@0001#signal-only-rubric",
 }
 
 
@@ -65,7 +68,7 @@ class RankOrderTest(unittest.TestCase):
             },
             "authority-rank-order",
         )
-        self.assertEqual(live, "conforms")
+        self.assertEqual(live, "no_counterexample")
         self.assertIn('Literal["agent", "verified", "human"]', VOCAB_PY)
 
 

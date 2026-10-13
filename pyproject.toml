@@ -5,7 +5,7 @@ description = "Swarm memory engine for coding agents — observe / distill / rec
 requires-python = ">=3.10"
 dependencies = [
     "pyturso>=0.8.1",  # embedded tursodb: concurrent writes + native vector search
-    "mcp",      # the MCP SDK (only the `serve` command needs it; imported lazily)
+    "mcp>=1.30,<2",  # FastMCP-based server; migrate to SDK v2 separately.
 ]
 
 [project.optional-dependencies]
@@ -15,6 +15,10 @@ s1 = ["typesafe-sdk>=0.7"]
 
 [project.scripts]
 kypp = "kypp.cli:main"
+speccheck = "speccheck.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kypp", "speccheck"]
 
 [build-system]
 requires = ["hatchling"]
