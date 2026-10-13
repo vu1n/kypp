@@ -70,8 +70,10 @@ to one project, derived from `KYPP_REPO_ROOT`.
 
 ### Gotchas
 - `serve --http` has no authentication. Keep it on localhost.
-- The MCP `correct` tool lands at agent authority, not human. Only the operator's `kypp correct`
-  writes human authority (`doc://kypp/authority-order@latest#authority-dominates`).
+- The MCP `correct` tool lands at agent authority, not human. It is not a writer of `human` or
+  `verified`. Local human authority is the operator's `kypp correct`; local verified authority is
+  `MemoryStore.mark_verified`; authenticated `POST /sync` imports a ratified Brief revision at the
+  archive stamp's authority (`doc://kypp/authority-order@latest#authority-dominates`).
 - No agent call self-accepts. Every MCP `claim`, decisions included, lands as a candidate stamped
   `session:<id>`; it is accepted when a second session claims the subject or an operator accepts it.
   The stamp and usage logging need a session id: stdio mints one per process, `--http` needs
@@ -301,6 +303,9 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   `TOOLS` initializer that declares no `verify` property.
 - The authority-order writer bullets stay one claim: `shell.correct_main` is grouped with the
   following `POST /sync` bullet, and `human-authority-writers` stays `unresolved`.
+- Those writer rules still read frozen `authority-order@0004`. `authority-order@0005` reconciles
+  the verified-writer contradiction, and that row has not been re-evaluated against it. Ratifying
+  the policy does not create positive evidence.
 - `authority-rank-order` reads `kypp/vocab.py`, `kypp/arbiter.py`, and the `worker/src/memory.ts`
   mirror. The TypeScript order has to be proved equal to the Python order (`agent` < `verified` <
   `human`, higher rank wins). Divergence is a violation. A missing file, a parse failure, or an
