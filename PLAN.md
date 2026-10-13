@@ -90,7 +90,7 @@ id: INV-003
 task_type: generic
 depth: deep
 executor: gpt-6.1-sol-low
-depends_on: [INV-001, INV-002]
+depends_on: [INV-001, INV-002, INV-004]
 footprint:
   modifies:
     - "PLAN.md::*"
@@ -100,6 +100,29 @@ footprint:
 gate: "Local tests and Brief checks pass; frozen first results are recorded; mutants are killed or addressed; exact pushed head clears correctness and separate security review; draft PR has successful exact-head workflows"
 ```
 
+## INV-004 — Valid-grammar independent holdout
+
+The first frozen corpus contained invalid reference sentinels and a misdirected
+read-denial fault. Retain the original freeze and observed results; repair it as
+exposed regression evidence. A new blank-context author freezes a small separate
+set using the public reference grammar and unittest interfaces, before seeing
+the source loader or existing corpus. This new set is first scored after freeze.
+
+```yaml
+id: INV-004
+task_type: test
+depth: routine
+executor: gpt-6.1-sol-low
+depends_on: []
+footprint:
+  creates:
+    - "speccheck/tests/test_source_inventory_holdout.py"
+    - "docs/spec-check-source-holdout.md"
+produces:
+  - "speccheck/tests/test_source_inventory_holdout.py::CASES"
+gate: "Small independent cases use valid public reference grammar; frozen inputs/labels committed before scoring or implementation exposure; first results and limitations recorded without retuning labels"
+```
+
 ## Status
 
 - Current main, PR25 and PR26 verified before choosing scope.
@@ -107,10 +130,21 @@ gate: "Local tests and Brief checks pass; frozen first results are recorded; mut
 - Kypp MCP tools absent after discovery; proceed per AGENTS.md.
 - No SIGNOFF edit expected for this checker-only change; any required addition must preserve others' lines.
 
+## Deviations
+
+- Original corpus freeze: `999b6a2b6aa509b4982fa6fb47cf5cc9fcb72b46`.
+  First scoring at `bb98fa3` observed 15/26 passes and 11 failures, but the
+  eleven reference sentinels had out-of-grammar revisions. The read-denied pass
+  was also invalid: its helper raised a type error on a subprocess pipe handle.
+  Fourteen valid controls/loading cases passed. This is harness evidence, not
+  a false-conformance rate. Repair the harness and disclose input changes;
+  use INV-004 for a new independently frozen first observation.
+
 ## Graph
 
 ```mermaid
 flowchart TD
     INV_001["INV-001 Complete snapshots · deep · 6.1 Sol"] ==> INV_003["INV-003 Integrate/review/draft · deep · 6.1 Sol"]
     INV_002["INV-002 Independent corpus · routine · 6.1 Sol"] ==> INV_003
+    INV_004["INV-004 Valid-grammar holdout · routine · 6.1 Sol"] ==> INV_003
 ```
