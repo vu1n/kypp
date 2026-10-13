@@ -334,9 +334,12 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   is recorded on that unresolved verdict, including `ON CONFLICT DO UPDATE`. It is not a settled
   violation and not a pass. A `?` binding is a coverage gap. A `WHERE authority='verified'` filter
   is not an assignment. A one-step local bound to `"verified"` is recorded the same way.
-- `schema-add-column` does not emit assurance. `NOT NULL` without `DEFAULT`, a second statement,
-  or a version-table name is a violation. `ADD COLUMN` with a `CHECK` stays `unresolved`. A scan
-  with no counterexample is `no_counterexample`.
+- `schema-add-column` does not emit assurance. Comments, strings, and quoted names cannot
+  supply clauses. `NOT NULL` without `DEFAULT`, DROP, RENAME, and a simple `CREATE TABLE`
+  are violations. A `CREATE TABLE` named as a schema-version table also violates
+  `schema-idempotence`. That name inside a string or comment does not. `CHECK`, a
+  parenthesized default, and other unknown syntax stay `unresolved`. A known counterexample
+  survives an opaque sibling. A scan with no counterexample and no gap is `no_counterexample`.
 - `no-grader-verbatim` checks `ClaimDraft` subject and content. A proved read of a criterion
   `name` or `feedback` is a violation. Text copied from model JSON stays `unresolved`.
 - `memory-scope-decay` and `agent-mcp-surface-compose` have no `### Invariant` list, so their
@@ -355,6 +358,13 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   stays in `speccheck/holdout_cases.py` and is not extended. False passes for the later rank,
   registration, SQL, and grader rules are the separate `gap-holdout` split. Smoke controls are
   not accuracy evidence. Provenance for the frozen nine is in `docs/spec-check-evaluation.md`.
+- SQL migration evidence covers literal initializer entries and a bounded statement grammar.
+  Comments, strings, and quoted names cannot supply clauses. Unknown syntax is `unresolved`.
+  A known non-additive statement is a violation and survives an unrelated gap. The checker
+  does not execute SQL. A clean scan is `no_counterexample`, not assurance. The
+  additive-migrations@0002 bullet is retired. The check is not proof of database acceptance,
+  default semantics, or runtime idempotence. Schema evaluation is in
+  `docs/spec-check-schema-evaluation.md`.
 - A reference-index cache hit for the same head SHA is reused only when the dependency hash
   still matches. A baseline spec change rebuilds the index.
 - Source loading requires every selected file to be regular UTF-8 text. A read, decoding, or
