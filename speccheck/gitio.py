@@ -76,10 +76,14 @@ def _read_rev_file(repo: Path, rev: str, path: str) -> str:
 
 
 def _worktree_entry(repo: Path, path: str, read: bool) -> str | None:
-    """Traverse with directory descriptors so no symlink can escape the tree."""
+    """Selected content uses no-follow traversal; excluded entries supply existence only."""
     descriptors: list[int] = []
     missing_is_deletion = False
     try:
+        if not read:
+            missing_is_deletion = True
+            (repo / path).lstat()
+            return ""
         parent = os.open(repo, os.O_RDONLY | os.O_DIRECTORY)
         descriptors.append(parent)
         missing_is_deletion = True
@@ -91,8 +95,6 @@ def _worktree_entry(repo: Path, path: str, read: bool) -> str | None:
             descriptors.append(parent)
         info = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
         missing_is_deletion = False
-        if not read:
-            return ""
         if not stat.S_ISREG(info.st_mode):
             raise GitError(f"selected entry is not a regular file: {path!r}")
         fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)

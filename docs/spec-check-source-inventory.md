@@ -24,6 +24,8 @@ Content selection remains `.brief/`, `kypp/`, `worker/src/`,
 `worker/migrations/`, `docs/`, and `.github/workflows/`. Other paths remain in
 the feature inventory but their content is outside the loader's selected scope.
 This does not extend the checker to additional code paths or prove global absence.
+Excluded worktree paths receive an existence check only; a symlinked asset
+directory does not trigger the selected-source restriction or a content read.
 
 Git paths must be preserved literally rather than split on newlines or interpreted
 from Git's display quoting. Selected symlinks and other non-regular entries are
@@ -52,15 +54,18 @@ These small synthetic sets do not estimate a population error rate.
 
 ## Validation
 
-- Full checker suite: 70 unittest methods passed, including 26 named corpus subtests.
+- Full checker suite: 71 unittest methods passed, including 26 named corpus subtests.
 - All existing tuning, regression, previously exposed holdout and smoke benchmark splits passed.
-- Thirteen meaningful mutants were killed. Initial survivors prompted tests for
+- Fourteen meaningful mutants were killed. Initial survivors prompted tests for
   replacement between stat/open, duplicate unmerged Git index entries, and descriptor cleanup.
 - Independent structural review found no high-confidence structural blocker.
 - Required Brief check and pin passed; doctor retained only the three pre-existing stale pins.
 
 Exact pushed-head correctness/security review and workflow conclusions are recorded
 in the draft PR, since they follow this local validation.
+The first correctness review identified strict traversal applied to excluded
+symlinked asset directories. Its red-first regression now passes after keeping
+those paths in the existence-only inventory; the settled fix receives a fresh review.
 
 This branch starts directly from main. Open PR25 extends semantic rule coverage;
 open PR26 supplies SQL migration evidence. Neither is included or required here.

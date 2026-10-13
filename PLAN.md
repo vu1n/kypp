@@ -144,12 +144,17 @@ gate: "Small independent cases use valid public reference grammar; frozen inputs
   exceeded the reference rule's declared scope. Corrected that label against
   the existing contract without widening the checker. The frozen original is
   preserved; corrected twelve-case passing runs are regression confirmation.
-- Repaired original 26-case corpus passed. Local suite now has 70 passing methods;
-  all thirteen mutants are killed after addressing three missing test boundaries.
+- Repaired original 26-case corpus passed. Local suite now has 71 passing methods;
+  all fourteen mutants are killed after addressing three missing test boundaries
+  and the correctness review's excluded-parent-symlink regression.
 - Tighten removed the private pass-through reader and redundant branch. The
   scoped loader/corpus tests were re-run, then the full checker suite passed.
   Independent structural review found no high-confidence blocker. No runtime,
   amendment, active decision or SIGNOFF edit was needed.
+- Pushed-head correctness at `d68aaf8` found strict traversal applied to excluded
+  linked asset directories. A real red-first Git fixture demonstrated the abort;
+  excluded entries now receive existence-only checks without content reads. The
+  committed fix is pushed and reviewed again before opening the draft PR.
 
 ## Graph
 

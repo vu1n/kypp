@@ -194,6 +194,20 @@ class GitSnapshotTest(unittest.TestCase):
                 self.assertEqual(files, {})
                 self.assertEqual(set(paths), {'outside.bin', 'link'})
 
+    def test_unselected_symlinked_parent_preserves_existence_inventory(self):
+        dest = self.write('assets/image.bin', b'\xff')
+        self.commit()
+        dest.unlink()
+        dest.parent.rmdir()
+        external = Path(self.tmp.name) / 'external-assets'
+        external.mkdir()
+        image = external / 'image.bin'
+        image.write_bytes(b'\xff')
+        dest.parent.symlink_to(external, target_is_directory=True)
+        self.assertEqual(load_files(self.repo, None), ({}, ['assets', 'assets/image.bin']))
+        image.unlink()
+        self.assertEqual(load_files(self.repo, None), ({}, ['assets']))
+
     def test_committed_gitlink_is_not_source(self):
         self.write('outside.txt')
         self.commit()
