@@ -7,12 +7,17 @@ are lazy so the ordinary kypp installation does not need checker dependencies.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from tree_sitter import Node, Parser
 
 
 PARSER_VERSION = 'ts-mcp-tree-sitter-v2'
 
 
-def parser_cache_key():
+def parser_cache_key() -> str:
     """Probe imports before consulting disk; unavailable parsers never cache facts."""
     from importlib.metadata import version
 
@@ -20,29 +25,29 @@ def parser_cache_key():
     return f"{PARSER_VERSION}-{version('tree-sitter')}-{version('tree-sitter-typescript')}"
 
 
-def _parser():
+def _parser() -> Parser:
     from tree_sitter import Language, Parser
     import tree_sitter_typescript
 
     return Parser(Language(tree_sitter_typescript.language_typescript()))
 
 
-def _children(node):
+def _children(node: Node) -> list[Node]:
     return [child for child in node.named_children if child.type != 'comment']
 
 
-def _unwrap(node):
+def _unwrap(node: Node | None) -> Node | None:
     while node is not None and node.type in {'parenthesized_expression', 'as_expression', 'satisfies_expression', 'type_assertion'}:
         children = _children(node)
         node = children[-1] if node.type == 'type_assertion' else children[0]
     return node
 
 
-def _text(node):
+def _text(node: Node) -> str:
     return node.text.decode('utf8')
 
 
-def _string(node):
+def _string(node: Node | None) -> str | None:
     if node is None or node.type != 'string':
         return None
     # JS escapes outside this Python-compatible literal subset are unsupported.
@@ -60,14 +65,14 @@ def _string(node):
     return value if isinstance(value, str) else None
 
 
-def _key(node):
+def _key(node: Node) -> str | None:
     if node.type in {'property_identifier', 'identifier'}:
         value = _text(node)
         return value if '\\' not in value else None
     return _string(node)
 
 
-def _fields(node):
+def _fields(node: Node | None) -> tuple[dict[str, Node | None], list[str]]:
     """Return unambiguous literal pairs plus gaps; never silently drop a member."""
     node = _unwrap(node)
     if node is None or node.type != 'object':
@@ -92,7 +97,7 @@ def _fields(node):
     return fields, gaps
 
 
-def _walk(node):
+def _walk(node: Node) -> Iterator[Node]:
     yield node
     for child in node.named_children:
         yield from _walk(child)

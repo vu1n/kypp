@@ -44,6 +44,7 @@ footprint:
   modifies:
     - "speccheck/syntax.py::*"
     - "speccheck/evaluate.py::eval_mcp_no_verify"
+    - "speccheck/evaluate.py::MCP_SCOPE"
     - "pyproject.toml::*"
     - ".github/workflows/spec-consistency.yml::*"
   creates:
@@ -118,7 +119,22 @@ gate: "Required tests/governance pass; frozen evaluation results and mutant resu
 - kypp MCP tools absent after tool discovery; briefing/recall/claim skipped per AGENTS.md.
 - Cloud skill: `/workspace/dev/codex-skills/ship-it/SKILL.md`; repo `.agents/` absent.
 - CLI Brief uses the workflow-pinned v0.4.2 with cache under `/workspace`.
-- No implementation or evaluation results yet.
+- SC-001 landed from `ee9860d`; SC-002 freeze `91eb908` and documentation `c38752f`
+  landed as `e98ece0` and `1019dd0`. The implementation did not inspect fresh cases.
+- First fresh-corpus evaluation at integrated `1019dd07991fb451bca996216a0344f6ffb10255`:
+  all nine expectations passed; false conformance 0, abstention 1/3, coverage 2/3.
+- Integrated checker suite: 35 tests passed. Advisory live report: 8 conforms,
+  0 violates, 7 unsupported, 3 unresolved; this is scoped evidence, not ratification.
+- Independent structural review found no high-confidence structural blocker.
+- Correctness/security review and exact-head CI evidence will be recorded in the draft PR.
+- No merge or deployment is authorized; final handoff leaves the PR draft.
+
+## Deviations
+
+- Approved the narrow SC-001 `MCP_SCOPE` edit to state initializer-only evidence.
+  This clarifies the existing covered scope without expanding runtime behavior.
+- The corpus lane also fixed missing-verdict metric denominators, verified with
+  independent mocked reports. An omitted row now counts as an uncovered abstention.
 
 ## Graph
 
