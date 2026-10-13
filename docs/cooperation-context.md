@@ -91,24 +91,52 @@ A missing link and a link the caller cannot see are both `INVALID_RECORD`.
 
 ## Repository seam
 
-`CooperationRepository` is `append`, `getByIds`, and `scanCandidates` (Python:
-`append`, `get_by_ids`, `scan_candidates`). Every call takes the authenticated
-principal, the resolved origin, and the server clock. `scanCandidates` returns at
-most 100 rows that are already limited to that principal and origin, with
-`created_at <= cutoff` and `expires_at > now`, and it omits predecessors hidden by
-a supersession link that existed at the cutoff even if the superseder has since
-expired. `getByIds` uses the same principal boundary, keeps expired rows, and does
-not hide superseded rows. Neither method ranks or calls a model.
+`CooperationRepository` is `append`, `getByIds`, and `search` (Python: `append`,
+`get_by_ids`, and `search`). Every call takes the authenticated principal, the
+resolved origin, and the server clock. `search` runs inside the store. `getByIds`
+uses the same principal and origin boundary, keeps expired rows, and does not hide
+superseded rows. Neither method calls a model or returns another principal's ids.
 
 ## Selection
 
-`compareSelection` is the v1 order, selector version `cooperation-lexical-v1`.
-Exact work-ref matches come first, then case-sensitive lexical hits in the handoff
-text or the evidence requirement, spec, outcome, and result, then newer
-`created_at`, then ascending id. An empty query does not prefer a lexical hit.
-No role input and no paid model. A capped window sets `window_capped` and clears
-`candidate_window_exhaustive`. An empty authorized result is success. A failed read
-is not evidence that nothing matched.
+Selector version `cooperation-fts5-bm25-v1`. The index is FTS5, the same family
+claim recall uses in `worker/src/store.ts`. `claims_fts` omits a tokenizer clause
+and therefore uses SQLite's default, `unicode61` (case-insensitive, diacritics
+removed). Cooperation names that tokenizer:
+
+```sql
+CREATE VIRTUAL TABLE cooperation_fts USING fts5(
+  record_id UNINDEXED,
+  repository,
+  candidate_revision,
+  body,
+  tokenize = 'unicode61'
+);
+```
+
+`repository` and `candidate_revision` are the work ref. `body` is the handoff
+text, or the evidence requirement, spec, outcome class, and label, unit, value,
+reason, or statement. Python claim recall is `LIKE`, not FTS; the hosted worker
+is the FTS path this contract mirrors.
+
+`ftsQuery` extracts Unicode letters, numbers, and underscores, quotes each token,
+and OR-joins them. That is the worker `ftsQuery` in `memory.ts`, widened to the
+characters `unicode61` indexes. Quotes, `*`, `NEAR`, column filters, and boolean
+operators never reach `MATCH`. A query with no tokens is browse, not `MATCH *`.
+An unmatched token list returns no FTS rows and is success, not an error.
+
+SQLite rejects `MATCH` inside `OR`. The store therefore runs two filtered
+statements. Both apply principal, origin, audience, `created_at <= cutoff`,
+`expires_at > now`, kind, and supersession-at-cutoff before any ranking. The
+MATCH statement orders by `bm25()`. Exact work-ref rows come from the second
+statement. The merge keeps exact matches first (their `bm25()` when they also
+matched, otherwise id), then the other hits by `bm25()` ascending, then id
+ascending. The ratified maximum is still 100 authorized candidates. That window
+is the top 100 by this order, not the 100 newest, so an older relevant row stays
+findable. A better-scoring row the caller cannot see is not in either statement,
+so it never appears and never takes a slot. A capped window sets `window_capped`
+and clears `candidate_window_exhaustive`. An empty authorized result is success.
+A failed read is not evidence that nothing matched.
 
 ## Out of this slice
 

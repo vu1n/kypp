@@ -188,8 +188,10 @@ later slices; this feature is the frozen schema, validators, and fixture.
   different hash and ignores bridge order.
 - A missing link and a forbidden link both fail as `INVALID_RECORD`.
 - `legacy_false` is `inconclusive_execution`, not `invalid_candidate`.
-- `compareSelection` is the v1 rank key. The repository seam returns only rows the
-  caller may already see.
+- Search is FTS5 `unicode61` with `bm25()`, selector `cooperation-fts5-bm25-v1`.
+  SQLite rejects `MATCH` inside `OR`, so exact work-ref rows are a second filtered
+  read. The 100-row cap is the ratified maximum, ranked by exact match then
+  `bm25()` then id, not the 100 newest rows.
 - Fixture case `floating-brief-ref` stores `doc://kypp/memory-scope-decay@latest#scope-keys-decay`
   so both validators reject it. `brief pin` rewrites that counterexample to `@0005`,
   and the case then accepts. Restore `@latest` after pin. It is not a citation.

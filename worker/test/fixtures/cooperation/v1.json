@@ -196,8 +196,7 @@
     "order": [
       "s-exact-lexical",
       "s-exact-plain",
-      "s-lexical",
-      "s-neither"
+      "s-lexical"
     ],
     "records": [
       {
@@ -383,7 +382,7 @@
       "schema_version": 1,
       "as_of": "2026-10-13T15:27:00Z",
       "cutoff": "2026-10-13T15:27:00Z",
-      "selector_version": "cooperation-lexical-v1",
+      "selector_version": "cooperation-fts5-bm25-v1",
       "records": [],
       "selected": [],
       "max_bytes": 16384,
@@ -392,7 +391,7 @@
       "window_capped": false,
       "candidate_window_exhaustive": true
     },
-    "sha256": "c2350a7a1910938a945152bab6b5dd5920b6c6516ee23a2d445e3e01936976c7"
+    "sha256": "2426e1e5b932c06b5049f7ff74009b4fff452aedab753e4ac37e40defac3404a"
   },
   "cases": [
     {

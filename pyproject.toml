@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 dependencies = [
     "pyturso>=0.8.1",  # embedded tursodb: concurrent writes + native vector search
     "mcp>=1.30,<2",  # FastMCP-based server; migrate to SDK v2 separately.
+    "jsonschema>=4.18,<5",  # contract tests validate the cooperation input schemas
 ]
 
 [project.optional-dependencies]

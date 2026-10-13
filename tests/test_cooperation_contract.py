@@ -12,6 +12,8 @@ import os
 import unittest
 from pathlib import Path
 
+from jsonschema import Draft7Validator
+
 from kypp.cooperation import (
     APPEND_CONTEXT_INPUT_SCHEMA,
     COOPERATION_LIMITS,
@@ -19,10 +21,12 @@ from kypp.cooperation import (
     CooperationError,
     canonical_json,
     client_payload_digest,
-    compare_selection,
+    fts_query,
     hidden_predecessors,
     is_fresh,
     lineage_relation,
+    record_revision,
+    reference_search,
     seal_contribution,
     sha256_hex,
     stamp_record,
@@ -65,10 +69,30 @@ def _names(schema):
         for key, value in (node.get("properties") or {}).items():
             found.append(key)
             walk(value)
-        walk(node.get("items"))
+        for key in ("items", "then", "else"):
+            walk(node.get(key))
+        for key in ("oneOf", "anyOf", "allOf"):
+            for item in node.get(key) or []:
+                walk(item)
 
     walk(schema)
     return found
+
+
+def _search(records, **request):
+    base = {
+        "principal": "owner",
+        "origin": "kypp",
+        "now": "2026-10-13T12:00:00Z",
+        "cutoff": "2026-10-13T12:00:00Z",
+        "query": "",
+        "repository": None,
+        "candidate_revision": None,
+        "kinds": None,
+        "window": COOPERATION_LIMITS["candidate_window"],
+    }
+    base.update(request)
+    return reference_search(records, base)
 
 
 class CooperationContractTest(unittest.TestCase):
@@ -131,14 +155,124 @@ class CooperationContractTest(unittest.TestCase):
         self.assertEqual(hidden_predecessors(hidden["records"], hidden["cutoff"]), hidden["hidden"])
 
     def test_selection_order(self):
-        from functools import cmp_to_key
-
         criteria = FIXTURE["selection"]["criteria"]
-        ranked = sorted(
-            FIXTURE["selection"]["records"],
-            key=cmp_to_key(lambda left, right: compare_selection(left["record"], right["record"], criteria)),
-        )
-        self.assertEqual([item["id"] for item in ranked], FIXTURE["selection"]["order"])
+        records = [item["record"] for item in FIXTURE["selection"]["records"]]
+        ranked = _search(records, query=criteria["query"], repository=criteria["repository"], candidate_revision=criteria["candidate_revision"])
+        names = {item["record"]["id"]: item["id"] for item in FIXTURE["selection"]["records"]}
+        self.assertEqual([names[item] for item in ranked["ids"]], FIXTURE["selection"]["order"])
+        self.assertNotIn("3123456789abcdef0123456789abcdef", ranked["ids"])
+
+    def test_fts_query_quotes_tokens(self):
+        self.assertEqual(fts_query(""), "")
+        self.assertEqual(fts_query("*"), "")
+        self.assertEqual(fts_query('"'), "")
+        self.assertEqual(fts_query("lexical-hit"), '"lexical" OR "hit"')
+        self.assertEqual(fts_query("NOT alpha"), '"NOT" OR "alpha"')
+        self.assertEqual(fts_query("body:secret"), '"body" OR "secret"')
+        self.assertEqual(fts_query("café"), '"café"')
+
+    def test_invisible_match_is_not_counted(self):
+        visible = json.loads(json.dumps(FIXTURE["selection"]["records"][2]["record"]))
+        hidden = json.loads(json.dumps(visible))
+        hidden["id"] = "4123456789abcdef0123456789abcdef"
+        hidden["author_principal"] = "other"
+        hidden["audience"] = {"kind": "principal", "principal": "other"}
+        hidden["payload"]["summary"] = "lexical-hit lexical-hit lexical-hit lexical-hit"
+        ranked = _search([visible, hidden], query="lexical-hit", window=1)
+        self.assertEqual(ranked["ids"], [visible["id"]])
+        self.assertIs(ranked["window_capped"], False)
+
+    def test_older_relevant_record_is_findable(self):
+        old = json.loads(json.dumps(FIXTURE["selection"]["records"][0]["record"]))
+        old["id"] = "5123456789abcdef0123456789abcdef"
+        old["created_at"] = "2020-01-01T00:00:00Z"
+        old["expires_at"] = "2030-01-01T00:00:00Z"
+        old["work_ref"]["repository"] = "https://github.com/vu1n/other"
+        old["work_ref"]["candidate_revision"] = "c" * 40
+        old["payload"]["summary"] = "uniquealpha uniquealpha uniquealpha"
+        newer = []
+        for index in range(100):
+            row = json.loads(json.dumps(FIXTURE["selection"]["records"][3]["record"]))
+            row["id"] = f"{index:032x}"
+            row["created_at"] = "2026-10-13T05:00:00Z"
+            row["payload"]["summary"] = f"noise{index}"
+            newer.append(row)
+        ranked = _search([old, *newer], query="uniquealpha")
+        self.assertEqual(ranked["ids"], [old["id"]])
+
+    def test_hostile_match_syntax_stays_inside_the_audience(self):
+        rows = [item["record"] for item in FIXTURE["selection"]["records"]]
+        hidden = json.loads(json.dumps(rows[0]))
+        hidden["id"] = "6123456789abcdef0123456789abcdef"
+        hidden["author_principal"] = "other"
+        hidden["audience"] = {"kind": "principal", "principal": "other"}
+        hidden["payload"]["summary"] = "secret"
+        for query in ("*", '"', "NOT secret", "body:secret", "NEAR(secret *)"):
+            ranked = _search([*rows, hidden], query=query)
+            self.assertNotIn(hidden["id"], ranked["ids"], query)
+        names = {item["record"]["id"]: item["id"] for item in FIXTURE["selection"]["records"]}
+        both = _search(rows, query="plain NOT lexical-hit")
+        self.assertEqual(sorted(names[item] for item in both["ids"]), ["s-exact-lexical", "s-exact-plain", "s-lexical", "s-neither"])
+
+    def test_bm25_ties_break_on_id(self):
+        left = json.loads(json.dumps(FIXTURE["selection"]["records"][3]["record"]))
+        right = json.loads(json.dumps(left))
+        left["id"] = "a123456789abcdef0123456789abcdef"
+        right["id"] = "b123456789abcdef0123456789abcdef"
+        left["payload"]["summary"] = "sameword"
+        right["payload"]["summary"] = "sameword"
+        ranked = _search([right, left], query="SAMEWORD")
+        self.assertEqual(ranked["ids"], [left["id"], right["id"]])
+
+    def test_json_schema_accepts_fixture_inputs(self):
+        append = Draft7Validator(APPEND_CONTEXT_INPUT_SCHEMA)
+        query = Draft7Validator(QUERY_CONTEXT_INPUT_SCHEMA)
+        for item in FIXTURE["cases"]:
+            validator = append if item["op"] == "append" else query
+            ok = validator.is_valid(item["input"])
+            if item["expect"] == "accept":
+                self.assertTrue(ok, item["id"] + " " + "; ".join(error.message for error in validator.iter_errors(item["input"])))
+            else:
+                with self.assertRaises(CooperationError):
+                    _run(item)
+        nested = json.loads(json.dumps(BY_ID["empty-handoff"]["input"]))
+        nested["work_ref"]["note"] = "extra"
+        self.assertFalse(append.is_valid(nested))
+        payload = json.loads(json.dumps(BY_ID["empty-handoff"]["input"]))
+        payload["payload"]["authority"] = "human"
+        self.assertFalse(append.is_valid(payload))
+        self.assertFalse(query.is_valid({"schema_version": 1, "project": "kypp", "work_ref": {"repository": "https://github.com/vu1n/kypp", "note": "x"}}))
+
+    def test_stamped_records_reject_bad_id_and_kind(self):
+        stamp = FIXTURE["visibility"]["stamp"]
+        record = stamp_record({**stamp, "input": validate_append_context(BY_ID[stamp["case"]]["input"])})
+        draft = {
+            "schema_version": 1,
+            "as_of": record["created_at"],
+            "cutoff": record["created_at"],
+            "selector_version": "cooperation-fts5-bm25-v1",
+            "records": [record],
+            "selected": [{"id": record["id"], "revision": record_revision(record), "fresh": is_fresh(record["expires_at"], record["created_at"])}],
+            "max_bytes": 32768,
+            "omissions": [],
+            "diagnostics": [],
+            "window_capped": False,
+            "candidate_window_exhaustive": True,
+        }
+        sealed = seal_contribution(draft)
+        self.assertEqual(validate_contribution(sealed)["records"][0]["id"], record["id"])
+        bad_id = json.loads(json.dumps(sealed))
+        bad_id["records"][0]["id"] = "NOT-AN-ID"
+        with self.assertRaises(CooperationError) as caught:
+            validate_contribution(bad_id)
+        self.assertEqual(caught.exception.code, "INVALID_RECORD")
+        self.assertIn("id", str(caught.exception))
+        bad_kind = json.loads(json.dumps(sealed))
+        bad_kind["records"][0]["kind"] = "root"
+        with self.assertRaises(CooperationError) as caught:
+            validate_contribution(bad_kind)
+        self.assertEqual(caught.exception.code, "INVALID_RECORD")
+        self.assertIn("kind", str(caught.exception))
 
     def test_contribution_budget(self):
         sealed = seal_contribution(FIXTURE["contribution"]["draft"])

@@ -3,9 +3,9 @@
 # Context: doc://kypp/memory-scope-decay@0005#scope-keys-decay — cooperation records are not claims; wall-clock expiry never deletes, promotes, or corroborates them.
 # Context: doc://kypp/agent-mcp-surface-compose@0002#compose-surface — append_context and query_context take no authority parameter and return a bounded memory contribution.
 
-No store, no MCP registration, and no model call. Repository method names are
-append, get_by_ids, and scan_candidates, the Python spellings of the Worker
-CooperationRepository methods append, getByIds, and scanCandidates.
+No MCP registration and no model call. Repository method names are append,
+get_by_ids, and search, the Python spellings of the Worker CooperationRepository
+methods append, getByIds, and search. search is the FTS5 query the store runs.
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 SCHEMA_VERSION = 1
-SELECTOR_VERSION = "cooperation-lexical-v1"
+SELECTOR_VERSION = "cooperation-fts5-bm25-v1"
+FTS_TOKENIZER = "unicode61"
 SAFE_INT = 9_007_199_254_740_991
 
 COOPERATION_LIMITS = {
@@ -78,13 +79,13 @@ class CooperationError(Exception):
 
 
 class CooperationRepository(Protocol):
-    """Same seam as worker CooperationRepository. Scan rows are already authorized."""
+    """Same seam as worker CooperationRepository. search ranks inside the store."""
 
     def append(self, request: dict) -> dict: ...
 
     def get_by_ids(self, request: dict) -> list: ...
 
-    def scan_candidates(self, request: dict) -> dict: ...
+    def search(self, request: dict) -> dict: ...
 
 
 def utf8_bytes(value: str) -> int:
@@ -658,7 +659,7 @@ def hidden_predecessors(records: list, cutoff: str) -> list[str]:
     return sorted(hidden)
 
 
-def _searchable(record: dict) -> str:
+def _searchable_body(record: dict) -> str:
     payload = record["payload"]
     if record["kind"] == "handoff":
         return "\n".join([payload["summary"], payload["attempted"], payload["uncertainty"], payload["suggested_next_step"]])
@@ -673,31 +674,152 @@ def _searchable(record: dict) -> str:
     return "\n".join([payload["requirement_ref"]["property"], payload["spec_ref"], kind, tail])
 
 
-def compare_selection(left: dict, right: dict, criteria: dict) -> int:
-    def rank(record: dict) -> tuple:
-        repository = criteria.get("repository")
-        revision = criteria.get("candidate_revision")
-        if repository is None and revision is None:
-            exact = 0
-        else:
-            repo_ok = repository is None or record["work_ref"]["repository"] == repository
-            rev_ok = revision is None or record["work_ref"]["candidate_revision"] == revision
-            exact = 0 if repo_ok and rev_ok else 1
-        query = criteria.get("query") or ""
-        lexical = 0 if query == "" or query in _searchable(record) else 1
-        return (exact, lexical, record["created_at"], record["id"])
+COOPERATION_FTS_DDL = (
+    "CREATE VIRTUAL TABLE cooperation_fts USING fts5("
+    "record_id UNINDEXED, repository, candidate_revision, body, tokenize = 'unicode61')"
+)
+_SEARCH_FILTER = """
+r.author_principal = :principal
+AND r.origin = :origin
+AND r.audience_principal = :principal
+AND r.created_at <= :cutoff
+AND r.expires_at > :now
+AND (:kind IS NULL OR r.kind = :kind)
+AND NOT EXISTS (
+  SELECT 1 FROM cooperation_records s
+  WHERE s.supersedes = r.id
+    AND s.author_principal = r.author_principal
+    AND s.origin = r.origin
+    AND s.created_at <= :cutoff
+)
+""".strip()
+COOPERATION_FTS_MATCH_SQL = (
+    "SELECT r.id AS id, bm25(cooperation_fts) AS score\n"
+    "FROM cooperation_records r\n"
+    "JOIN cooperation_fts ON cooperation_fts.record_id = r.id\n"
+    f"WHERE {_SEARCH_FILTER}\n"
+    "AND cooperation_fts MATCH :match"
+)
+COOPERATION_EXACT_SQL = (
+    "SELECT r.id AS id\n"
+    "FROM cooperation_records r\n"
+    f"WHERE {_SEARCH_FILTER}\n"
+    "AND :repository IS NOT NULL\n"
+    "AND r.repository = :repository\n"
+    "AND (:revision IS NULL OR r.candidate_revision = :revision)"
+)
+COOPERATION_BROWSE_SQL = (
+    "SELECT r.id AS id\n"
+    "FROM cooperation_records r\n"
+    f"WHERE {_SEARCH_FILTER}\n"
+    "ORDER BY\n"
+    "  CASE\n"
+    "    WHEN :repository IS NULL AND :revision IS NULL THEN 0\n"
+    "    WHEN (:repository IS NULL OR r.repository = :repository)\n"
+    "     AND (:revision IS NULL OR r.candidate_revision = :revision) THEN 0\n"
+    "    ELSE 1\n"
+    "  END ASC,\n"
+    "  r.id ASC"
+)
 
-    a = rank(left)
-    b = rank(right)
-    if a[0] != b[0]:
-        return a[0] - b[0]
-    if a[1] != b[1]:
-        return a[1] - b[1]
-    if a[2] != b[2]:
-        return 1 if a[2] < b[2] else -1
-    if a[3] != b[3]:
-        return -1 if a[3] < b[3] else 1
-    return 0
+
+def fts_document(record: dict) -> dict:
+    return {
+        "record_id": record["id"],
+        "repository": record["work_ref"]["repository"],
+        "candidate_revision": record["work_ref"]["candidate_revision"],
+        "body": _searchable_body(record),
+    }
+
+
+def fts_query(text: str) -> str:
+    """Quote each unicode61 token and OR-join them. Operators never reach MATCH."""
+    import unicodedata
+
+    terms: list[str] = []
+    buffer: list[str] = []
+    for char in text:
+        if char == "_" or unicodedata.category(char).startswith(("L", "N")):
+            buffer.append(char)
+        elif buffer:
+            terms.append("".join(buffer))
+            buffer = []
+    if buffer:
+        terms.append("".join(buffer))
+    return " OR ".join('"' + term.replace('"', '""') + '"' for term in terms)
+
+
+def merge_search_hits(exact_ids: list[str], fts_hits: list[dict], window: int) -> dict:
+    limit = min(max(window, 1), COOPERATION_LIMITS["candidate_window"])
+    exact = set(exact_ids)
+    scores = {hit["id"]: hit["score"] for hit in fts_hits}
+
+    def by_score(item: str) -> tuple:
+        score = scores.get(item)
+        return (score is None, 0 if score is None else score, item)
+
+    exact_hits = sorted((item for item in exact_ids if item in scores), key=by_score)
+    exact_only = sorted(item for item in exact_ids if item not in scores)
+    rest = sorted((hit["id"] for hit in fts_hits if hit["id"] not in exact), key=by_score)
+    ranked = [*exact_hits, *exact_only, *rest]
+    return {"ids": ranked[:limit], "window_capped": len(ranked) > limit}
+
+
+def reference_search(records: list[dict], request: dict) -> dict:
+    """In-memory FTS5 execution of the store query. PC-003 uses the same SQL on D1."""
+    import sqlite3
+
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        "CREATE TABLE cooperation_records ("
+        "id TEXT PRIMARY KEY, author_principal TEXT NOT NULL, origin TEXT NOT NULL, "
+        "audience_principal TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL, "
+        "expires_at TEXT NOT NULL, supersedes TEXT, repository TEXT NOT NULL, "
+        "candidate_revision TEXT NOT NULL)"
+    )
+    connection.execute(COOPERATION_FTS_DDL)
+    for record in records:
+        document = fts_document(record)
+        connection.execute(
+            "INSERT INTO cooperation_records(id, author_principal, origin, audience_principal, kind, "
+            "created_at, expires_at, supersedes, repository, candidate_revision) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                record["id"],
+                record["author_principal"],
+                record["origin"],
+                record["audience"]["principal"],
+                record["kind"],
+                record["created_at"],
+                record["expires_at"],
+                record.get("supersedes"),
+                document["repository"],
+                document["candidate_revision"],
+            ),
+        )
+        connection.execute(
+            "INSERT INTO cooperation_fts(record_id, repository, candidate_revision, body) VALUES (?,?,?,?)",
+            (document["record_id"], document["repository"], document["candidate_revision"], document["body"]),
+        )
+    kinds = request.get("kinds")
+    kind = None if not kinds or len(kinds) == 2 else kinds[0]
+    window = int(request.get("window") or COOPERATION_LIMITS["candidate_window"])
+    shared = {
+        "principal": request["principal"],
+        "origin": request["origin"],
+        "cutoff": request["cutoff"],
+        "now": request["now"],
+        "kind": kind,
+    }
+    match = fts_query(request.get("query") or "")
+    exact = {"repository": request.get("repository"), "revision": request.get("candidate_revision")}
+    if match == "":
+        rows = connection.execute(COOPERATION_BROWSE_SQL + "\nLIMIT :limit", {**shared, **exact, "limit": window + 1}).fetchall()
+        ids = [row[0] for row in rows]
+        return {"ids": ids[:window], "window_capped": len(ids) > window}
+    fts_hits = [{"id": row[0], "score": row[1]} for row in connection.execute(COOPERATION_FTS_MATCH_SQL, {**shared, "match": match})]
+    exact_ids = [row[0] for row in connection.execute(COOPERATION_EXACT_SQL, {**shared, **exact})]
+    return merge_search_hits(exact_ids, fts_hits, window)
 
 
 def seal_contribution(draft: dict) -> dict:
@@ -713,26 +835,70 @@ def seal_contribution(draft: dict) -> dict:
     return {}
 
 
+def _stored_provenance(value: object) -> dict:
+    obj = _object(value, ["producer_namespace", "original_record_id", "original_run_id", "derived_from", "reported"], "provenance")
+    if obj.get("reported") is not True:
+        _fail("provenance.reported must be true")
+    rest = {key: item for key, item in obj.items() if key != "reported"}
+    return {**_provenance(rest), "reported": True}
+
+
 def _assert_record(value: object) -> dict:
     obj = _object(value, ["id", "schema_version", "kind", "author_principal", "client_label", "session_id", "origin", "created_at", "expires_at", "audience", "idempotency_key", "work_ref", "reply_to", "supersedes", "provenance", "payload"], "record")
     if not _schema_one(obj.get("schema_version")):
         _fail("schema_version must be 1")
-    audience = _object(obj.get("audience"), ["kind", "principal"], "audience")
-    if audience.get("kind") != "principal":
-        _fail("audience.kind must be principal")
-    provenance = _object(obj.get("provenance"), ["producer_namespace", "original_record_id", "original_run_id", "derived_from", "reported"], "provenance")
-    if provenance.get("reported") is not True:
-        _fail("provenance.reported must be true")
+    record_id = _record_id(obj.get("id"), "id")
+    if obj.get("kind") not in COOPERATION_KINDS:
+        _fail("kind must be handoff or evidence_reference")
+    author = _read_text(obj.get("author_principal"), "author_principal", 256, False, False)
+    client_label = _label(obj.get("client_label"), "client_label")
+    session = None if obj.get("session_id") is None else _read_token(obj.get("session_id"), "session_id", _TOKEN)
+    origin = _read_token(obj.get("origin"), "origin", _PROJECT)
     created = assert_timestamp(obj.get("created_at"), "created_at")
     expires = assert_timestamp(obj.get("expires_at"), "expires_at")
     span = int((datetime.strptime(expires, "%Y-%m-%dT%H:%M:%SZ") - datetime.strptime(created, "%Y-%m-%dT%H:%M:%SZ")).total_seconds())
     if span < COOPERATION_LIMITS["ttl_min_seconds"] or span > COOPERATION_LIMITS["ttl_max_seconds"]:
         _fail("expiry is outside the TTL bounds")
-    if utf8_bytes(canonical_json(obj)) > COOPERATION_LIMITS["record_max_bytes"]:
-        _fail("record exceeds 8 KiB")
-    if audience.get("principal") != obj.get("author_principal"):
+    audience = _object(obj.get("audience"), ["kind", "principal"], "audience")
+    if audience.get("kind") != "principal":
+        _fail("audience.kind must be principal")
+    audience_principal = _read_text(audience.get("principal"), "audience.principal", 256, False, False)
+    if audience_principal != author:
         _fail("audience principal differs from the author")
-    return obj
+    idempotency_key = _read_text(obj.get("idempotency_key"), "idempotency_key", COOPERATION_LIMITS["idempotency_key_max_bytes"], False, False)
+    if _TOKEN.fullmatch(idempotency_key) is None:
+        _fail("idempotency_key has an invalid shape")
+    work_ref = _work(obj.get("work_ref"))
+    reply_to = None if obj.get("reply_to") is None else _record_id(obj.get("reply_to"), "reply_to")
+    supersedes = None if obj.get("supersedes") is None else _record_id(obj.get("supersedes"), "supersedes")
+    if reply_to and supersedes and reply_to == supersedes:
+        _fail("reply_to and supersedes must be distinct links")
+    provenance = _stored_provenance(obj.get("provenance"))
+    payload = _handoff(obj.get("payload")) if obj["kind"] == "handoff" else _evidence(obj.get("payload"))
+    evidence_ids = payload.get("evidence_ids", [])
+    if (reply_to is not None) + (supersedes is not None) + len(evidence_ids) + len(provenance["derived_from"]) > COOPERATION_LIMITS["lineage_refs_max"]:
+        _fail("too many lineage references")
+    record = {
+        "id": record_id,
+        "schema_version": 1,
+        "kind": obj["kind"],
+        "author_principal": author,
+        "client_label": client_label,
+        "session_id": session,
+        "origin": origin,
+        "created_at": created,
+        "expires_at": expires,
+        "audience": {"kind": "principal", "principal": audience_principal},
+        "idempotency_key": idempotency_key,
+        "work_ref": work_ref,
+        "reply_to": reply_to,
+        "supersedes": supersedes,
+        "provenance": provenance,
+        "payload": payload,
+    }
+    if utf8_bytes(canonical_json(record)) > COOPERATION_LIMITS["record_max_bytes"]:
+        _fail("record exceeds 8 KiB")
+    return record
 
 
 def validate_contribution(value: object) -> dict:
@@ -797,7 +963,81 @@ def validate_contribution(value: object) -> dict:
     return obj
 
 
-_CLOSED = {"type": "object", "additionalProperties": False}
+_STRING_OR_NULL = {"type": ["string", "null"]}
+_REPOSITORY_SOURCE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type", "provider", "locator", "revision"],
+    "properties": {"type": {"const": "repository"}, "provider": {"type": "string"}, "locator": {"type": "string"}, "revision": {"type": "string"}},
+}
+_BRIEF_SOURCE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type", "locator"],
+    "properties": {"type": {"const": "brief"}, "locator": {"type": "string"}},
+}
+_ARTIFACT_SOURCE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type", "provider", "id", "digest"],
+    "properties": {"type": {"const": "artifact"}, "provider": {"type": "string"}, "id": {"type": "string"}, "digest": {"type": "string"}},
+}
+_SESSION_LOG_SOURCE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type", "provider", "session_id", "start", "end"],
+    "properties": {
+        "type": {"const": "session_log"},
+        "provider": {"type": "string"},
+        "session_id": {"type": "string"},
+        "start": {"type": "integer"},
+        "end": {"type": "integer"},
+        "revision": dict(_STRING_OR_NULL),
+    },
+}
+_PACKET_SOURCE = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["type", "provider", "id", "digest"],
+    "properties": {"type": {"const": "packet"}, "provider": {"type": "string"}, "id": {"type": "string"}, "digest": {"type": "string"}},
+}
+_HANDOFF_PAYLOAD = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["summary", "attempted", "uncertainty", "suggested_next_step", "source_refs", "evidence_ids"],
+    "properties": {
+        "summary": {"type": "string"},
+        "attempted": {"type": "string"},
+        "uncertainty": {"type": "string"},
+        "suggested_next_step": {"type": "string"},
+        "source_refs": {"type": "array", "items": {"oneOf": [_REPOSITORY_SOURCE, _BRIEF_SOURCE, _ARTIFACT_SOURCE, _SESSION_LOG_SOURCE, _PACKET_SOURCE]}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    },
+}
+_EVIDENCE_PAYLOAD = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["requirement_ref", "spec_ref", "candidate_revision", "source_ref", "outcome"],
+    "properties": {
+        "requirement_ref": {"type": "object", "additionalProperties": False, "required": ["property"], "properties": {"property": {"type": "string"}}},
+        "spec_ref": {"type": "string"},
+        "candidate_revision": {"type": "string"},
+        "evaluator_ref": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "required": ["identity", "revision"],
+            "properties": {"identity": {"type": "string"}, "revision": {"type": "string"}},
+        },
+        "run_id": dict(_STRING_OR_NULL),
+        "source_ref": {"oneOf": [_ARTIFACT_SOURCE, _SESSION_LOG_SOURCE]},
+        "outcome": {"oneOf": [
+            {"type": "object", "additionalProperties": False, "required": ["class"], "properties": {"class": {"const": "valid_result"}, "value": {"anyOf": [{"type": "integer"}, {"type": "string"}, {"type": "null"}]}, "unit": dict(_STRING_OR_NULL), "label": dict(_STRING_OR_NULL)}},
+            {"type": "object", "additionalProperties": False, "required": ["class", "reason"], "properties": {"class": {"const": "invalid_candidate"}, "reason": {"type": "string"}}},
+            {"type": "object", "additionalProperties": False, "required": ["class", "reason"], "properties": {"class": {"const": "inconclusive_execution"}, "reason": {"type": "string", "enum": ["timeout", "spawn_failure", "evaluator_failure", "infrastructure", "legacy_false"]}}},
+            {"type": "object", "additionalProperties": False, "required": ["class", "statement"], "properties": {"class": {"const": "assertion"}, "statement": {"type": "string"}}},
+        ]},
+    },
+}
 APPEND_CONTEXT_INPUT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -809,12 +1049,51 @@ APPEND_CONTEXT_INPUT_SCHEMA = {
         "project": {"type": "string"},
         "idempotency_key": {"type": "string"},
         "ttl_seconds": {"type": "integer", "minimum": 60, "maximum": 604800},
-        "work_ref": dict(_CLOSED),
-        "provenance": dict(_CLOSED),
+        "work_ref": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["repository", "candidate_revision"],
+            "properties": {
+                "repository": {"type": "string"},
+                "candidate_revision": {"type": "string"},
+                "url": dict(_STRING_OR_NULL),
+                "workflow": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "required": ["owner", "ref"],
+                    "properties": {"owner": {"type": "string"}, "ref": {"type": "string"}},
+                },
+                "huddles_task": dict(_STRING_OR_NULL),
+                "huddles_run": dict(_STRING_OR_NULL),
+            },
+        },
+        "provenance": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["producer_namespace", "original_record_id"],
+            "properties": {
+                "producer_namespace": {"type": "string"},
+                "original_record_id": {"type": "string"},
+                "original_run_id": dict(_STRING_OR_NULL),
+                "derived_from": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["namespace", "record_id"],
+                        "properties": {"namespace": {"type": "string"}, "record_id": {"type": "string"}},
+                    },
+                },
+            },
+        },
         "reply_to": {"type": "string"},
         "supersedes": {"type": "string"},
-        "payload": {**_CLOSED, "description": "Handoff text and source refs, or one evidence reference with exactly one of valid_result, invalid_candidate, inconclusive_execution, or assertion."},
+        "payload": {"description": "Handoff text and source refs, or one evidence reference with exactly one of valid_result, invalid_candidate, inconclusive_execution, or assertion."},
     },
+    "allOf": [
+        {"if": {"properties": {"kind": {"const": "handoff"}}, "required": ["kind"]}, "then": {"properties": {"payload": _HANDOFF_PAYLOAD}}},
+        {"if": {"properties": {"kind": {"const": "evidence_reference"}}, "required": ["kind"]}, "then": {"properties": {"payload": _EVIDENCE_PAYLOAD}}},
+    ],
 }
 QUERY_CONTEXT_INPUT_SCHEMA = {
     "type": "object",
@@ -825,7 +1104,12 @@ QUERY_CONTEXT_INPUT_SCHEMA = {
         "schema_version": {"type": "integer", "enum": [1]},
         "project": {"type": "string"},
         "query": {"type": "string"},
-        "work_ref": dict(_CLOSED),
+        "work_ref": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"repository": {"type": "string"}, "candidate_revision": {"type": "string"}},
+            "anyOf": [{"required": ["repository"]}, {"required": ["candidate_revision"]}],
+        },
         "kinds": {"type": "array", "items": {"type": "string", "enum": ["handoff", "evidence_reference"]}},
         "limit": {"type": "integer", "minimum": 1, "maximum": 30},
         "max_bytes": {"type": "integer", "minimum": 2048, "maximum": 32768},

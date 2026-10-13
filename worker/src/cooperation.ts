@@ -3,7 +3,8 @@
 // Frozen v1 contract shared with kypp/cooperation.py. No storage, no MCP registration, no model call.
 
 export const SCHEMA_VERSION = 1 as const;
-export const SELECTOR_VERSION = "cooperation-lexical-v1";
+export const SELECTOR_VERSION = "cooperation-fts5-bm25-v1";
+export const FTS_TOKENIZER = "unicode61";
 
 export const COOPERATION_LIMITS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
@@ -248,33 +249,37 @@ export interface ExactReadRequest {
   include_expired: true;
 }
 
-export interface ScanRequest {
+export interface SearchRequest {
   principal: string;
   origin: string;
   now: string;
   cutoff: string;
+  query: string;
+  repository: string | null;
+  candidate_revision: string | null;
   kinds: readonly CooperationKind[] | null;
   window: number;
 }
 
-export interface CandidateWindow {
-  records: CooperationRecord[];
+export interface SearchWindow {
+  ids: string[];
   window_capped: boolean;
 }
 
-// PC-003 implements this. scanCandidates returns only rows already limited to the
-// authenticated principal and exact origin, with created_at <= cutoff and
-// expires_at > now. It also omits predecessors hidden by a supersession link that
-// existed at cutoff, including when the superseder itself is expired. getByIds
-// uses the same principal and origin boundary, keeps expired rows because
-// include_expired is required, and does not hide superseded rows. Neither method
-// ranks, calls a model, or returns another principal's ids. append resolves an
-// identical idempotency key before the population cap; a changed payload with
-// that key is IDEMPOTENCY_CONFLICT and does not evict history.
+// PC-003 implements this. search runs the FTS5 MATCH inside the store. Principal,
+// origin, audience, expiry, cutoff, kind, and supersession are predicates of that
+// same statement, before bm25(). SQLite rejects MATCH inside OR, so exact work-ref
+// rows are a second filtered read and the store merges them ahead of other hits.
+// Order is exact work-ref, then bm25() ascending, then id ascending, capped at the
+// ratified 100-record authorized window. That window is the top 100, not the 100
+// newest. An empty token list is browse, not MATCH *. getByIds keeps expired rows
+// and does not hide superseded rows. Neither method calls a model or returns
+// another principal's ids. append resolves an identical idempotency key before the
+// population cap; a changed payload with that key is IDEMPOTENCY_CONFLICT.
 export interface CooperationRepository {
   append(request: AppendRequest): Promise<AppendReceipt>;
   getByIds(request: ExactReadRequest): Promise<CooperationRecord[]>;
-  scanCandidates(request: ScanRequest): Promise<CandidateWindow>;
+  search(request: SearchRequest): Promise<SearchWindow>;
 }
 
 export function utf8Bytes(value: string): number {
@@ -825,7 +830,7 @@ export function hiddenPredecessors(records: readonly { id: string; supersedes: s
   return [...hidden].sort();
 }
 
-function searchableText(record: CooperationRecord): string {
+function searchableBody(record: CooperationRecord): string {
   if (record.kind === "handoff") {
     const payload = record.payload as HandoffPayload;
     return [payload.summary, payload.attempted, payload.uncertainty, payload.suggested_next_step].join("\n");
@@ -836,30 +841,93 @@ function searchableText(record: CooperationRecord): string {
   return [payload.requirement_ref.property, payload.spec_ref, outcome.class, tail].join("\n");
 }
 
-export interface SelectionCriteria {
-  query: string;
-  repository: string | null;
-  candidate_revision: string | null;
+export const COOPERATION_FTS_DDL = "CREATE VIRTUAL TABLE cooperation_fts USING fts5(record_id UNINDEXED, repository, candidate_revision, body, tokenize = 'unicode61')";
+
+const SEARCH_FILTER = `r.author_principal = :principal
+AND r.origin = :origin
+AND r.audience_principal = :principal
+AND r.created_at <= :cutoff
+AND r.expires_at > :now
+AND (:kind IS NULL OR r.kind = :kind)
+AND NOT EXISTS (
+  SELECT 1 FROM cooperation_records s
+  WHERE s.supersedes = r.id
+    AND s.author_principal = r.author_principal
+    AND s.origin = r.origin
+    AND s.created_at <= :cutoff
+)`;
+
+export const COOPERATION_FTS_MATCH_SQL = `SELECT r.id AS id, bm25(cooperation_fts) AS score
+FROM cooperation_records r
+JOIN cooperation_fts ON cooperation_fts.record_id = r.id
+WHERE ${SEARCH_FILTER}
+AND cooperation_fts MATCH :match`;
+
+export const COOPERATION_EXACT_SQL = `SELECT r.id AS id
+FROM cooperation_records r
+WHERE ${SEARCH_FILTER}
+AND :repository IS NOT NULL
+AND r.repository = :repository
+AND (:revision IS NULL OR r.candidate_revision = :revision)`;
+
+export const COOPERATION_BROWSE_SQL = `SELECT r.id AS id
+FROM cooperation_records r
+WHERE ${SEARCH_FILTER}
+ORDER BY
+  CASE
+    WHEN :repository IS NULL AND :revision IS NULL THEN 0
+    WHEN (:repository IS NULL OR r.repository = :repository)
+     AND (:revision IS NULL OR r.candidate_revision = :revision) THEN 0
+    ELSE 1
+  END ASC,
+  r.id ASC`;
+
+export interface FtsDocument {
+  record_id: string;
+  repository: string;
+  candidate_revision: string;
+  body: string;
 }
 
-export function compareSelection(left: CooperationRecord, right: CooperationRecord, criteria: SelectionCriteria): number {
-  const rank = (record: CooperationRecord) => {
-    const exact = criteria.repository === null && criteria.candidate_revision === null
-      ? 0
-      : (criteria.repository === null || record.work_ref.repository === criteria.repository)
-        && (criteria.candidate_revision === null || record.work_ref.candidate_revision === criteria.candidate_revision)
-        ? 0
-        : 1;
-    const lexical = criteria.query === "" || searchableText(record).includes(criteria.query) ? 0 : 1;
-    return [exact, lexical, record.created_at, record.id] as const;
+export function ftsDocument(record: CooperationRecord): FtsDocument {
+  return {
+    record_id: record.id,
+    repository: record.work_ref.repository,
+    candidate_revision: record.work_ref.candidate_revision,
+    body: searchableBody(record),
   };
-  const a = rank(left);
-  const b = rank(right);
-  if (a[0] !== b[0]) return a[0] - b[0];
-  if (a[1] !== b[1]) return a[1] - b[1];
-  if (a[2] !== b[2]) return a[2] < b[2] ? 1 : -1;
-  if (a[3] !== b[3]) return a[3] < b[3] ? -1 : 1;
-  return 0;
+}
+
+// Quote each unicode61 token and OR-join them. Same shape as memory.ts ftsQuery,
+// with letters and numbers so the query tokenizer matches unicode61. Operators,
+// quotes, stars, and column filters never reach MATCH.
+export function ftsQuery(text: string): string {
+  const terms = text.match(/[\p{L}\p{N}_]+/gu) ?? [];
+  return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(" OR ");
+}
+
+export interface FtsHit {
+  id: string;
+  score: number;
+}
+
+export function mergeSearchHits(exactIds: readonly string[], ftsHits: readonly FtsHit[], window: number): SearchWindow {
+  const limit = Math.min(Math.max(window, 1), COOPERATION_LIMITS.candidateWindow);
+  const exact = new Set(exactIds);
+  const scores = new Map(ftsHits.map((hit) => [hit.id, hit.score]));
+  const byScore = (left: string, right: string) => {
+    const leftScore = scores.get(left);
+    const rightScore = scores.get(right);
+    if (leftScore === undefined && rightScore !== undefined) return 1;
+    if (leftScore !== undefined && rightScore === undefined) return -1;
+    if (leftScore !== undefined && rightScore !== undefined && leftScore !== rightScore) return leftScore < rightScore ? -1 : 1;
+    return left < right ? -1 : left > right ? 1 : 0;
+  };
+  const exactHits = exactIds.filter((id) => scores.has(id)).sort(byScore);
+  const exactOnly = exactIds.filter((id) => !scores.has(id)).sort();
+  const rest = ftsHits.map((hit) => hit.id).filter((id) => !exact.has(id)).sort(byScore);
+  const ranked = [...exactHits, ...exactOnly, ...rest];
+  return { ids: ranked.slice(0, limit), window_capped: ranked.length > limit };
 }
 
 export function sealContribution(draft: Omit<ContextContribution, "budget_bytes">): ContextContribution {
@@ -874,20 +942,60 @@ export function sealContribution(draft: Omit<ContextContribution, "budget_bytes"
   fail("contribution budget did not stabilize");
 }
 
+function readStoredProvenance(value: unknown): StoredProvenance {
+  const obj = readObject(value, ["producer_namespace", "original_record_id", "original_run_id", "derived_from", "reported"], "provenance");
+  if (obj.reported !== true) fail("provenance.reported must be true");
+  const rest = { ...obj };
+  delete rest.reported;
+  return { ...readProvenance(rest), reported: true };
+}
+
 function assertStampedRecord(value: unknown): CooperationRecord {
   const obj = readObject(value, ["id", "schema_version", "kind", "author_principal", "client_label", "session_id", "origin", "created_at", "expires_at", "audience", "idempotency_key", "work_ref", "reply_to", "supersedes", "provenance", "payload"], "record");
   if (obj.schema_version !== 1) fail("schema_version must be 1");
-  const audience = readObject(obj.audience, ["kind", "principal"], "audience");
-  if (audience.kind !== "principal") fail("audience.kind must be principal");
-  const provenance = readObject(obj.provenance, ["producer_namespace", "original_record_id", "original_run_id", "derived_from", "reported"], "provenance");
-  if (provenance.reported !== true) fail("provenance.reported must be true");
-  const created_at = assertTimestamp(String(obj.created_at), "created_at");
-  const expires_at = assertTimestamp(String(obj.expires_at), "expires_at");
+  const id = assertRecordId(obj.id, "id");
+  if (obj.kind !== "handoff" && obj.kind !== "evidence_reference") fail("kind must be handoff or evidence_reference");
+  const author_principal = readText(obj.author_principal, "author_principal", 256, false, false);
+  const client_label = readLabel(obj.client_label, "client_label");
+  const session_id = obj.session_id === undefined || obj.session_id === null ? null : readToken(obj.session_id, "session_id", TOKEN);
+  const origin = readToken(obj.origin, "origin", PROJECT);
+  const created_at = assertTimestamp(obj.created_at, "created_at");
+  const expires_at = assertTimestamp(obj.expires_at, "expires_at");
   const span = (Date.parse(expires_at) - Date.parse(created_at)) / 1000;
   if (!Number.isInteger(span) || span < COOPERATION_LIMITS.ttlMinSeconds || span > COOPERATION_LIMITS.ttlMaxSeconds) fail("expiry is outside the TTL bounds");
-  const record = obj as unknown as CooperationRecord;
+  const audience = readObject(obj.audience, ["kind", "principal"], "audience");
+  if (audience.kind !== "principal") fail("audience.kind must be principal");
+  const audiencePrincipal = readText(audience.principal, "audience.principal", 256, false, false);
+  if (audiencePrincipal !== author_principal) fail("audience principal differs from the author");
+  const idempotency_key = readText(obj.idempotency_key, "idempotency_key", COOPERATION_LIMITS.idempotencyKeyMaxBytes, false, false);
+  if (!TOKEN.test(idempotency_key)) fail("idempotency_key has an invalid shape");
+  const work_ref = readWork(obj.work_ref);
+  const reply_to = obj.reply_to === undefined || obj.reply_to === null ? null : assertRecordId(obj.reply_to, "reply_to");
+  const supersedes = obj.supersedes === undefined || obj.supersedes === null ? null : assertRecordId(obj.supersedes, "supersedes");
+  if (reply_to && supersedes && reply_to === supersedes) fail("reply_to and supersedes must be distinct links");
+  const provenance = readStoredProvenance(obj.provenance);
+  const payload = obj.kind === "handoff" ? readHandoff(obj.payload) : readEvidence(obj.payload);
+  const evidenceIds = "evidence_ids" in payload ? payload.evidence_ids : [];
+  if (lineageCount(reply_to, supersedes, evidenceIds, provenance.derived_from) > COOPERATION_LIMITS.lineageRefsMax) fail("too many lineage references");
+  const record: CooperationRecord = {
+    id,
+    schema_version: 1,
+    kind: obj.kind,
+    author_principal,
+    client_label,
+    session_id,
+    origin,
+    created_at,
+    expires_at,
+    audience: { kind: "principal", principal: audiencePrincipal },
+    idempotency_key,
+    work_ref,
+    reply_to,
+    supersedes,
+    provenance,
+    payload,
+  };
   if (utf8Bytes(canonicalJson(record)) > COOPERATION_LIMITS.recordMaxBytes) fail("record exceeds 8 KiB");
-  if (audience.principal !== obj.author_principal) fail("audience principal differs from the author");
   return record;
 }
 
@@ -932,7 +1040,163 @@ export function validateContribution(input: unknown): ContextContribution {
   return obj as unknown as ContextContribution;
 }
 
-const closedObject = { type: "object", additionalProperties: false };
+const stringOrNull = { type: ["string", "null"] };
+const sourceCommon = { provider: { type: "string" } };
+const repositorySource = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "provider", "locator", "revision"],
+  properties: { type: { const: "repository" }, ...sourceCommon, locator: { type: "string" }, revision: { type: "string" } },
+};
+const briefSource = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "locator"],
+  properties: { type: { const: "brief" }, locator: { type: "string" } },
+};
+const artifactSource = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "provider", "id", "digest"],
+  properties: { type: { const: "artifact" }, ...sourceCommon, id: { type: "string" }, digest: { type: "string" } },
+};
+const sessionLogSource = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "provider", "session_id", "start", "end"],
+  properties: {
+    type: { const: "session_log" },
+    ...sourceCommon,
+    session_id: { type: "string" },
+    start: { type: "integer" },
+    end: { type: "integer" },
+    revision: stringOrNull,
+  },
+};
+const packetSource = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "provider", "id", "digest"],
+  properties: { type: { const: "packet" }, ...sourceCommon, id: { type: "string" }, digest: { type: "string" } },
+};
+const handoffSources = { type: "array", items: { oneOf: [repositorySource, briefSource, artifactSource, sessionLogSource, packetSource] } };
+const evidenceSource = { oneOf: [artifactSource, sessionLogSource] };
+const validResult = {
+  type: "object",
+  additionalProperties: false,
+  required: ["class"],
+  properties: {
+    class: { const: "valid_result" },
+    value: { anyOf: [{ type: "integer" }, { type: "string" }, { type: "null" }] },
+    unit: stringOrNull,
+    label: stringOrNull,
+  },
+};
+const invalidCandidate = {
+  type: "object",
+  additionalProperties: false,
+  required: ["class", "reason"],
+  properties: { class: { const: "invalid_candidate" }, reason: { type: "string" } },
+};
+const inconclusive = {
+  type: "object",
+  additionalProperties: false,
+  required: ["class", "reason"],
+  properties: {
+    class: { const: "inconclusive_execution" },
+    reason: { type: "string", enum: ["timeout", "spawn_failure", "evaluator_failure", "infrastructure", "legacy_false"] },
+  },
+};
+const assertionOutcome = {
+  type: "object",
+  additionalProperties: false,
+  required: ["class", "statement"],
+  properties: { class: { const: "assertion" }, statement: { type: "string" } },
+};
+const workRefProperties = {
+  repository: { type: "string" },
+  candidate_revision: { type: "string" },
+  url: stringOrNull,
+  workflow: {
+    type: ["object", "null"],
+    additionalProperties: false,
+    required: ["owner", "ref"],
+    properties: { owner: { type: "string" }, ref: { type: "string" } },
+  },
+  huddles_task: stringOrNull,
+  huddles_run: stringOrNull,
+};
+const appendWorkRef = {
+  type: "object",
+  additionalProperties: false,
+  required: ["repository", "candidate_revision"],
+  properties: workRefProperties,
+};
+const provenanceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["producer_namespace", "original_record_id"],
+  properties: {
+    producer_namespace: { type: "string" },
+    original_record_id: { type: "string" },
+    original_run_id: stringOrNull,
+    derived_from: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["namespace", "record_id"],
+        properties: { namespace: { type: "string" }, record_id: { type: "string" } },
+      },
+    },
+  },
+};
+const handoffPayload = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "attempted", "uncertainty", "suggested_next_step", "source_refs", "evidence_ids"],
+  properties: {
+    summary: { type: "string" },
+    attempted: { type: "string" },
+    uncertainty: { type: "string" },
+    suggested_next_step: { type: "string" },
+    source_refs: handoffSources,
+    evidence_ids: { type: "array", items: { type: "string" } },
+  },
+};
+const evidencePayload = {
+  type: "object",
+  additionalProperties: false,
+  required: ["requirement_ref", "spec_ref", "candidate_revision", "source_ref", "outcome"],
+  properties: {
+    requirement_ref: {
+      type: "object",
+      additionalProperties: false,
+      required: ["property"],
+      properties: { property: { type: "string" } },
+    },
+    spec_ref: { type: "string" },
+    candidate_revision: { type: "string" },
+    evaluator_ref: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["identity", "revision"],
+      properties: { identity: { type: "string" }, revision: { type: "string" } },
+    },
+    run_id: stringOrNull,
+    source_ref: evidenceSource,
+    outcome: { oneOf: [validResult, invalidCandidate, inconclusive, assertionOutcome] },
+  },
+};
+const queryWorkRef = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    repository: { type: "string" },
+    candidate_revision: { type: "string" },
+  },
+  anyOf: [{ required: ["repository"] }, { required: ["candidate_revision"] }],
+};
 
 export const APPEND_CONTEXT_INPUT_SCHEMA = {
   type: "object",
@@ -945,16 +1209,17 @@ export const APPEND_CONTEXT_INPUT_SCHEMA = {
     project: { type: "string" },
     idempotency_key: { type: "string" },
     ttl_seconds: { type: "integer", minimum: 60, maximum: 604800 },
-    work_ref: closedObject,
-    provenance: closedObject,
+    work_ref: appendWorkRef,
+    provenance: provenanceSchema,
     reply_to: { type: "string" },
     supersedes: { type: "string" },
-    payload: {
-      ...closedObject,
-      description: "Handoff text and source refs, or one evidence reference with exactly one of valid_result, invalid_candidate, inconclusive_execution, or assertion.",
-    },
+    payload: { description: "Handoff text and source refs, or one evidence reference with exactly one of valid_result, invalid_candidate, inconclusive_execution, or assertion." },
   },
-} as const;
+  allOf: [
+    { if: { properties: { kind: { const: "handoff" } }, required: ["kind"] }, then: { properties: { payload: handoffPayload } } },
+    { if: { properties: { kind: { const: "evidence_reference" } }, required: ["kind"] }, then: { properties: { payload: evidencePayload } } },
+  ],
+};
 
 export const QUERY_CONTEXT_INPUT_SCHEMA = {
   type: "object",
@@ -965,7 +1230,7 @@ export const QUERY_CONTEXT_INPUT_SCHEMA = {
     schema_version: { type: "integer", enum: [1] },
     project: { type: "string" },
     query: { type: "string" },
-    work_ref: closedObject,
+    work_ref: queryWorkRef,
     kinds: { type: "array", items: { type: "string", enum: ["handoff", "evidence_reference"] } },
     limit: { type: "integer", minimum: 1, maximum: 30 },
     max_bytes: { type: "integer", minimum: 2048, maximum: 32768 },
@@ -973,4 +1238,4 @@ export const QUERY_CONTEXT_INPUT_SCHEMA = {
     ids: { type: "array", items: { type: "string" }, maxItems: 30 },
     include_expired: { type: "boolean" },
   },
-} as const;
+};
