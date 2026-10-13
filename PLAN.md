@@ -133,6 +133,9 @@ gate: "Required local tests/governance and frozen evaluation pass; exact pushed 
 - Added meaningful migration-cache and budget checks. A red-first boundary test
   found that a final statement without a semicolon escaped the 128-statement
   limit; it now abstains. No SQL is executed by these checks.
+- Initial pushed-head review cleared `8bf7738` with risk low. Mutation testing
+  killed 11 changes and exposed a missing token-budget assertion; its regression
+  was added before a new immutable final-head review.
 
 ## Graph
 

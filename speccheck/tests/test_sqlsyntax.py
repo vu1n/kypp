@@ -55,6 +55,12 @@ class SQLSyntaxTest(unittest.TestCase):
         self.assertEqual(classify_migration(';'.join([statement] * 128)), 'ok')
         self.assertEqual(classify_migration(';'.join([statement] * 129)), 'unknown')
 
+    def test_token_budget_abstains_before_structural_classification(self):
+        sql = 'CREATE TABLE schema_version (' + ','.join(f'c{i} INTEGER' for i in range(1400)) + ')'
+        result = analyze_migration(sql)
+        self.assertEqual(result.kind, 'unknown')
+        self.assertIn('token/statement bound', ' '.join(result.reasons))
+
     def test_old_migration_cache_cannot_hide_partial_literals(self):
         source = '_MIGRATIONS = [dynamic(), "DROP TABLE t"]'
         with tempfile.TemporaryDirectory() as directory:
