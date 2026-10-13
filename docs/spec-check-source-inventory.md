@@ -13,10 +13,12 @@ path inventory but disappeared from loaded content. The reference rule returned
 reference inside filenames containing a tab, newline or non-ASCII character was
 also lost. A space-containing filename was a passing control.
 
-The new loader accepts a complete selected UTF-8 regular-file inventory or raises
-`GitError`. The CLI already distinguishes a loading failure from an advisory
-finding: a failed check exits nonzero before producing report or cache output;
-a produced report still exits zero, including when its verdicts violate.
+The loader accepts a complete selected UTF-8 regular-file inventory or raises
+`GitError`. A failed check exits nonzero before producing report or cache output.
+That failure is not an empty file and not an unresolved verdict hiding inside a
+successful report. A produced report still exits zero, including when its verdicts
+violate. A loaded broken reference violates `doc-refs`. A complete scan whose
+examined refs resolve is `bounded`, not a pass. The checker does not emit `conforms`.
 
 ## Scope and boundaries
 

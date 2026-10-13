@@ -231,7 +231,8 @@ def run_case(tmp_path: Path, case: Case) -> None:
         assert any(v["status"] == "violates" and v["counterexample"]
                    and case.path in v["counterexample"] for v in references), references
     else:
-        assert all(v["status"] == "conforms" for v in references), references
+        assert all(v["status"] == "bounded" for v in references), references
+        assert all(v["status"] != "conforms" for v in references)
         assert case.path not in "\n".join(v.get("counterexample") or "" for v in report["verdicts"])
 
 

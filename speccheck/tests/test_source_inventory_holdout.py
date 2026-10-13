@@ -101,7 +101,8 @@ class SourceInventoryHoldout(unittest.TestCase):
                 # Literal path evidence cannot be silently quoted, split, or glob-expanded.
                 self.assertTrue(any(literal in (v.get("counterexample") or "") for v in bad), bad)
             else:
-                self.assertTrue(all(v["status"] == "conforms" for v in references), references)
+                self.assertTrue(all(v["status"] == "bounded" for v in references), references)
+                self.assertTrue(all(v["status"] != "conforms" for v in references))
                 self.assertNotIn(MISSING_REF, report.read_text(encoding="utf-8"))
                 if label == "worktree-brief-quote":
                     # A head-only .brief note must not become baseline reference evidence.
