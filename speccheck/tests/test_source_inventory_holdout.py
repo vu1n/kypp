@@ -20,7 +20,7 @@ CASES = (
     ("commit-newline", "commit", "docs/line\nbreak.md", "reference", "violation"),
     ("worktree-unicode", "worktree", ".github/workflows/雪.yml", "reference", "violation"),
     ("commit-glob-literal", "commit", "worker/migrations/[ab]*?.sql", "reference", "violation"),
-    ("worktree-brief-quote", "worktree", '.brief/notes/quote"\\name.txt', "reference", "violation"),
+    ("worktree-brief-quote", "worktree", '.brief/notes/quote"\\name.txt', "reference", "clean"),
     ("commit-invalid-utf8", "commit", "docs/invalid.md", "invalid", "error"),
     ("worktree-invalid-utf8", "worktree", "kypp/invalid.py", "invalid", "error"),
     ("commit-symlink", "commit", "docs/link.md", "symlink", "error"),
@@ -103,6 +103,10 @@ class SourceInventoryHoldout(unittest.TestCase):
             else:
                 self.assertTrue(all(v["status"] == "conforms" for v in references), references)
                 self.assertNotIn(MISSING_REF, report.read_text(encoding="utf-8"))
+                if label == "worktree-brief-quote":
+                    # A head-only .brief note must not become baseline reference evidence.
+                    self.assertTrue(all(v["coverage"] == "examined 0 ref(s)"
+                                        for v in references), references)
 
 
 def _make_test(case):
