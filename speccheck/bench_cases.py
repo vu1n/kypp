@@ -1,7 +1,7 @@
-"""Tuning, holdout, and smoke cases.
+"""Tuning, exposed regression, independent holdout, and smoke cases.
 
-Smoke controls are labeled smoke only. They are not part of the false-conformance rate.
-Holdout cases are not the set used to shape the rules; tuning is.
+Legacy holdout IDs are preserved as provenance, but their split is regression.
+Smoke controls are not part of the false-conformance rate.
 """
 
 from __future__ import annotations
@@ -223,7 +223,7 @@ def tuning_cases() -> list[Case]:
     ]
 
 
-def holdout_cases() -> list[Case]:
+def regression_cases() -> list[Case]:
     worker_verify = _edit(
         lambda t: t.__setitem__(
             "worker/src/mcp.ts",
@@ -325,7 +325,7 @@ def holdout_cases() -> list[Case]:
     return [
         _case(
             "holdout_worker_verify_property",
-            "holdout",
+            "regression",
             "worker TOOLS schema gains a verify property",
             worker_verify,
             expect_status={"mcp-no-verify-argument": "violates"},
@@ -334,7 +334,7 @@ def holdout_cases() -> list[Case]:
         ),
         Case(
             id="holdout_alias_disagrees",
-            split="holdout",
+            split="regression",
             description="aliases.yaml latest points at a version file that does not exist",
             baseline=bad_alias_base,
             head=copy.deepcopy(bad_alias_base),
@@ -344,7 +344,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_unknown_signoff_anchor",
-            "holdout",
+            "regression",
             "SIGNOFF names an anchor that exists in no document",
             bad_signoff,
             expect_status={"signoff-anchors": "violates"},
@@ -353,7 +353,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_glob_matches_nothing",
-            "holdout",
+            "regression",
             "a feature-map glob matches no file",
             bad_glob,
             expect_status={"feature-paths": "violates"},
@@ -362,7 +362,7 @@ def holdout_cases() -> list[Case]:
         ),
         Case(
             id="holdout_stale_pin_is_advisory",
-            split="holdout",
+            split="regression",
             description="a ref pinned to an older baseline version still resolves; that is not a violation",
             baseline=stale,
             head=copy.deepcopy(stale),
@@ -372,7 +372,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_head_deletes_invariant",
-            "holdout",
+            "regression",
             "head deletes the verify bullet; clean code still conforms to the baseline",
             deleted,
             expect_status={"mcp-no-verify-argument": "conforms"},
@@ -381,7 +381,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_not_null_with_default",
-            "holdout",
+            "regression",
             "NOT NULL with a DEFAULT is inside the pinned schema rule",
             not_null_default,
             expect_status={"schema-add-column": "conforms"},
@@ -389,7 +389,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_verify_mode_is_not_verify",
-            "holdout",
+            "regression",
             "a parameter named verify_mode is not the verify argument",
             verify_mode,
             expect_status={"mcp-no-verify-argument": "conforms"},
@@ -397,7 +397,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_broken_anchor",
-            "holdout",
+            "regression",
             "a doc:// ref names an anchor the version does not have",
             broken,
             expect_status={"doc-refs": "violates"},
@@ -406,7 +406,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_add_tool_abstains",
-            "holdout",
+            "regression",
             "mcp.add_tool is outside the decorator scope, so a clean decorator list is not conformance",
             add_tool,
             expect_status={"mcp-no-verify-argument": "unresolved"},
@@ -414,7 +414,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_relaxed_spec_clean_code",
-            "holdout",
+            "regression",
             "head spec allows verify but the code does not add it; baseline still says never",
             relaxed,
             expect_status={"mcp-no-verify-argument": "conforms"},
@@ -423,7 +423,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_negated_rank",
-            "holdout",
+            "regression",
             "negating AUTHORITY_RANK in _rank flips the survivor order",
             negated_rank,
             expect_status={"authority-rank-order": "violates"},
@@ -432,7 +432,7 @@ def holdout_cases() -> list[Case]:
         ),
         _case(
             "holdout_referenced_input_schema",
-            "holdout",
+            "regression",
             "a Worker inputSchema name that does not resolve to inline properties is not conformance",
             referenced_schema,
             expect_status={"mcp-no-verify-argument": "unresolved"},
@@ -489,4 +489,6 @@ def smoke_cases() -> list[Case]:
 
 
 def all_cases() -> list[Case]:
-    return tuning_cases() + holdout_cases() + smoke_cases()
+    from .holdout_cases import holdout_cases
+
+    return tuning_cases() + regression_cases() + holdout_cases() + smoke_cases()

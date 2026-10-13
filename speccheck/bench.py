@@ -74,7 +74,7 @@ def _check_case(case: Case, report: Report, failures: list[str]) -> None:
 def score_split(split: str, cases: list[Case]) -> SplitScore:
     smoke_only = split == "smoke"
     failures: list[str] = []
-    pairs: list[tuple[str, str]] = []
+    pairs: list[tuple[str, str | None]] = []
     flagged = 0
     for case in cases:
         report = _run(case)
@@ -85,12 +85,11 @@ def score_split(split: str, cases: list[Case]) -> SplitScore:
             continue
         for rule_id, expected in case.expect_status.items():
             got = _status(report, rule_id)
-            if got is not None:
-                pairs.append((expected, got))
+            pairs.append((expected, got))
     judged = len(pairs)
     nonconform = [got for expected, got in pairs if expected != "conforms"]
     false_hits = [got for expected, got in pairs if expected != "conforms" and got == "conforms"]
-    abstentions = [got for _, got in pairs if got in {"unresolved", "unsupported"}]
+    abstentions = [got for _, got in pairs if got in {None, "unresolved", "unsupported"}]
     covered = [got for _, got in pairs if got in {"conforms", "violates"}]
     return SplitScore(
         split=split,
@@ -107,7 +106,7 @@ def score_split(split: str, cases: list[Case]) -> SplitScore:
 
 
 def run_benchmark(splits: list[str] | None = None) -> list[SplitScore]:
-    wanted = splits or ["tuning", "holdout", "smoke"]
+    wanted = splits or ["tuning", "regression", "holdout", "smoke"]
     grouped: dict[str, list[Case]] = {name: [] for name in wanted}
     for case in all_cases():
         if case.split in grouped:

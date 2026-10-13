@@ -23,6 +23,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: install checker dependencies
+        run: python -m pip install ".[speccheck]"
+      - name: checker tests and benchmark
+        run: |
+          python -m unittest discover -s speccheck/tests -v
+          python -m speccheck bench
       - name: spec consistency (advisory)
         run: |
           if [ -n "${{ github.base_ref }}" ]; then
