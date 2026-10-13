@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from tree_sitter import Node, Parser
 
 
-PARSER_VERSION = 'ts-mcp-tree-sitter-v3'
+PARSER_VERSION = 'ts-mcp-tree-sitter-v4'
 
 
 def parser_cache_key() -> str:
@@ -161,7 +161,11 @@ def typescript_mcp_tools(source: str) -> dict:
                 schema = None
             else:
                 binding, owner = matches[0]
-                uses = [n for n in _walk(root) if n.type == 'identifier' and _text(n) == identifier]
+                reference_types = {'identifier', 'shorthand_property_identifier', 'shorthand_property_identifier_pattern'}
+                # Escaped spellings may name this binding; abstain rather than
+                # treating raw-text inequality as evidence of a different name.
+                uses = [n for n in _walk(root) if n.type in reference_types
+                        and (_text(n) == identifier or '\\' in _text(n))]
                 permitted = {binding.child_by_field_name('name').id, schema.id}
                 # Only direct schema positions in this TOOLS initializer are harmless.
                 # A similarly named pair in an opaque call can expose the same object.

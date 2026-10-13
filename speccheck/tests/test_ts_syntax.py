@@ -77,6 +77,13 @@ class TypeScriptSyntaxTest(unittest.TestCase):
         source = 'const schema = {properties: {subject: {}}}; configure({inputSchema: schema}); const TOOLS = [' + tool(schema='schema') + '];'
         self.assertEqual(verdict(source).status, 'unresolved')
 
+    def test_schema_shorthand_and_escaped_identifiers_are_escapes(self):
+        prefix = 'const schema = {properties: {subject: {}}}; '
+        suffix = ' const TOOLS: unknown[] = [' + tool(schema='schema') + '];'
+        for use in ('configure({schema});', r'configure(sch\u0065ma);'):
+            with self.subTest(use=use):
+                self.assertEqual(verdict(prefix + use + suffix).status, 'unresolved')
+
     def test_dependency_version_changes_reject_disk_facts(self):
         source = 'const TOOLS = [' + tool() + ', externalTool];'
         old_versions = {'tree-sitter': 'old-runtime', 'tree-sitter-typescript': 'old-grammar'}
@@ -95,14 +102,15 @@ class TypeScriptSyntaxTest(unittest.TestCase):
 
     def test_previous_reference_whitelist_cache_is_rejected(self):
         source = 'const schema = {properties: {subject: {}}}; configure({inputSchema: schema}); const TOOLS = [' + tool(schema='schema') + '];'
-        with tempfile.TemporaryDirectory() as directory:
-            cache = Cache(Path(directory))
-            with patch('speccheck.ts_syntax.PARSER_VERSION', 'ts-mcp-tree-sitter-v2'):
-                kind = parser_cache_key()
-                cache.syntax(source, kind, lambda: {'covered': True, 'error': None, 'tools': []})
-            fresh = Cache(Path(directory))
-            self.assertFalse(cached_ts_mcp(fresh, source)['covered'])
-            self.assertEqual(fresh.syntax_hits, 0)
+        for old_version in ('ts-mcp-tree-sitter-v2', 'ts-mcp-tree-sitter-v3'):
+            with self.subTest(version=old_version), tempfile.TemporaryDirectory() as directory:
+                cache = Cache(Path(directory))
+                with patch('speccheck.ts_syntax.PARSER_VERSION', old_version):
+                    kind = parser_cache_key()
+                    cache.syntax(source, kind, lambda: {'covered': True, 'error': None, 'tools': []})
+                fresh = Cache(Path(directory))
+                self.assertFalse(cached_ts_mcp(fresh, source)['covered'])
+                self.assertEqual(fresh.syntax_hits, 0)
 
     def test_nested_decoys_do_not_supply_properties(self):
         source = 'const TOOLS = [' + tool(schema='{description: "properties: {subject: {}}", nested: {properties: {subject: {}}}}') + '];'
