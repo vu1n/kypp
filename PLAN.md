@@ -1,10 +1,12 @@
 # Plan: SQL migration evidence for the spec checker
 
-Repository: `vu1n/kypp`. Base: `92dc50c05d0688b6644e89c6b0a6343b29d67713`.
+Repository: `vu1n/kypp`. Initial base: `92dc50c05d0688b6644e89c6b0a6343b29d67713`.
+Current review/PR base: `0e80abc1bcafa1aed1ff312bc2827126a9290011` (published PR24 merge).
 Starting checkout: clean PR24 branch at `98db85cf222ebb21379b11362efcd745beeba1d1`.
 New independent integration branch: `codex/speccheck-sql-migrations`, from main.
-PR24 is open, ready for review, and has its hosted review running; do not push to
-its branch or change its metadata. Main has not advanced past PR23's merge.
+PR24 was initially open and ready for review. Another actor merged it at 02:36:37 UTC
+as `0e80abc1bcafa1aed1ff312bc2827126a9290011`; this task did not merge or rewrite it.
+Its published changes are integrated before testing the combined checker.
 
 Use `/workspace/dev/codex-skills/ship-it/SKILL.md`; this is the cloud equivalent of
 the requested skill. Keep the existing task rather than switching runtimes.
@@ -90,9 +92,8 @@ Integrate the disjoint lanes, run the full checker tests and benchmark, and eval
 the frozen corpus. Tighten, structural review, mutant checks in scratch, and fresh
 blank-context correctness review of a clean pushed immutable head precede the PR.
 Request separate static security finder/refuter after correctness. Publish a draft
-PR against main with no PR24 dependency. Exact-head CI must pass; report that the
-existing advisory workflow runs the live checker, while new unit tests run locally
-until PR24's already-authored CI discovery step lands. Do not duplicate it here.
+PR against main with no PR24 dependency. Exact-head CI must pass; the already-published PR24 workflow discovers the new unit
+tests and runs the benchmark, so no duplicate test step is added here.
 The draft merge-gate refusal is expected and distinct from check conclusions.
 
 ```yaml
@@ -116,6 +117,15 @@ gate: "Required local tests/governance and frozen evaluation pass; exact pushed 
 - Cloud ship-it available; repository `.agents/` directory absent.
 - Brief v0.4.2 uses writable cache/tool dirs under `/workspace/.cache`.
 - No active decision edits, runtime changes, merge or deployment are authorized.
+
+## Integration deviation
+
+- PR24 merged externally while lanes ran. Integrated current main after both
+  independent lanes landed; retained its TypeScript analyzer and SQL changes together.
+- Resolved the syntactic conflict by removing both obsolete scanner helpers and
+  obsolete SQL regexes. PLAN now describes this increment; PR24's plan remains in
+  Git history and its evidence documents remain in the combined tree.
+- SQL implementation commit: `a92939f`; corpus freeze: `22f68268b268d3d52133ed88c98bb9a1f44831c1`.
 
 ## Graph
 

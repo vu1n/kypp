@@ -27,7 +27,8 @@ SCHEMA_BULLETS = PINS["bullets"]["additive-migrations@0002"]
 
 MCP_SCOPE = (
     "parameters of every function decorated @mcp.tool in kypp/mcp_server.py, "
-    "and properties keys of every object in const TOOLS in worker/src/mcp.ts"
+    "and literal inputSchema properties keys of every entry in the module-level const TOOLS "
+    "initializer in worker/src/mcp.ts; Worker evidence does not prove runtime immutability or global absence"
 )
 AUTH_SCOPE = (
     "constant authority arguments inside those @mcp.tool functions, "
@@ -121,11 +122,10 @@ def eval_mcp_no_verify(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
         facts = cached_ts_mcp(cache, ts)
         if not facts["covered"]:
             gaps.append(facts["error"] or "TOOLS array did not parse")
-        else:
-            for tool in facts["tools"]:
-                examined.append(f"ts:{tool['name']}")
-                if "verify" in (tool["params"] or []):
-                    counters.append(f"worker/src/mcp.ts TOOLS {tool['name']} properties include verify")
+        for tool in facts["tools"]:
+            examined.append(f"ts:{tool['name']}@{tool['lineno']}")
+            if "verify" in (tool["params"] or []):
+                counters.append(f"worker/src/mcp.ts:{tool['lineno']} TOOLS {tool['name']} literal properties include verify")
     coverage = f"examined {len(examined)} tool(s)" + (f"; gaps: {'; '.join(gaps)}" if gaps else "")
     if counters:
         return (
@@ -169,7 +169,7 @@ def eval_mcp_no_verify(index: SpecIndex, head: dict[str, str], cache: Cache) -> 
             claim_text=group.display_text,
             scope=MCP_SCOPE,
             coverage=coverage,
-            detail="every tool in the defined scope was enumerated and none accepts a parameter named verify",
+            detail="every tool in the defined scope was enumerated with no verify parameter or literal property key; Worker evidence covers initializer syntax only, not immutable runtime state or global absence",
             evidence="ast",
             clean_single_writer=group.clean_single_writer,
             code_revision=CODE_REVISION,

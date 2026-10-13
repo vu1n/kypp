@@ -9,6 +9,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+speccheck = ["tree-sitter>=0.25,<0.26", "tree-sitter-typescript>=0.23,<0.24"]
 # System One write gate (optional): any TypeSafe-API endpoint, e.g. Jev via OpenRouter.
 s1 = ["typesafe-sdk>=0.7"]
 

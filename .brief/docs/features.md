@@ -298,7 +298,17 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
   mirrors the rank and is outside that rule. The first element of `_rank` must be proved to
   increase with `AUTHORITY_RANK`. Negation or `reversed`/`sorted(..., reverse=True)` is a
   violation; an expression the checker cannot classify stays `unresolved`.
-- A Worker tool whose `inputSchema` is not an inline `properties` object stays `unresolved`
-  unless that name resolves to an inline object in the same file.
+- Worker signatures use tree-sitter with the optional `speccheck` dependencies. From this checkout,
+  install `.[speccheck]` or run `uv run --extra speccheck python -m speccheck check`.
+- Worker evidence covers the module-level `const TOOLS` initializer's literal schema keys, not
+  runtime immutability or global absence. Same-file schema references must be unambiguous; an
+  extra use that may mutate or expose the schema leaves a coverage gap.
+- Unknown Worker array entries, spreads, computed keys, duplicate enclosing fields, or unsupported
+  schema constructs prevent conformance. A covered literal `verify` key still violates when
+  another entry is unresolved. Comments and string contents are not tool declarations.
+- Syntax cache keys include the checker parser version and installed runtime/grammar versions.
+  Missing parser dependencies abstain without caching a result that could mask a later install.
+- The original PR23 holdout is regression data. Fresh holdout provenance and exposure are recorded
+  in `docs/spec-check-evaluation.md`; smoke controls are not accuracy evidence.
 - A reference-index cache hit for the same head SHA is reused only when the dependency hash
   still matches. A baseline spec change rebuilds the index.
