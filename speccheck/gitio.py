@@ -56,6 +56,20 @@ def list_paths(repo: Path, rev: str | None) -> list[str]:
     return list(dict.fromkeys(path for path in output.split("\0") if path))
 
 
+def _skip_worktree_paths(repo: Path) -> set[str]:
+    """Paths the index still lists but sparse checkout or skip-worktree did not materialize.
+
+    `git ls-files -v -z` records are a one-letter tag, a space, and a literal path.
+    `S` is skip-worktree. `-v` lowercases that tag when assume-unchanged is also set.
+    """
+    output = _git(repo, ["ls-files", "-v", "-z"])
+    skipped: set[str] = set()
+    for record in output.split("\0"):
+        if len(record) >= 3 and record[0] in "Ss" and record[1] == " ":
+            skipped.add(record[2:])
+    return skipped
+
+
 def _read_rev_file(repo: Path, rev: str, path: str) -> str:
     entry = _git(repo, ["--literal-pathspecs", "ls-tree", "-z", rev, "--", path])
     metadata, separator, name = entry.rstrip("\0").partition("\t")
@@ -121,6 +135,10 @@ def _worktree_entry(repo: Path, path: str, read: bool) -> str | None:
 
 def load_files(repo: Path, rev: str | None) -> tuple[dict[str, str], list[str]]:
     paths = list_paths(repo, rev)
+    # A missing worktree file is a deletion only when the index materialized it.
+    # Skip-worktree entries, including sparse-checkout omissions, stay in ls-files
+    # and are absent on disk; treating them as deletions would report a partial tree.
+    unmaterialized = _skip_worktree_paths(repo) if rev is None else set()
     snapshot_paths: list[str] = []
     files: dict[str, str] = {}
     for path in paths:
@@ -128,6 +146,11 @@ def load_files(repo: Path, rev: str | None) -> tuple[dict[str, str], list[str]]:
         if rev is None:
             text = _worktree_entry(repo, path, read=selected)
             if text is None:
+                if selected and path in unmaterialized:
+                    raise GitError(
+                        f"selected worktree entry {path!r} is not materialized "
+                        "(sparse checkout or skip-worktree); this is not a deletion"
+                    )
                 continue
         elif selected:
             text = _read_rev_file(repo, rev, path)

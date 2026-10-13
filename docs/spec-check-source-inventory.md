@@ -32,8 +32,14 @@ directory does not trigger the selected-source restriction or a content read.
 Git paths must be preserved literally rather than split on newlines or interpreted
 from Git's display quoting. Selected symlinks and other non-regular entries are
 rejected in worktree and committed modes. External targets are not source evidence.
-Worktree deletion is a valid change: an absent file is removed from both returned
-content and paths. Read, decoding and type failures must not be mistaken for deletion.
+Worktree deletion is a valid change: an absent materialized file is removed from both
+returned content and paths. Read, decoding and type failures must not be mistaken for
+deletion. A selected path that the index still lists with the skip-worktree tag (`S`, or
+`s` when assume-unchanged is also set) and that is not present in the worktree is the
+same explicit load failure, including when sparse checkout removed its parent directory.
+It is not a deletion, and the checker must not emit a `bounded` report over the remaining
+files. A selected skip-worktree file that is still on disk is read. An unselected
+skip-worktree path stays outside the content inventory and does not fail the check.
 
 This is a local CLI source-loading boundary. It does not introduce source execution,
 new dependencies, runtime Kypp behavior, atomic snapshots of concurrently edited

@@ -1,12 +1,18 @@
 """Real Git snapshot boundaries: never silently lose selected source."""
+import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from speccheck.gitio import GitError, load_files
+
+HIDDEN = 'kypp/nested/hidden.py'
+BROKEN = 'doc://kypp/not-a-real-doc@0001#missing\n'
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class GitSnapshotTest(unittest.TestCase):
@@ -59,6 +65,114 @@ class GitSnapshotTest(unittest.TestCase):
         dest.unlink()
         other.unlink()
         self.assertEqual(load_files(self.repo, None), ({}, []))
+
+    def _tracked_tree(self):
+        self.write('kypp/keep.py', b'keep\n')
+        self.write(HIDDEN, BROKEN.encode())
+        self.write('docs/note.md', b'note\n')
+        self.write('outside.txt', b'out\n')
+        self.commit()
+        return self.git('rev-parse', 'HEAD').decode().strip()
+
+    def _index_tag(self, path):
+        listing = self.git('ls-files', '-v', '-z')
+        for record in listing.split(b'\0'):
+            if record[2:] == path.encode():
+                return record[:2]
+        self.fail(f'{path} missing from git ls-files -v: {listing!r}')
+
+    def _remove_worktree_file(self, path):
+        dest = self.repo / path
+        dest.unlink()
+        parent = dest.parent
+        if parent != self.repo and not any(parent.iterdir()):
+            parent.rmdir()
+
+    def _expect_unmaterialized_load_failure(self, baseline, path):
+        """A selected index path absent from the worktree must fail closed."""
+        tag = self._index_tag(path)
+        self.assertIn(tag, (b'S ', b's '), tag)
+        self.assertFalse((self.repo / path).exists())
+        self.assertIn(path.encode() + b'\0', self.git('ls-files', '-c', '-z') + b'\0')
+        problems = []
+        try:
+            files, paths = load_files(self.repo, None)
+        except GitError as exc:
+            if path not in str(exc):
+                problems.append(f'GitError did not name {path!r}: {exc}')
+        else:
+            problems.append(
+                f'load_files treated {path!r} as absent rather than a load failure: '
+                f'files={sorted(files)} paths={paths}'
+            )
+        out = Path(self.tmp.name) / 'report.md'
+        report_json = Path(self.tmp.name) / 'report.json'
+        cache = Path(self.tmp.name) / 'cache'
+        env = dict(os.environ, PYTHONPATH=str(PROJECT_ROOT))
+        bootstrap = 'from speccheck.cli import main; import sys; sys.exit(main(sys.argv[1:]))'
+        result = subprocess.run(
+            [sys.executable, '-c', bootstrap, 'check', '--repo', str(self.repo),
+             '--baseline', baseline, '--out', str(out), '--json', str(report_json),
+             '--cache', str(cache)],
+            capture_output=True, text=True, env=env, timeout=60,
+        )
+        if result.returncode == 0:
+            status = 'unparsed'
+            if report_json.is_file():
+                report = json.loads(report_json.read_text())
+                refs = [v for v in report['verdicts'] if v['rule_id'] == 'doc-refs']
+                status = ','.join(v['status'] for v in refs) or 'no-doc-refs'
+            problems.append(
+                'check exited 0 and produced a report over the incomplete worktree: '
+                f'doc-refs={status} stdout={result.stdout[:500]!r}'
+            )
+        else:
+            if 'speccheck:' not in result.stderr or path not in result.stderr:
+                problems.append(f'nonzero exit did not report the path: {result.stderr!r}')
+            if result.stdout.strip():
+                problems.append(f'load failure printed a report: {result.stdout[:500]!r}')
+            if out.exists() or report_json.exists():
+                problems.append('load failure wrote report output')
+            if cache.exists() and any(cache.rglob('*')):
+                problems.append('load failure wrote a cache')
+        self.assertFalse(problems, '\n'.join(problems))
+
+    def test_skip_worktree_selected_file_is_load_failure(self):
+        baseline = self._tracked_tree()
+        self.git('update-index', '--skip-worktree', '--', HIDDEN)
+        self._remove_worktree_file(HIDDEN)
+        self._expect_unmaterialized_load_failure(baseline, HIDDEN)
+
+    def test_skip_worktree_assume_unchanged_selected_file_is_load_failure(self):
+        baseline = self._tracked_tree()
+        self.git('update-index', '--skip-worktree', '--', HIDDEN)
+        self.git('update-index', '--assume-unchanged', '--', HIDDEN)
+        self._remove_worktree_file(HIDDEN)
+        self.assertEqual(self._index_tag(HIDDEN), b's ')
+        self._expect_unmaterialized_load_failure(baseline, HIDDEN)
+
+    def test_sparse_checkout_selected_file_is_load_failure(self):
+        baseline = self._tracked_tree()
+        self.git('sparse-checkout', 'set', '--no-cone', '--',
+                 '/kypp/keep.py', '/docs/note.md', '/outside.txt')
+        self._expect_unmaterialized_load_failure(baseline, HIDDEN)
+
+    def test_materialized_skip_worktree_file_is_read(self):
+        self.write('kypp/hidden.py', b'present\n')
+        self.commit()
+        self.git('update-index', '--skip-worktree', '--', 'kypp/hidden.py')
+        files, paths = load_files(self.repo, None)
+        self.assertEqual(files, {'kypp/hidden.py': 'present\n'})
+        self.assertEqual(paths, ['kypp/hidden.py'])
+
+    def test_unselected_sparse_omission_is_not_a_load_failure(self):
+        self.write('kypp/keep.py', b'keep\n')
+        self.write('outside.txt', b'out\n')
+        self.commit()
+        self.git('sparse-checkout', 'set', '--no-cone', '--', '/kypp/keep.py')
+        self.assertEqual(self._index_tag('outside.txt'), b'S ')
+        self.assertFalse((self.repo / 'outside.txt').exists())
+        self.assertEqual(load_files(self.repo, None), ({'kypp/keep.py': 'keep\n'}, ['kypp/keep.py']))
 
     def test_symlink_rejected_in_both_modes(self):
         external = Path(self.tmp.name) / 'secret'
