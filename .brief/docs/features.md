@@ -72,8 +72,9 @@ to one project, derived from `KYPP_REPO_ROOT`.
 - `serve --http` has no authentication. Keep it on localhost.
 - The MCP `correct` tool lands at agent authority, not human. It is not a writer of `human` or
   `verified`. Local human authority is the operator's `kypp correct`; local verified authority is
-  `MemoryStore.mark_verified`; authenticated `POST /sync` imports a ratified Brief revision at the
-  archive stamp's authority (`doc://kypp/authority-order@latest#authority-dominates`).
+  `MemoryStore.mark_verified`. Authenticated `POST /sync` is not built yet; when it lands, it is the
+  import path for a ratified Brief revision at the archive stamp's authority
+  (`doc://kypp/authority-order@latest#authority-dominates`).
 - No agent call self-accepts. Every MCP `claim`, decisions included, lands as a candidate stamped
   `session:<id>`; it is accepted when a second session claims the subject or an operator accepts it.
   The stamp and usage logging need a session id: stdio mints one per process, `--http` needs
