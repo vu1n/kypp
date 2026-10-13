@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from tree_sitter import Node, Parser
 
 
-PARSER_VERSION = 'ts-mcp-tree-sitter-v4'
+PARSER_VERSION = 'ts-mcp-tree-sitter-v5'
 
 
 def parser_cache_key() -> str:
@@ -155,7 +155,7 @@ def typescript_mcp_tools(source: str) -> dict:
         schema = fields.get('inputSchema')
         if schema is not None and schema.type == 'identifier':
             identifier = _text(schema)
-            matches = bindings.get(identifier, [])
+            matches = bindings.get(identifier, []) if '\\' not in identifier else []
             if len(matches) != 1:
                 entry_gaps.append(f'inputSchema {identifier} has no unique module binding')
                 schema = None

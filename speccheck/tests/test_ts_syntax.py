@@ -84,6 +84,10 @@ class TypeScriptSyntaxTest(unittest.TestCase):
             with self.subTest(use=use):
                 self.assertEqual(verdict(prefix + use + suffix).status, 'unresolved')
 
+    def test_escaped_schema_bindings_abstain(self):
+        source = r'const sch\u0065ma = {properties: {subject: {}}}; configure(schema); const TOOLS = [' + tool(schema=r'sch\u0065ma') + '];'
+        self.assertEqual(verdict(source).status, 'unresolved')
+
     def test_dependency_version_changes_reject_disk_facts(self):
         source = 'const TOOLS = [' + tool() + ', externalTool];'
         old_versions = {'tree-sitter': 'old-runtime', 'tree-sitter-typescript': 'old-grammar'}
@@ -102,7 +106,7 @@ class TypeScriptSyntaxTest(unittest.TestCase):
 
     def test_previous_reference_whitelist_cache_is_rejected(self):
         source = 'const schema = {properties: {subject: {}}}; configure({inputSchema: schema}); const TOOLS = [' + tool(schema='schema') + '];'
-        for old_version in ('ts-mcp-tree-sitter-v2', 'ts-mcp-tree-sitter-v3'):
+        for old_version in ('ts-mcp-tree-sitter-v2', 'ts-mcp-tree-sitter-v3', 'ts-mcp-tree-sitter-v4'):
             with self.subTest(version=old_version), tempfile.TemporaryDirectory() as directory:
                 cache = Cache(Path(directory))
                 with patch('speccheck.ts_syntax.PARSER_VERSION', old_version):
