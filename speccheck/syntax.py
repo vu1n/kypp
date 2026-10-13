@@ -96,12 +96,12 @@ def python_migrations(source: str) -> dict:
             target, value = node.target, node.value
         if target is None:
             continue
-        if not isinstance(value, ast.List) or not all(isinstance(elt, ast.Constant) and isinstance(elt.value, str) for elt in value.elts):
+        if not isinstance(value, ast.List):
             return {"covered": False, "error": "_MIGRATIONS is not a list of string literals", "entries": []}
-        found.append([elt.value for elt in value.elts])  # type: ignore[union-attr]
+        found.append([elt.value if isinstance(elt, ast.Constant) and isinstance(elt.value, str) else None for elt in value.elts])
     if len(found) != 1:
         return {"covered": False, "error": f"expected one _MIGRATIONS list, found {len(found)}", "entries": []}
-    return {"covered": True, "error": None, "entries": found[0]}
+    return {"covered": all(entry is not None for entry in found[0]), "error": "nonliteral migration entry" if None in found[0] else None, "entries": found[0]}
 
 
 def _assigned(tree: ast.AST, name: str) -> ast.AST | None:
@@ -540,21 +540,11 @@ def typescript_mcp_tools(source: str) -> dict:
     return {"covered": True, "error": None, "tools": tools}
 
 
-_ADD_COLUMN = re.compile(r"\bADD\s+COLUMN\b", re.I)
-_NOT_NULL = re.compile(r"\bNOT\s+NULL\b", re.I)
-_DEFAULT = re.compile(r"\bDEFAULT\b", re.I)
-_VERSION_TABLE = re.compile(r"\b(schema_version|schema_migrations|schema_versions|alembic_version)\b", re.I)
-
-
 def classify_migration(sql: str) -> str:
-    compact = " ".join(sql.split())
-    if _VERSION_TABLE.search(compact):
-        return "version_table"
-    if not _ADD_COLUMN.search(compact):
-        return "not_add_column"
-    if _NOT_NULL.search(compact) and not _DEFAULT.search(compact):
-        return "not_null_without_default"
-    return "ok"
+    """Compatibility facade for bounded SQL policy analysis."""
+    from .sqlsyntax import analyze_migration
+
+    return analyze_migration(sql).kind
 
 
 def cached_python_mcp(cache: Cache, source: str) -> dict:
@@ -562,7 +552,7 @@ def cached_python_mcp(cache: Cache, source: str) -> dict:
 
 
 def cached_python_migrations(cache: Cache, source: str) -> dict:
-    return cache.syntax(source, "py-migrations", lambda: python_migrations(source))
+    return cache.syntax(source, "py-migrations-partial-v2", lambda: python_migrations(source))
 
 
 def cached_rank(cache: Cache, vocab_source: str, arbiter_source: str) -> dict:

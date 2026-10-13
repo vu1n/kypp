@@ -37,7 +37,7 @@ RANK_SCOPE = (
     "Authority / AUTHORITIES / AUTHORITY_RANK in kypp/vocab.py, "
     "and _rank / _survivor in kypp/arbiter.py"
 )
-SCHEMA_SCOPE = "string literals of _MIGRATIONS in kypp/store.py"
+SCHEMA_SCOPE = "bounded SQL syntax in literal _MIGRATIONS entries in kypp/store.py; retired additive-migrations@0002 registry bullet, not active governance or engine/runtime proof"
 
 _TS_AUTH_BAD = re.compile(r"""authority\s*[:=]\s*(['"])(human|verified)\1""")
 _TS_AUTH_DYN = re.compile(r"""authority\s*[:=]\s*(?!['"\s\n])""")
@@ -435,7 +435,7 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             group,
         )
     facts = cached_python_migrations(cache, source)
-    if not facts["covered"]:
+    if not facts["covered"] and not facts["entries"]:
         return (
             Verdict(
                 rule_id="schema-add-column",
@@ -450,12 +450,20 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
             ),
             group,
         )
+    from .sqlsyntax import analyze_migration
+
     bad = []
+    gaps = []
     for i, sql in enumerate(facts["entries"]):
-        kind = classify_migration(sql)
-        if kind in {"not_add_column", "not_null_without_default"}:
-            bad.append(f"[{i}] {kind}: {sql}")
-    coverage = f"classified all {len(facts['entries'])} _MIGRATIONS entries"
+        if sql is None:
+            gaps.append(f"[{i}] nonliteral migration entry")
+            continue
+        analysis = analyze_migration(sql)
+        if analysis.kind in {"not_add_column", "not_null_without_default", "version_table"}:
+            bad.append(f"[{i}] {analysis.kind}: {sql}")
+        elif analysis.kind == "unknown":
+            gaps.append(f"[{i}] {'; '.join(analysis.reasons)}")
+    coverage = f"analyzed {len(facts['entries'])} entries; gaps: {'; '.join(gaps) or 'none'}"
     if bad:
         return (
             Verdict(
@@ -476,12 +484,12 @@ def eval_schema_columns(index: SpecIndex, head: dict[str, str], cache: Cache) ->
     return (
         Verdict(
             rule_id="schema-add-column",
-            status="conforms",
+            status="unresolved" if gaps else "conforms",
             spec=spec,
             claim_text=group.display_text,
             scope=SCHEMA_SCOPE,
             coverage=coverage,
-            detail="every _MIGRATIONS entry is ADD COLUMN, and none is NOT NULL without a default",
+            detail="unsupported SQL or nonliteral entries remain" if gaps else "all entries meet the retired registry bullet syntactically; DEFAULT presence does not prove default semantics or engine acceptance",
             evidence="schema",
             code_revision=CODE_REVISION,
         ),
@@ -496,13 +504,13 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
     if group is None:
         return _pin_missing("schema-idempotence", spec, "baseline additive-migrations@0002 does not contain the pinned version-table bullet"), None
     source = head.get("kypp/store.py")
-    entries: list[str] = []
+    entries: list[str | None] = []
     covered = False
     if source is not None:
         facts = cached_python_migrations(cache, source)
         covered = bool(facts["covered"])
-        entries = facts["entries"] if covered else []
-    version_tables = [sql for sql in entries if classify_migration(sql) == "version_table"]
+        entries = facts["entries"]
+    version_tables = [sql for sql in entries if sql is not None and classify_migration(sql) == "version_table"]
     if version_tables:
         return (
             Verdict(
@@ -513,7 +521,7 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
                 claim_text=group.display_text,
                 scope=SCHEMA_SCOPE,
                 coverage=f"scanned {len(entries)} entries for a schema version table",
-                detail="a counterexample shows a schema version table; the rest of the bullet is still not fully checked",
+                detail="a CREATE TABLE counterexample violates the retired registry bullet; runtime idempotence is not checked",
                 counterexample="; ".join(version_tables),
                 evidence="schema",
                 code_revision=CODE_REVISION,
