@@ -506,11 +506,10 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
         return _pin_missing("schema-idempotence", spec, "baseline additive-migrations@0002 does not contain the pinned version-table bullet"), None
     source = head.get("kypp/store.py")
     entries: list[str | None] = []
-    covered = False
     if source is not None:
         facts = cached_python_migrations(cache, source)
-        covered = bool(facts["covered"])
         entries = facts["entries"]
+    coverage = f"examined {sum(sql is not None for sql in entries)} literal entries among {len(entries)} initializer positions for covered CREATE TABLE evidence"
     version_tables = [sql for sql in entries if sql is not None and classify_migration(sql) == "version_table"]
     if version_tables:
         return (
@@ -521,7 +520,7 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
                 spec=spec,
                 claim_text=group.display_text,
                 scope=SCHEMA_SCOPE,
-                coverage=f"scanned {len(entries)} entries for a schema version table",
+                coverage=coverage,
                 detail="a CREATE TABLE counterexample violates the retired registry bullet; runtime idempotence is not checked",
                 counterexample="; ".join(version_tables),
                 evidence="schema",
@@ -536,11 +535,7 @@ def eval_schema_idempotence(index: SpecIndex, head: dict[str, str], cache: Cache
             spec=spec,
             claim_text=group.display_text,
             scope=SCHEMA_SCOPE,
-            coverage=(
-                f"no schema version table in {len(entries)} parsed entries"
-                if covered
-                else "migrations were not parsed"
-            ),
+            coverage=coverage + "; no covered counterexample is not proof of absence",
             detail=(
                 "the bullet also says idempotence comes from swallowing duplicate-column errors only. "
                 "That is behaviour. A missing test does not make it verified, so this is not conformance."
