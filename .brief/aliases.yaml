@@ -5,7 +5,7 @@ agent-mcp-surface-compose:
 append-only-history:
   latest: 1
 authority-order:
-  latest: 5
+  latest: 6
 corroboration-gate:
   latest: 2
 human-authority-operator-only:

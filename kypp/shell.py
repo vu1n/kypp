@@ -147,7 +147,7 @@ def correct_main():
     args = ap.parse_args()
     from .arbiter import consolidate
     store = store_from_env()
-    # Context: doc://kypp/authority-order@0004#authority-dominates — the only local writer of human authority (the Worker's ratified-decision sync is the other)
+    # Context: doc://kypp/authority-order@0006#authority-dominates — the only local writer of human authority (authenticated POST /sync, once built, is the sole other writer, and only as an import)
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
                       confidence=args.confidence, authority="human", verify=args.verify,
                       user=args.user, agent=args.agent)
