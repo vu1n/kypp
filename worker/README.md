@@ -70,22 +70,37 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 
 ## Deploy
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/vu1n/kypp/tree/main/worker)
+
+The button needs no Cloudflare API token. It copies this directory into a new repo on your GitHub,
+creates the D1 database and KV namespace, asks for the two secrets in `.dev.vars.example`
+(`KYPP_OWNER_SECRET`, the sign-in passphrase, and `CONSENT_SECRET`, 32+ random characters), then
+builds with `npm run deploy`, which applies the D1 migrations before `wrangler deploy`. Every push to
+the new repo redeploys. After it finishes:
+
+1. Register each repo that will use it (see Projects above); until then every claim lands unsorted.
+   The Cloudflare dashboard's D1 console runs the same `INSERT` without a CLI.
+2. Connect your agents (below). The Worker uses the origin it is reached on as its OAuth issuer;
+   set `KYPP_PUBLIC_URL` on the Worker only to pin one, for example a custom domain.
+
+Optional settings are Worker variables and secrets, set in the dashboard or with Wrangler. A deploy
+keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive redeploys:
+
+- `KYPP_OIDC_OWNERS` (variable, e.g. `vu1n`): GitHub owners whose Actions may call `/v1/systemone`.
+  Unset refuses every OIDC token.
+- `KYPP_API_TOKENS` (secret, `huddles:<long random token>`): static tokens for headless clients.
+- `KYPP_S1_TOKENS` (secret, `name:<long random token>`): `/v1/systemone` callers outside Actions.
+- `TYPESAFE_API_KEY` (secret): route the gate to TypeSafe instead of Clef on Workers AI.
+
+From a checkout instead of the button:
+
 ```sh
 cd worker && npm install
 npx wrangler login
-npx wrangler d1 create kypp                  # paste database_id into wrangler.jsonc
-npx wrangler kv namespace create OAUTH_KV    # paste id into wrangler.jsonc
-npx wrangler d1 migrations apply kypp --remote
-# register each repo that will use it (see Projects above); until then every claim lands unsorted
-npx wrangler deploy                          # prints https://kypp.<subdomain>.workers.dev
-# set vars.KYPP_PUBLIC_URL in wrangler.jsonc to that origin (OAuth issuer + resource id), then:
+npx wrangler deploy                          # first time: creates the D1 database and KV namespace
 npx wrangler secret put KYPP_OWNER_SECRET    # the passphrase you type on the sign-in page; make it long
 npx wrangler secret put CONSENT_SECRET       # 32+ random chars
-npx wrangler secret put KYPP_API_TOKENS      # optional: "huddles:<long random token>" for headless clients
-# set vars.KYPP_OIDC_OWNERS in wrangler.jsonc (e.g. "vu1n") so those owners' Actions can call /v1/systemone
-npx wrangler secret put KYPP_S1_TOKENS       # optional: "name:<long random token>" for /v1/systemone callers outside Actions
-npx wrangler secret put TYPESAFE_API_KEY     # optional: route the gate to TypeSafe instead of Clef on Workers AI
-npx wrangler deploy
+npm run deploy                               # applies migrations, then deploys; use this from now on
 ```
 
 ## Connect
@@ -100,7 +115,7 @@ npx wrangler deploy
 ## Develop
 
 ```sh
-cp .dev.vars.example .dev.vars
+cp smoke.dev.vars .dev.vars
 npx wrangler d1 migrations apply kypp --local
 npx wrangler d1 execute kypp --local --command "INSERT OR IGNORE INTO projects(name, created_at) VALUES ('smoke', datetime('now'))"
 npm run dev:local -- --test-scheduled        # in one shell; drops the AI binding, which needs a Cloudflare login

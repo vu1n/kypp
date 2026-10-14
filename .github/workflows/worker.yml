@@ -25,7 +25,7 @@ jobs:
       - run: npm test
       - name: end-to-end smoke against wrangler dev
         run: |
-          cp .dev.vars.example .dev.vars
+          cp smoke.dev.vars .dev.vars
           npx wrangler d1 migrations apply kypp --local
           npx wrangler d1 execute kypp --local --command "INSERT OR IGNORE INTO projects(name, created_at) VALUES ('smoke', datetime('now'))"
           npm run dev:local -- --test-scheduled --port 8787 > /tmp/wrangler.log 2>&1 &

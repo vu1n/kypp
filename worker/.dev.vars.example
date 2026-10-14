@@ -1,8 +1,4 @@
-KYPP_PUBLIC_URL=http://localhost:8787
-KYPP_OWNER_SECRET=local-owner-passphrase
-CONSENT_SECRET=local-consent-secret-0123456789abcdef
-KYPP_API_TOKENS=huddles:local-token-abcdefghijklmnop
-TYPESAFE_API_KEY=mock
-TYPESAFE_BASE_URL=http://localhost:8788
-KYPP_RECUR_GAP_MINUTES=0
-KYPP_CORRECT=on
+# The secrets the Deploy to Cloudflare button asks for when it installs kypp.
+# Local development and the CI smoke test use smoke.dev.vars instead (cp smoke.dev.vars .dev.vars).
+KYPP_OWNER_SECRET=
+CONSENT_SECRET=

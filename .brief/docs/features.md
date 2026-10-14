@@ -136,7 +136,8 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   CI caller can't reach memory). The OIDC `aud` must equal `KYPP_PUBLIC_URL` with trailing slashes
   stripped, byte for byte; brief's CI template requests the token with its `TYPESAFE_BASE_URL`, so a
   base URL with a path or a different host is a 401. An empty `KYPP_OIDC_OWNERS` refuses all OIDC
-  (fail closed), and `wrangler deploy` overwrites dashboard vars, so set it in `wrangler.jsonc`.
+  (fail closed). It is per-install, so it lives on the Worker, not in `wrangler.jsonc`;
+  `keep_vars: true` stops a deploy from wiping it (or `KYPP_PUBLIC_URL`).
   An unknown `kid` refetches the JWKS at most once a minute, so a forged kid can't make the
   Worker hammer GitHub; a just-rotated key can 401 for up to that minute. Fork PRs get no OIDC
   token, so brief triage escalates there. typesafe-sdk needs `model` and `usage` in every reply, so the
@@ -152,6 +153,12 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 - The S1 agreement check (`consolidate.ts`) can only hold a promotion back, never cause one.
 - `correct` bypasses the S1 gate and the two-session rule. `KYPP_CORRECT=off` (set in
   `wrangler.jsonc`) hides and refuses it; `.dev.vars` turns it back on for the smoke test.
+- `wrangler.jsonc` must stay installable by the Deploy to Cloudflare button (README): no resource
+  ids, no owner-specific vars, and only the button's secrets in `.dev.vars.example` (it prompts
+  for every key there). Local dev and the CI smoke read `smoke.dev.vars`. With `KYPP_PUBLIC_URL`
+  unset, `publicBase` takes the request's origin, so one OAuth provider is cached per origin.
+- `npm run deploy` applies D1 migrations before `wrangler deploy` (the button's build runs it), so
+  new code never runs against an unmigrated schema. Migrations go by binding (`DB`), not name.
 - `/oauth/register` is open by design (MCP clients self-register), so `REGISTER_LIMIT` throttles it
   per IP in `index.ts` before the OAuth provider writes the client to KV.
 - The cron pass is the only writer that changes existing rows. Keep status edits there (and in
