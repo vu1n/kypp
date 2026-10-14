@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { consolidate } from "../src/consolidate.ts";
-import { planConsolidation } from "../src/memory.ts";
+import { ftsQuery, planConsolidation } from "../src/memory.ts";
 import type { S1Client } from "../src/s1.ts";
 import { type ClaimInput, D1Store, cleanCodeRefs } from "../src/store.ts";
 import { memoryD1 } from "./d1.ts";
@@ -64,4 +64,30 @@ test("the S1 judge holds back a conflicted promotion, and only that", async () =
   const live = await store.liveClaims();
   assert.deepEqual(live.filter((c) => c.subject === "port").map((c) => c.status).sort(), ["candidate"], "conflicted subject waits");
   assert.deepEqual(live.filter((c) => c.subject === "lint").map((c) => c.status), ["accepted"]);
+});
+
+test("recall matches accented and non-Latin words, folded the way the index folds them", async () => {
+  const store = new D1Store(memoryD1());
+  const cafe = await store.claim(base({ subject: "café rotation", content: "rotate the café keys", accept: true }));
+  const jp = await store.claim(base({ subject: "tokenizer", content: "日本語 text splits per run", accept: true }));
+  await store.claim(base({ subject: "other", content: "unrelated e note", accept: true }));
+  for (const q of ["café", "cafe", "CAFÉ"]) {
+    assert.deepEqual((await store.recall(ftsQuery(q), "p", "vu")).map((c) => c.id), [cafe], q);
+  }
+  assert.deepEqual((await store.recall(ftsQuery("日本語"), "p", "vu")).map((c) => c.id), [jp]);
+});
+
+test("recall breaks exact ties by id", async () => {
+  const store = new D1Store(memoryD1());
+  const db = (store as any).db as D1Database;
+  const ts = "2026-10-14T00:00:00Z";
+  // Inserted out of id order, with identical text, status, level, confidence and time.
+  for (const id of ["c".repeat(32), "a".repeat(32), "b".repeat(32)]) {
+    await db.prepare("INSERT INTO memory_claims(id,type,subject,content,scope,project,status,confidence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .bind(id, "fact", "tie", "same words", "project", "p", "accepted", 0.7, ts, ts).run();
+    await db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, "tie", "same words").run();
+  }
+  const want = ["a", "b", "c"].map((ch) => ch.repeat(32));
+  assert.deepEqual((await store.recall(ftsQuery("same words"), "p", "vu")).map((c) => c.id), want);
+  assert.deepEqual((await store.recall("", "p", "vu")).map((c) => c.id), want);
 });

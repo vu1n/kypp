@@ -155,7 +155,10 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
         + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
     }
     case "recall": {
-      const claims = await store.recall(ftsQuery(String(a.query ?? "")), project, user,
+      const query = String(a.query ?? ""), match = ftsQuery(query);
+      // A query of only symbols or emoji has no word to match; answering it with browse results
+      // would hand back the strongest claims as if they were hits.
+      const claims = query.trim() && !match ? [] : await store.recall(match, project, user,
         { candidates: a.include_candidates ? "all" : "origin", groups, types: a.types, agent: a.agent, limit: a.limit, session: ctx.session });
       await store.recordUsage(ctx.session, claims, "recall", project, a.query || null);
       return note + renderClaims(claims);

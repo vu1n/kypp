@@ -56,6 +56,14 @@ test("fts query quotes words so FTS syntax can't break the parse", () => {
   assert.equal(ftsQuery("  ?? "), "");
 });
 
+test("fts query keeps non-ASCII words whole", () => {
+  assert.equal(ftsQuery("café rotation"), '"café" OR "rotation"');
+  assert.equal(ftsQuery("Straße"), '"Straße"');
+  assert.equal(ftsQuery("日本語 tokenizer"), '"日本語" OR "tokenizer"');
+  assert.equal(ftsQuery("cafe\u0301"), '"cafe\u0301"'); // decomposed é stays one word
+  assert.equal(ftsQuery("🚀 !!"), "");
+});
+
 test("user-scope claims group per owner", () => {
   const mine = claim({ scope: "user", project: null, user: "vu", source_ids: ["session:A"] });
   const theirs = claim({ scope: "user", project: null, user: "ana", source_ids: ["session:B"] });

@@ -113,6 +113,7 @@ export class D1Store {
 
   // Browse (empty match) = strongest first; otherwise bm25 relevance, then the same tie-breaks as
   // store.recall: accepted, nearer level (project, then its groups, then user, then global), confidence.
+  // The id is last so equal rows come back in the same order on every engine.
   async recall(match: string, project: string | null, user: string | null,
     opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null } = {}): Promise<Claim[]> {
     const [where, params] = visible("c", project, opts.groups ?? [], user, opts.candidates ?? "origin", opts.session ?? null);
@@ -123,7 +124,7 @@ export class D1Store {
     // `groups` comes nearest first, so a parent's claim outranks a grandparent's.
     const groups = opts.groups ?? [];
     const near = groups.length ? `1 + (CASE c.project ${groups.map((_, i) => `WHEN ? THEN ${i}`).join(" ")} END) * 0.01` : "1";
-    const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC`;
+    const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC, c.id`;
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
     const sql = match
       ? `SELECT c.* FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
