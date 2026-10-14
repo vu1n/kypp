@@ -1,5 +1,6 @@
 // Bench-only config for replay.ts. `wrangler dev -c bench/replay/wrangler.replay.jsonc` runs it on
-// workerd with a local SQLite D1; KYPP_REPLAY_D1_ID + `--remote`-style binding points it at a real D1.
+// workerd with a local SQLite D1. Adding `"remote": true` and a scratch `database_id` to the binding
+// points it at a real D1 (never the production one).
 {
   "name": "kypp-replay",
   "main": "replay.ts",

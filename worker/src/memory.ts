@@ -203,8 +203,9 @@ export function briefingOrder(claims: Claim[], limit: number): Claim[] {
 
 // An FTS5 MATCH expression from free text: each word quoted (so FTS syntax in the query can't
 // break the parse), OR-joined like the local keyword recall. Empty when the query has no words.
-// Why: words are Unicode letters, marks, digits and _, the characters the unicode61 index keeps, so
-// `café` or `日本語` reach MATCH whole and unicode61 folds them the way it folded the stored text.
+// Why: words are Unicode letters, marks, digits and _, so `café` or `日本語` reach MATCH whole and
+// unicode61 folds them the way it folded the stored text. unicode61 doesn't segment CJK, so `日本語`
+// matches only a stored run that ends at a space or punctuation.
 export function ftsQuery(text: string): string {
   return (text.match(/[\p{L}\p{M}\p{N}_]+/gu) ?? []).map((t) => `"${t}"`).join(" OR ");
 }
