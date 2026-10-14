@@ -89,7 +89,7 @@ export class D1Store {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
-  // Context: doc://kypp/authority-order@0006#authority-dominates — claims written here are agent authority; the only local human writer is `kypp correct`, and authenticated POST /sync, once built, is the sole other writer of human authority (an import of a person-ratified revision).
+  // Context: doc://kypp/authority-order@0007#authority-dominates — claims written here are agent authority; human and verified come only from the operator's `kypp correct`/`kypp verify` (via POST /v1/operator, once built) and authenticated POST /sync imports.
   async claim(c: ClaimInput): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
