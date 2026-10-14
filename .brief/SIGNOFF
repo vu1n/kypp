@@ -28,3 +28,4 @@ compose-surface amend-proposed: Permit append_context/query_context as a bounded
 authority-dominates amend-proposed: operator correct/verify write human and verified authority through authenticated POST /v1/operator (KYPP_OPERATOR_TOKEN) once the local store is removed
 scope-keys-decay amend-proposed: Add room lanes: principal-private memory per chat-room bot, credential-pinned origin and lane, no automatic widening, explicit share to linked origins only.
 scope-keys-decay amend-proposed: Let an integration get a room-issuer grant by an owner-approved pairing code (device-flow style; per-issuer namespace; revoke cascades), alongside operator-configured issuers.
+scope-keys-decay conforms: room lanes and pairing implement memory-scope-decay §11 as ratified by Vu (@0006 room lanes, @0007 pairing issuers); the amend-proposed lines above are those ratified proposals.
