@@ -28,6 +28,10 @@ const page = (title: string, body: string, status = 200) =>
 <style>body{font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem}input{font:inherit;padding:.4rem;width:100%}button{font:inherit;padding:.4rem 1rem;margin-right:.5rem}code{font-size:1.4rem;letter-spacing:.1em}.err{color:#b00}li{margin:.5rem 0}</style>
 ${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 
+const PASSPHRASE = `<p><label>Owner passphrase<br><input type="password" name="secret" autocomplete="current-password" required></label></p>`;
+const ownerError = (check: "wrong" | "limited") =>
+  check === "limited" ? "Too many attempts. Wait a minute and try again." : "Wrong passphrase.";
+
 function userCode(): string {
   const b = crypto.getRandomValues(new Uint8Array(8));
   const c = [...b].map((x) => CODE_ALPHABET[x % CODE_ALPHABET.length]).join("");
@@ -152,7 +156,7 @@ async function approve(request: Request, db: D1Database, deps: PairingDeps, code
       await db.prepare("UPDATE pairings SET approved_at = ? WHERE user_code = ? AND approved_at IS NULL").bind(now(), code).run();
       return page("kypp pairing", `<h1>Paired.</h1><p>Go back to ${escape(p.name)}; it finishes linking on its own.</p>`);
     }
-    error = check === "limited" ? "Too many attempts. Wait a minute and try again." : "Wrong passphrase.";
+    error = ownerError(check);
   }
   return page("kypp pairing", `<h1>Let ${escape(p.name)} create room memory?</h1>
 <p>Check that this code matches the one the app shows:</p>
@@ -162,7 +166,7 @@ for its chat rooms. It can't read or write any other memory, and you can unlink 
 <a href="${escape(deps.base)}${PAIRS_PATH}">${escape(deps.base)}${PAIRS_PATH}</a>.</p>
 ${error ? `<p class="err">${escape(error)}</p>` : ""}
 <form method="post">
-<p><label>Owner passphrase<br><input type="password" name="secret" autocomplete="current-password" required></label></p>
+${PASSPHRASE}
 <p><button name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button></p>
 </form>`);
 }
@@ -172,14 +176,14 @@ ${error ? `<p class="err">${escape(error)}</p>` : ""}
 export async function handlePairs(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const form = (error = "") => page("kypp paired apps", `<h1>Paired apps</h1>
 ${error ? `<p class="err">${escape(error)}</p>` : ""}
-<form method="post"><p><label>Owner passphrase<br><input type="password" name="secret" autocomplete="current-password" required></label></p>
+<form method="post">${PASSPHRASE}
 <p><button>Show paired apps</button></p></form>`);
   if (request.method === "GET") return form();
   if (request.method !== "POST") return json({ error: "GET or POST" }, 405);
   const data = await request.formData();
   const secret = String(data.get("secret") ?? "");
   const check = await deps.checkOwner(secret);
-  if (check !== "ok") return form(check === "limited" ? "Too many attempts. Wait a minute and try again." : "Wrong passphrase.");
+  if (check !== "ok") return form(ownerError(check));
   const revoke = data.get("revoke");
   if (typeof revoke === "string" && revoke) await revokeIssuer(db, revoke);
   const { results } = await db.prepare("SELECT name, label, created_at FROM room_issuers WHERE revoked_at IS NULL ORDER BY created_at")
@@ -190,6 +194,6 @@ ${error ? `<p class="err">${escape(error)}</p>` : ""}
   return page("kypp paired apps", `<h1>Paired apps</h1>
 ${typeof revoke === "string" && revoke ? "<p>Unlinked. Its rooms' memory lanes are closed.</p>" : ""}
 ${rows ? `<form method="post"><ul>${rows}</ul>
-<p><label>Owner passphrase<br><input type="password" name="secret" autocomplete="current-password" required></label></p>
+${PASSPHRASE}
 <p><button>Unlink</button></p></form>` : "<p>No apps are paired.</p>"}`);
 }
