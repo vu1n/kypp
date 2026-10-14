@@ -162,7 +162,10 @@ test("a new pairing can continue an unlinked grant, and its rooms and bots work 
   assert.equal(await roomCaller(db, bot, []), null);
 
   const p = await start(db, "Huddles workspace Launch");
-  const pageText = await (await handlePair(new Request(p.verification_uri), db, deps)).text();
+  // The code alone doesn't show which apps were unlinked; the passphrase does.
+  assert.doesNotMatch(await (await handlePair(new Request(p.verification_uri), db, deps)).text(), /Continue the memory of/);
+  assert.doesNotMatch(await (await form(db, `/pair/${p.user_code}`, { decision: "choose", secret: "nope" })).text(), /Continue the memory of/);
+  const pageText = await (await form(db, `/pair/${p.user_code}`, { decision: "choose", secret: "owner-pass" })).text();
   assert.match(pageText, /Continue the memory of/);
   assert.match(pageText, /gives this app every room that earlier link made/);
   await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: old.issuer });
@@ -178,7 +181,7 @@ test("only an unlinked grant can be continued, and a fresh pairing starts empty"
   const db = memoryD1();
   const live = await paired(db);
   const p = await start(db);
-  assert.doesNotMatch(await (await handlePair(new Request(p.verification_uri), db, deps)).text(), /Continue the memory/);
+  assert.doesNotMatch(await (await form(db, `/pair/${p.user_code}`, { decision: "choose", secret: "owner-pass" })).text(), /Continue the memory/);
   const refused = await (await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: live.issuer })).text();
   assert.match(refused, /be continued any more/);
   assert.equal((await redeem(db, p.handle)).body.error, "authorization_pending");

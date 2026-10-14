@@ -155,30 +155,40 @@ async function approve(request: Request, db: D1Database, deps: PairingDeps, code
   if (!live(p) || p.approved_at) {
     return page("kypp pairing", "<h1>This code has expired or was already used.</h1><p>Start linking again from the app.</p>", 410);
   }
-  const earlier = await revokedGrants(db);
   let error = "";
+  // Unlinked grants are listed only after the passphrase, so a code alone doesn't reveal them.
+  let earlier: Revoked[] | null = null;
   if (request.method === "POST") {
     const form = await request.formData();
-    if (form.get("decision") !== "approve") {
+    const decision = form.get("decision");
+    if (decision !== "approve" && decision !== "choose") {
       await db.prepare("UPDATE pairings SET denied_at = ? WHERE user_code = ?").bind(now(), code).run();
       return page("kypp pairing", "<h1>Pairing denied.</h1><p>The app can't create rooms with this code.</p>");
     }
     const check = await deps.checkOwner(String(form.get("secret") ?? ""));
     const chosen = String(form.get("resume") ?? "");
-    const resume = earlier.find((g) => g.name === chosen)?.name ?? null;
-    if (chosen && !resume) error = "That earlier link can't be continued any more.";
-    else if (check === "ok") {
-      await db.prepare("UPDATE pairings SET approved_at = ?, resume = ? WHERE user_code = ? AND approved_at IS NULL").bind(now(), resume, code).run();
-      return page("kypp pairing", `<h1>Paired.</h1><p>Go back to ${escape(p.name)}; it finishes linking on its own.</p>`);
-    } else error = ownerError(check);
+    if (check !== "ok") error = ownerError(check);
+    else if (decision === "choose") earlier = await revokedGrants(db);
+    else {
+      const resume = chosen ? (await revokedGrants(db)).find((g) => g.name === chosen)?.name ?? null : null;
+      if (chosen && !resume) error = "That earlier link can't be continued any more.";
+      else {
+        await db.prepare("UPDATE pairings SET approved_at = ?, resume = ? WHERE user_code = ? AND approved_at IS NULL").bind(now(), resume, code).run();
+        return page("kypp pairing", `<h1>Paired.</h1><p>Go back to ${escape(p.name)}; it finishes linking on its own.</p>`);
+      }
+    }
   }
   // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — only a revoked paired grant can be continued, and the page says it hands over that grant's room memory.
-  const resumeChoices = earlier.length ? `<fieldset><legend>Room memory</legend>
+  const choices = earlier === null ? "" : `<fieldset><legend>Room memory</legend>
 <p><label><input type="radio" name="resume" value="" checked style="width:auto"> Start new, empty room memory</label></p>
 ${earlier.map((g) => `<p><label><input type="radio" name="resume" value="${escape(g.name)}" style="width:auto"> Continue the memory of
 <strong>${escape(g.label)}</strong> (paired ${escape(g.created_at.slice(0, 10))}, unlinked ${escape(g.revoked_at.slice(0, 10))})</label></p>`).join("")}
+${earlier.length ? "" : "<p>No unlinked apps to continue.</p>"}
 <p>Continuing gives this app every room that earlier link made, and the bots it seated there work again.
-Only continue the same app you unlinked.</p></fieldset>` : "";
+Only continue the same app you unlinked. Enter the passphrase again to approve.</p></fieldset>`;
+  const buttons = earlier === null
+    ? `<button name="decision" value="approve">Approve</button><button name="decision" value="choose">Continue an earlier link…</button><button name="decision" value="deny" formnovalidate>Deny</button>`
+    : `<button name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button>`;
   return page("kypp pairing", `<h1>Let ${escape(p.name)} create room memory?</h1>
 <p>Check that this code matches the one the app shows:</p>
 <p><code>${escape(code)}</code></p>
@@ -187,9 +197,9 @@ for its chat rooms, which it can't link to your repos. It can't read or write an
 <a href="${escape(deps.base)}${PAIRS_PATH}">${escape(deps.base)}${PAIRS_PATH}</a>.</p>
 ${error ? `<p class="err">${escape(error)}</p>` : ""}
 <form method="post">
-${resumeChoices}
+${choices}
 ${PASSPHRASE}
-<p><button name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button></p>
+<p>${buttons}</p>
 </form>`);
 }
 
