@@ -78,8 +78,7 @@ test("recall matches accented and non-Latin words, folded the way the index fold
 });
 
 test("recall breaks exact ties by id", async () => {
-  const store = new D1Store(memoryD1());
-  const db = (store as any).db as D1Database;
+  const db = memoryD1(), store = new D1Store(db);
   const ts = "2026-10-14T00:00:00Z";
   // Inserted out of id order, with identical text, status, level, confidence and time.
   for (const id of ["c".repeat(32), "a".repeat(32), "b".repeat(32)]) {
