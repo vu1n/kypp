@@ -62,3 +62,8 @@ belongs.
 - Forgetting on request (a person asks the bot to forget something they said) collides with
   append-only history. This amendment doesn't solve it. Until a decision does, revoking the room
   is the only removal.
+
+
+---
+ratified_rev: 0006
+ratified_by: Vu

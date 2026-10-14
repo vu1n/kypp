@@ -15,6 +15,8 @@ related_code:
   - "worker/src/cooperation-store.ts"
   - "worker/src/cooperation-query.ts"
   - "worker/migrations/*cooperation*"
+  - "worker/src/rooms.ts"
+  - "worker/migrations/*room*"
 ---
 
 <!-- brief:anchor scope-keys-decay -->
@@ -285,6 +287,41 @@ wall-clock expiry, and that expiry does not revive the rejected wall-clock TTL f
    Quota exhaustion refuses append without deleting history. Any later retention or archive policy
    is a separate reviewed change.
 
+### 11. Room lanes: private memory for a chat room's bot
+
+Amended 2026-10-14 (ratified by Vu). A chat room (one Huddles huddle's room) is an audience, who may
+see a lesson, not a level on §8's origin ladder, where a lesson applies. It sits beside §8 and never
+inside its roll-up.
+
+1. **A room lane is a principal.** Each room bot gets its own kypp identity, `room:<id>`, issued to
+   that one bot participation. Its claims are stored with `scope='room'`, keyed by that identity the
+   way `user` claims are keyed by the person. The lane's audience is that room's bot alone; another
+   room, a coding agent or the operator's session never sees it in `recall` or `briefing`.
+2. **The credential pins everything.** For a room identity the server sets origin and lane from the
+   credential. The `project` argument, the `X-Kypp-Project` header and the `scope` argument are
+   ignored, and reads and writes never mention or list registered projects.
+3. **What a room bot reads:** its own lane, plus the origins its room is *linked* to, which cascade
+   as §8.2 describes. Links are set by whoever manages the room, outside the model. No link means the
+   lane only. A room bot reads no `user` scope and no `global`.
+4. **Inside the lane, the usual lifecycle.** The write gate (§2, §8.2's injection guard) applies;
+   candidates are accepted when they recur in two sessions, so two wakes count; event clocks (§4)
+   decay them.
+5. **Nothing leaves a lane automatically.** Defrag never files, widens or promotes a room claim.
+   Recurrence across rooms is not a reason to widen: rooms with different people saying similar
+   things have not agreed to share.
+6. **Leaving the lane is an explicit share.** A room identity may write a `project` claim only at one
+   of its room's linked origins, and only through an explicit share (`share_to` naming the linked
+   origin). The claim records `shared_from: room:<id>` and then follows §8 like any origin claim. The
+   bot is told to share only when someone in the room asked. The server cannot check that, so the
+   link is the hard boundary: the manager opts a room into each repo it may write to (§10.7's
+   disclosure rule, applied to claims).
+7. **Issuing and revoking.** An operator-configured integration (a `KYPP_API_TOKENS` name, such as
+   `huddles`) registers a room with its links and receives a per-room bearer token once; kypp keeps
+   only its digest. Revoking the token makes the lane unreachable. Its claims stay as history
+   (append-only), and an operator can still read them.
+8. **No authority is minted.** Room and shared claims are agent authority; §6 and `authority-order`
+   are unchanged.
+
 ## Considered and rejected
 
 - **Wall-clock TTL** (Copilot's 28-day expiry). A quiet repo would lose good memory for no reason.
@@ -308,3 +345,5 @@ wall-clock expiry, and that expiry does not revive the rejected wall-clock TTL f
 - Short-lived notes ("deploy is broken right now") are cooperation records under §10, not claims.
   The gate still rejects them as durable-claim status, and defrag never promotes them.
 - Tags for topical recall boost, never for visibility. Deferred until search misses show the need.
+- Forgetting on request (someone asks a room bot to forget what they said) collides with
+  append-only history. Until a decision covers it, revoking the room is the only removal.
