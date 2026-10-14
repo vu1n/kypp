@@ -76,8 +76,12 @@ class LiveRepoTest(unittest.TestCase):
         self.assertIn("mark_verified", writer.claim_text)
         self.assertIn("not classified", writer.detail)
         self.assertIn("dynamic authority SQL kypp/store.py:282", writer.coverage)
-        self.assertIn("dynamic authority SQL worker/src/store.ts:232", writer.coverage)
-        self.assertIn("dynamic authority SQL worker/src/store.ts:269", writer.coverage)
+        # The two interpolated ${UNSORTED} updates; located by text so an unrelated edit above them
+        # doesn't break the test.
+        store_ts = (ROOT / "worker/src/store.ts").read_text().splitlines()
+        for marker in ("SET file_tried_at = ?", "SET project = ? WHERE id = ? AND ${UNSORTED}"):
+            line = next(i for i, text in enumerate(store_ts, 1) if marker in text)
+            self.assertIn(f"dynamic authority SQL worker/src/store.ts:{line}", writer.coverage)
         self.assertIsNone(writer.counterexample)
         deleted = next(v for v in report.verdicts if v.rule_id == "no-delete-claims")
         self.assertEqual(deleted.status, "unresolved")

@@ -1,0 +1,12 @@
+// Bench-only config for replay.ts. `wrangler dev -c bench/replay/wrangler.replay.jsonc` runs it on
+// workerd with a local SQLite D1. Adding `"remote": true` and a scratch `database_id` to the binding
+// points it at a real D1 (never the production one).
+{
+  "name": "kypp-replay",
+  "main": "replay.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "kypp-replay", "database_id": "00000000-0000-4000-8000-000000000000", "migrations_dir": "../../migrations" }
+  ]
+}

@@ -103,7 +103,7 @@ export class D1Store {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
-  // Context: doc://kypp/authority-order@0006#authority-dominates — claims written here are agent authority; the only local human writer is `kypp correct`, and authenticated POST /sync, once built, is the sole other writer of human authority (an import of a person-ratified revision).
+  // Context: doc://kypp/authority-order@0007#authority-dominates — claims written here are agent authority; human and verified come only from the operator's `kypp correct`/`kypp verify` (via POST /v1/operator, once built) and authenticated POST /sync imports.
   async claim(c: ClaimInput): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
@@ -127,6 +127,7 @@ export class D1Store {
 
   // Browse (empty match) = strongest first; otherwise bm25 relevance, then the same tie-breaks as
   // store.recall: accepted, nearer level (project, then its groups, then user, then global), confidence.
+  // The id is last so equal rows come back in the same order on every engine.
   async recall(match: string, project: string | null, user: string | null,
     opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null; room?: RoomScope } = {}): Promise<Claim[]> {
     const [where, params] = opts.room
@@ -139,7 +140,7 @@ export class D1Store {
     // `groups` comes nearest first, so a parent's claim outranks a grandparent's.
     const groups = opts.room?.groups ?? opts.groups ?? [];
     const near = groups.length ? `1 + (CASE c.project ${groups.map((_, i) => `WHEN ? THEN ${i}`).join(" ")} END) * 0.01` : "1";
-    const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'room' THEN 0 WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC`;
+    const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'room' THEN 0 WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC, c.id`;
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
     const sql = match
       ? `SELECT c.* FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
