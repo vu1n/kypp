@@ -106,6 +106,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   stored. Don't add a Durable Object to hold sessions.
 - The `user` scope exists only in the Worker; local `vocab.Scope` is still project/global. On the
   user scope the `user` column is the owner, so a static token's name decides whose user scope it reads.
+- The `room` scope (memory-scope-decay §11) is Worker-only too, and also keys on `user` (as
+  `room:<integration>:<id>`). Any query that guards `scope != 'user'` must guard `room` as well, or one
+  room's lane leaks to other callers through that path; `roomVisible` and `get(…, room)` are the only
+  reads a room token gets.
 - The S1 gate runs Clef on the `AI` binding unless `TYPESAFE_API_KEY` is set. Workers AI is always
   remote, so plain `wrangler dev` fails without a Cloudflare login; `npm run dev:local` (and CI's
   smoke) strips the binding and uses the TypeSafe mock from `.dev.vars`.

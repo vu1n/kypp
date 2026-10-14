@@ -66,6 +66,15 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
   operator's `kypp correct` (authority-order@0004 also allows a ratified-decision `POST /sync`, not
   built yet).
+- **Rooms** (memory-scope-decay §11): a chat room's bot is its own principal with a private lane.
+  An integration whose `KYPP_API_TOKENS` name is listed in `KYPP_ROOM_ISSUERS` registers a room with
+  `POST /rooms {"id": "<room>", "links": ["<registered project>", ...]}` (Bearer: its API token) and
+  gets the room's `kypr_` token once; kypp keeps only its digest. Posting the same id again rotates the
+  token and replaces the links; `DELETE /rooms/<id>` revokes it for good. On `/mcp` a room token pins
+  everything: the bot reads its own lane plus its linked projects' settled memory (and their groups),
+  never user scope, global or the project list, and its claims stay in the lane. A claim leaves only
+  with `share_to` naming a linked project; it lands there as a candidate marked `shared_from`. Defrag
+  promotes inside a lane and never moves a claim out of it.
 - **No Durable Objects.** The MCP endpoint is stateless JSON over HTTP.
 
 ## Deploy
@@ -89,6 +98,8 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
 - `KYPP_OIDC_OWNERS` (variable, e.g. `vu1n`): GitHub owners whose Actions may call `/v1/systemone`.
   Unset refuses every OIDC token.
 - `KYPP_API_TOKENS` (secret, `huddles:<long random token>`): static tokens for headless clients.
+- `KYPP_ROOM_ISSUERS` (variable, e.g. `huddles`): `KYPP_API_TOKENS` names that may register chat
+  rooms (see Rooms). Unset refuses every registration.
 - `KYPP_S1_TOKENS` (secret, `name:<long random token>`): `/v1/systemone` callers outside Actions.
 - `TYPESAFE_API_KEY` (secret): route the gate to TypeSafe instead of Clef on Workers AI.
 
@@ -110,7 +121,9 @@ npm run deploy                               # applies migrations, then deploys;
   header is pinned per repo. One Worker holds every repo's memory; a call with no known project
   reads only user and global claims, and its claims land unsorted (see Placement).
 - **Claude (projects and chat):** Settings → Connectors → Add custom connector → `https://<worker>/mcp`.
-- **Headless (huddles):** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
+- **Headless:** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
+- **Chat-room bots (Huddles):** register the room (see Rooms) and give the bot its `kypr_` token as
+  `Authorization: Bearer`.
 
 ## Develop
 

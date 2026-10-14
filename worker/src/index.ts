@@ -9,6 +9,7 @@ import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
 import { looksLikeJwt, oidcVerifier, owners } from "./oidc.ts";
 import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
+import { ROOMS_PATH, handleRooms, roomCaller } from "./rooms.ts";
 
 export interface Env extends S1Env {
   DB: D1Database;
@@ -18,6 +19,7 @@ export interface Env extends S1Env {
   KYPP_OWNER_SECRET: string;
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
+  KYPP_ROOM_ISSUERS?: string; // "huddles,...": KYPP_API_TOKENS names that may register chat rooms (memory-scope-decay §11); unset refuses all
   KYPP_S1_TOKENS?: string; // "name:token,..." for /v1/systemone only; never accepted on /mcp
   KYPP_OIDC_OWNERS?: string; // "owner,owner": GitHub owners whose Actions OIDC tokens may call /v1/systemone; unset refuses OIDC
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
@@ -128,6 +130,14 @@ async function tokenName(token: string, list: string | undefined): Promise<strin
 
 const oidc = oidcVerifier();
 
+// Context: doc://kypp/memory-scope-decay@0006#scope-keys-decay — only an operator-configured integration registers rooms; a room token never can.
+// The caller's KYPP_API_TOKENS name, when that name is listed in KYPP_ROOM_ISSUERS.
+async function roomIssuer(request: Request, env: Env): Promise<string | null> {
+  const token = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const name = token ? await tokenName(token, env.KYPP_API_TOKENS) : null;
+  return name && owners(env.KYPP_ROOM_ISSUERS).includes(name) ? name : null;
+}
+
 // The public origin: the OAuth issuer, the MCP resource id (<base>/mcp) and the OIDC audience.
 // KYPP_PUBLIC_URL pins it; a Deploy to Cloudflare install leaves it unset and gets the request's origin.
 export function publicBase(env: Pick<Env, "KYPP_PUBLIC_URL">, request: Request): string {
@@ -172,7 +182,9 @@ function oauthProvider(base: string): OAuthProvider<Env> {
     clientIdMetadataDocumentEnabled: true,
     resolveExternalToken: async ({ token, env }) => {
       const name = await tokenName(token, env.KYPP_API_TOKENS);
-      return name ? { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` } : null as any;
+      if (name) return { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` };
+      const room = await roomCaller(env.DB, token);
+      return room ? { props: room, audience: `${base}/mcp` } : null as any;
     },
   });
   providers.set(base, provider);
@@ -189,6 +201,10 @@ export default {
     // its own tokens, never KYPP_API_TOKENS or OAuth, so a CI caller can reach the model but not memory.
     const base = publicBase(env, request);
     if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => systemOneCaller(token, env, base));
+    if (path === ROOMS_PATH || path.startsWith(`${ROOMS_PATH}/`)) {
+      const issuer = await roomIssuer(request, env);
+      return issuer ? handleRooms(request, env.DB, issuer) : new Response("unauthorized", { status: 401 });
+    }
     return oauthProvider(base).fetch(request, env, ctx);
   },
 
