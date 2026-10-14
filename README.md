@@ -169,7 +169,8 @@ advisory flag set at recall when a code-anchored claim's anchors all fail to res
 | `KYPP_REPO_ROOT` | repo the ripgrep code-resolver grounds against, and the source of the derived `KYPP_PROJECT` key (default `.`) |
 | `KYPP_USER` | authoring human, stamped on every claim as provenance (default: OS login) |
 | `KYPP_AGENT` | authoring agent/model label (e.g. `claude-code`), stamped on every claim as provenance (unset → none) |
-| `KYPP_EMBED_MODEL` | ollama model → semantic vector recall (unset → keyword) |
+| `KYPP_EMBED_MODEL` | ollama model → semantic vector recall (unset → keyword). Ignored for ranking when `KYPP_STORE=sqlite` (`capabilities.semantic` is false). |
+| `KYPP_STORE` | `auto` (default: existing pyturso file stays pyturso, a new file is libsql), `libsql`, `sqlite`, or `turso` |
 | `KYPP_DISTILL_MODEL` | ollama model → LLM distillation (unset → heuristic floor) |
 | `KYPP_OLLAMA_HOST` | ollama base URL (default `http://127.0.0.1:11434`) |
 | `TYPESAFE_API_KEY` | optional System One write gate (needs `kypp[s1]`): a TypeSafe-API model such as Jev drops distilled drafts it's confident aren't worth remembering. Also reads `TYPESAFE_BASE_URL` / `TYPESAFE_DEFAULT_MODEL`; `KYPP_S1=off` disables it. Unset → every draft is kept. The same model also checks that the claims behind a promotion agree, and holds a conflicted subject as a candidate |
@@ -190,6 +191,6 @@ kypp *consumes* §0 session logs (default source: `~/.pillbox/global/sessions/` 
 `~/.pillbox/projects/*/sessions/`, override via `--logs`) but has no build/runtime dependency on
 pillbox.
 
-Storage: [tursodb](https://docs.turso.tech/) (embedded — concurrent writes + native vector search).
+Storage: a repository interface with three adapters. New files default to [libsql](https://docs.turso.tech/features/ai-and-embeddings) (FTS5 `bm25` fused with exact cosine). Existing pyturso files stay on tursodb. `KYPP_STORE=sqlite` is the hosted FTS5 shape and has no vectors.
 Code grounding: ripgrep over the live repo (an AST/BM25 index can drop in behind the resolver seam).
 Self-tests: `uv run python -m kypp.<module>`.

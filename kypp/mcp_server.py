@@ -22,6 +22,7 @@ import uuid
 from .arbiter import consolidate as _consolidate
 from .s1 import agreement_judge
 from .arbiter import resolve_conflicts as _resolve_conflicts
+from .repository import ClaimStore
 from .store import Claim, MemoryStore, RipgrepResolver, identity_from_env, project_from_env, store_from_env
 from .view import briefing_claims, render_claims
 from .vocab import HUMAN_CORRECTION_CONFIDENCE, ClaimType, Scope
@@ -72,7 +73,7 @@ def _claim_dict(c: Claim) -> dict:
 
 
 # Context: doc://kypp/agent-mcp-surface-compose@0001#compose-surface — target agent surface is compose/claim/expand/correct; the 8 verbs below predate it
-def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
+def build_mcp(store: ClaimStore, project: str, *, name: str = "kypp",
               http: tuple[str, int] | None = None, consumer: str | None = None,
               user: str | None = None, agent: str | None = None):
     """Register the engine's tools on a FastMCP server bound to `store`/`project`. Imports the MCP SDK

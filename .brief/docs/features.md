@@ -17,27 +17,41 @@ change, because `brief check` blocks any glob that matches nothing.
 ```yaml
 paths:
   - "kypp/store.py"
+  - "kypp/repository.py"
+  - "kypp/backends.py"
   - "kypp/vocab.py"
 ```
 
-The tursodb-backed claim store holds observations, claims and usage rows. It handles
-concurrent writes (MVCC + `BEGIN CONCURRENT`), hybrid recall (vector + keyword), and
-re-resolves code refs at recall. `vocab.py` is the single source for types, scopes,
-statuses and authorities.
+The engine talks to a `ClaimStore` (`put` / `get` / `search` / `find_similar`, plus the
+governance writes it already makes). Three adapters implement it: pyturso (existing MVCC
+files, vectors + `LIKE`), libsql (FTS5 bm25 fused with exact cosine), and stdlib sqlite3
+FTS5 (the hosted SQL, no vectors). `vocab.py` is the single source for types, scopes,
+statuses and authorities. `code_pointers` indexes a doc:// ref or symbol key together with
+the file path, so search can go from a file to entries and from an entry to files.
 
 ### Gotchas
 - pyturso executes lazily. A statement only runs once its cursor is fetched, which is why
   DDL and PRAGMAs are followed by `.fetchall()` or `.fetchone()`.
-- With no `KYPP_EMBED_MODEL`, claims are stored without embeddings, and recall silently
-  falls back to keyword `LIKE` matching.
-- `_write` retries an MVCC conflict 5 times with no backoff. Only `turso.OperationalError`
-  triggers a rollback.
+- With no `KYPP_EMBED_MODEL`, claims are stored without embeddings. Turso recall then uses
+  `LIKE`. libsql and sqlite use FTS5 `bm25` instead. `capabilities.semantic` is about the
+  backend, not about whether an embedder is wired.
+- `KYPP_STORE=auto` opens an existing pyturso file as pyturso (sqlite3 cannot read it) and
+  creates a new file as libsql. `sqlite` is the hosted-compatible adapter: `find_similar`
+  raises, and `consolidate --semantic` keeps exact-subject dedup and says vectors did not run.
+- `_write` retries a conflict, busy, or locked error 5 times with no backoff. On pyturso
+  only `turso.OperationalError` is retried.
+- `code_pointers` does not store line numbers. A path is a hint. Recall still re-resolves
+  a code anchor to `path:line` against the live tree.
+- D1 `recall` must quote word tokens before FTS5 `MATCH`. Binding a raw path throws
+  `syntax error near "/"`, so the pointer rank never runs. The raw path, anchor, or
+  doc:// ref is the identity match and ranks ahead of bm25.
 - Schema changes are `ADD COLUMN` with a default only: no `NOT NULL`, no version table. Hosts
   on different kypp versions open the same store file.
 - Code refs resolve to `path:line` plus a one-line preview at recall. Never store or return
   file bodies; they go stale and burn context.
-- Recall is a linear scan in tursodb on purpose. Read the evaluation in
-  `.brief/docs/turboquant-deferred.md` before adding a vector index; the next step is in-DB DiskANN.
+- Vector recall is an exact scan on purpose (pyturso and libsql). libsql can build a DiskANN
+  index; that trades recall for speed and is the wrong quality choice at this corpus size. Read
+  `.brief/docs/turboquant-deferred.md` before adding one.
 - Deletion rules are in `doc://kypp/append-only-history@latest#never-delete`.
 
 <!-- brief:anchor recall -->
@@ -99,6 +113,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 ### Gotchas
 - `memory.ts` mirrors `arbiter.py` and `view.py` by hand. A ranking or promotion change lands in
   both, or local and hosted memory disagree.
+- `D1Store.recall` quotes `[A-Za-z0-9_]+` before FTS5 `MATCH`. Binding a raw path throws
+  `syntax error near "/"`, and the pointer rank never runs. MCP passes the raw query;
+  recall itself turns it into tokens and matches the path, anchor, or doc:// ref on
+  `code_pointers` first.
 - The OAuth resource id is exactly `<KYPP_PUBLIC_URL>/mcp`. A path or query suffix on the MCP URL
   breaks token audience checks, so the project travels as a tool argument or the
   `X-Kypp-Project` header.
