@@ -88,7 +88,7 @@ test("a paired issuer's rooms live in its own namespace", async () => {
   const db = memoryD1();
   const a = await paired(db), b = await paired(db, "Huddles workspace Other");
   const room = async (issuer: string) =>
-    await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, issuer)).json() as any;
+    await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, issuer, { canLink: false })).json() as any;
   const ra = await room(a.issuer), rb = await room(b.issuer);
   assert.equal(ra.room, `room:${a.issuer}:bot-1`);
   assert.notEqual(ra.room, rb.room);
@@ -98,13 +98,13 @@ test("unlinking revokes the issuer token and every room it issued, and no other"
   const db = memoryD1();
   const a = await paired(db), b = await paired(db);
   const room = async (issuer: string) =>
-    (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, issuer)).json() as any).token as string;
+    (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, issuer, { canLink: false })).json() as any).token as string;
   const ta = await room(a.issuer), tb = await room(b.issuer);
   const res = await handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${a.token}` } }), db, deps);
   assert.equal(res.status, 200);
   assert.equal(await pairedIssuer(db, a.token), null);
-  assert.equal(await roomCaller(db, ta), null);
-  assert.ok(await roomCaller(db, tb));
+  assert.equal(await roomCaller(db, ta, []), null);
+  assert.ok(await roomCaller(db, tb, []));
   assert.equal((await handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${a.token}` } }), db, deps)).status, 401);
 });
 
@@ -119,4 +119,31 @@ test("the owner lists paired apps and unlinks one with the passphrase", async ()
   await form(db, "/pairs", { secret: "owner-pass", revoke: a.issuer }, handlePairs);
   assert.equal(await pairedIssuer(db, a.token), null);
   assert.equal(await pairedIssuer(db, b.token), b.issuer);
+});
+
+test("a paired app can't link its rooms to repos, so it can't open their memory", async () => {
+  const db = memoryD1();
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('huddles','','t')").run();
+  const a = await paired(db);
+  const res = await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1", links: ["huddles"] }) }), db, a.issuer, { canLink: false });
+  assert.equal(res.status, 403);
+  // Refused before any name lookup, so an unregistered name answers the same.
+  const probe = await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1", links: ["secret"] }) }), db, a.issuer, { canLink: false });
+  assert.equal(probe.status, 403);
+});
+
+test("a room whose grant is revoked never signs in, even if it was registered during the revoke", async () => {
+  const db = memoryD1();
+  const a = await paired(db);
+  await handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${a.token}` } }), db, deps);
+  // The race: a registration that passed its issuer check before the revoke committed.
+  const late = (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-2" }) }), db, a.issuer, { canLink: false })).json() as any).token;
+  assert.equal(await roomCaller(db, late, []), null);
+});
+
+test("a configured issuer's rooms close when the operator removes it", async () => {
+  const db = memoryD1();
+  const token = (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, "huddles", { canLink: true })).json() as any).token;
+  assert.ok(await roomCaller(db, token, ["huddles"]));
+  assert.equal(await roomCaller(db, token, []), null);
 });

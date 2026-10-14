@@ -2,7 +2,7 @@
 // secret handle plus a short user code; a person opens kypp's page for that code, checks it matches
 // what the integration shows, and the owner approves with the passphrase; the integration then
 // redeems its handle once for an issuer token that can only register and revoke its own rooms.
-import { digest, mintToken, now } from "./rooms.ts";
+import { digest, mintToken, now, pathSegment } from "./rooms.ts";
 
 export const PAIR_PATH = "/pair";
 export const PAIRS_PATH = "/pairs";
@@ -82,7 +82,7 @@ export async function handlePair(request: Request, db: D1Database, deps: Pairing
     return json({ issuer: name, revoked: true });
   }
   if (path === `${PAIR_PATH}/token` && request.method === "POST") return redeem(request, db);
-  const code = decodeURIComponent(path.slice(PAIR_PATH.length + 1)).toUpperCase();
+  const code = pathSegment(path.slice(PAIR_PATH.length + 1))?.toUpperCase() ?? "";
   if (CODE.test(code) && (request.method === "GET" || request.method === "POST")) return approve(request, db, deps, code);
   return json({ error: "not found" }, 404);
 }
@@ -162,7 +162,7 @@ async function approve(request: Request, db: D1Database, deps: PairingDeps, code
 <p>Check that this code matches the one the app shows:</p>
 <p><code>${escape(code)}</code></p>
 <p>The app named itself; kypp can't verify the name. Approving lets it create private memory lanes
-for its chat rooms. It can't read or write any other memory, and you can unlink it at
+for its chat rooms, which it can't link to your repos. It can't read or write any other memory, and you can unlink it at
 <a href="${escape(deps.base)}${PAIRS_PATH}">${escape(deps.base)}${PAIRS_PATH}</a>.</p>
 ${error ? `<p class="err">${escape(error)}</p>` : ""}
 <form method="post">

@@ -190,7 +190,8 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: st
         + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours)}` : "");
     }
     case "recall": {
-      const claims = await store.recall(ftsQuery(String(a.query ?? "")), null, null,
+      const query = String(a.query ?? ""), match = ftsQuery(query);
+      const claims = query.trim() && !match ? [] : await store.recall(match, null, null,
         { room, candidates: a.include_candidates ? "all" : "origin", types: a.types, limit: a.limit, session: ctx.session });
       await store.recordUsage(ctx.session, claims, "recall", null, a.query || null);
       return renderClaims(claims);

@@ -132,15 +132,22 @@ async function tokenName(token: string, list: string | undefined): Promise<strin
 const oidc = oidcVerifier();
 
 // Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
-// The caller's KYPP_API_TOKENS name when it is listed in KYPP_ROOM_ISSUERS, or its paired issuer name.
-async function roomIssuer(request: Request, env: Env): Promise<string | null> {
+// The caller's issuer name: its paired grant, or its KYPP_API_TOKENS name when that is listed in
+// KYPP_ROOM_ISSUERS. Only a configured issuer may link rooms to repos.
+async function roomIssuer(request: Request, env: Env): Promise<{ name: string; paired: boolean } | null> {
   const token = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) return null;
   const paired = await pairedIssuer(env.DB, token);
-  if (paired) return paired;
+  if (paired) return { name: paired, paired: true };
   const name = await tokenName(token, env.KYPP_API_TOKENS);
-  return name && owners(env.KYPP_ROOM_ISSUERS).includes(name) ? name : null;
+  return name && configuredIssuers(env).includes(name) ? { name, paired: false } : null;
 }
+
+// KYPP_ROOM_ISSUERS names that still have a token; removing either one closes their rooms.
+const configuredIssuers = (env: Env) => {
+  const named = new Set(apiTokens(env.KYPP_API_TOKENS).values());
+  return owners(env.KYPP_ROOM_ISSUERS).filter((n) => named.has(n));
+};
 
 // The owner check for kypp's own pages, behind the passphrase rate limit.
 function pairingDeps(request: Request, env: Env, base: string): PairingDeps {
@@ -198,7 +205,7 @@ function oauthProvider(base: string): OAuthProvider<Env> {
     resolveExternalToken: async ({ token, env }) => {
       const name = await tokenName(token, env.KYPP_API_TOKENS);
       if (name) return { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` };
-      const room = await roomCaller(env.DB, token);
+      const room = await roomCaller(env.DB, token, configuredIssuers(env));
       return room ? { props: room, audience: `${base}/mcp` } : null as any;
     },
   });
@@ -222,7 +229,7 @@ export default {
     if (path === PAIRS_PATH) return handlePairs(request, env.DB, pairingDeps(request, env, base));
     if (path === ROOMS_PATH || path.startsWith(`${ROOMS_PATH}/`)) {
       const issuer = await roomIssuer(request, env);
-      return issuer ? handleRooms(request, env.DB, issuer) : new Response("unauthorized", { status: 401 });
+      return issuer ? handleRooms(request, env.DB, issuer.name, { canLink: !issuer.paired }) : new Response("unauthorized", { status: 401 });
     }
     return oauthProvider(base).fetch(request, env, ctx);
   },

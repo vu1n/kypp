@@ -20,7 +20,7 @@ async function setup() {
 }
 
 async function register(db: D1Database, id: string, links: string[] = [], issuer = "huddles") {
-  const res = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id, links }) }), db, issuer);
+  const res = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id, links }) }), db, issuer, { canLink: true });
   return { status: res.status, body: await res.json() as any };
 }
 
@@ -35,7 +35,7 @@ function call(db: D1Database, caller: Caller, session: string, headers: Record<s
 
 async function roomClient(db: D1Database, id: string, links: string[] = [], session = "s1") {
   const { body } = await register(db, id, links);
-  const caller = await roomCaller(db, body.token);
+  const caller = await roomCaller(db, body.token, ["huddles"]);
   assert.ok(caller);
   return call(db, caller, session);
 }
@@ -50,8 +50,8 @@ test("registering a room returns a token once and keeps only its digest", async 
   assert.match(body.token, /^kypr_/);
   const stored = (await db.prepare("SELECT * FROM rooms").all()).results[0] as Record<string, string>;
   assert.notEqual(stored.token_digest, body.token);
-  assert.deepEqual(await roomCaller(db, body.token), { user: "room:huddles:room-a", agent: "room:huddles:room-a", room: "huddles:room-a" });
-  assert.equal(await roomCaller(db, "kypr_nope"), null);
+  assert.deepEqual(await roomCaller(db, body.token, ["huddles"]), { user: "room:huddles:room-a", agent: "room:huddles:room-a", room: "huddles:room-a" });
+  assert.equal(await roomCaller(db, "kypr_nope", ["huddles"]), null);
 });
 
 test("links must be registered projects", async () => {
@@ -66,10 +66,10 @@ test("re-registering rotates the token; a revoked room stays revoked", async () 
   const first = (await register(db, "room-a")).body.token;
   const again = await register(db, "room-a", ["pillbox"]);
   assert.equal(again.status, 200);
-  assert.equal(await roomCaller(db, first), null);
-  assert.ok(await roomCaller(db, again.body.token));
-  await handleRooms(new Request("https://k/rooms/room-a", { method: "DELETE" }), db, "huddles");
-  assert.equal(await roomCaller(db, again.body.token), null);
+  assert.equal(await roomCaller(db, first, ["huddles"]), null);
+  assert.ok(await roomCaller(db, again.body.token, ["huddles"]));
+  await handleRooms(new Request("https://k/rooms/room-a", { method: "DELETE" }), db, "huddles", { canLink: true });
+  assert.equal(await roomCaller(db, again.body.token, ["huddles"]), null);
   assert.equal((await register(db, "room-a")).status, 409);
 });
 
@@ -137,7 +137,7 @@ test("defrag promotes a lesson inside a lane but never moves it out", async () =
   const db = await setup();
   const a1 = await roomClient(db, "room-a");
   await a1("claim", { subject: "tone", content: "Keep replies informal here." });
-  const caller = (await roomCaller(db, (await register(db, "room-a")).body.token))!;
+  const caller = (await roomCaller(db, (await register(db, "room-a")).body.token, ["huddles"]))!;
   await call(db, caller, "s2")("claim", { subject: "tone", content: "Keep replies informal here." });
   await defrag(new D1Store(db), DEFAULT_POLICY, null);
   const live = (await rows(db)).filter((r) => r.status === "accepted");
@@ -149,7 +149,7 @@ test("defrag promotes a lesson inside a lane but never moves it out", async () =
 test("a room is offered only its own tools", async () => {
   const db = await setup();
   const { body } = await register(db, "room-a");
-  const caller = (await roomCaller(db, body.token))!;
+  const caller = (await roomCaller(db, body.token, ["huddles"]))!;
   const req = new Request("https://k/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
   const { result } = await (await handleMcp(req, db, caller)).json() as any;
   const tools = result.tools.map((t: any) => t.name);
@@ -157,4 +157,11 @@ test("a room is offered only its own tools", async () => {
   const claim = result.tools.find((t: any) => t.name === "claim");
   assert.deepEqual(Object.keys(claim.inputSchema.properties).sort(), ["confidence", "content", "share_to", "subject", "type"]);
   assert.equal((await call(db, caller, "s1")("correct", { subject: "x", content: "y" })).error, true);
+});
+
+test("a room recall with no words finds nothing rather than browsing", async () => {
+  const db = await setup();
+  const a = await roomClient(db, "room-a");
+  await a("claim", { subject: "tone", content: "Keep replies informal here." });
+  assert.doesNotMatch((await a("recall", { query: "🙂 ?!" })).text, /tone/);
 });

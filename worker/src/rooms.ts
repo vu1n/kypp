@@ -21,12 +21,30 @@ export function mintToken(prefix = "kypr_"): string {
   return `${prefix}${btoa(String.fromCharCode(...b)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`;
 }
 
-// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — a room token names its room; kypp keeps only the digest, and a revoked room never signs in.
-export async function roomCaller(db: D1Database, token: string): Promise<Caller | null> {
+/** A path segment, or null when it isn't valid percent-encoding. */
+export function pathSegment(raw: string): string | null {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
+// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — a room token names its room; kypp keeps only the digest, and a revoked room, or one whose issuer grant is gone, never signs in.
+/**
+ * The caller a room token stands for. `configured` lists the operator's live issuer names; a
+ * paired issuer must still have an unrevoked grant. Checking the grant here, not only cascading
+ * its revoke, also closes a room registered while its grant was being revoked.
+ */
+export async function roomCaller(db: D1Database, token: string, configured: readonly string[]): Promise<Caller | null> {
   if (!token.startsWith("kypr_")) return null;
-  const row = await db.prepare("SELECT key FROM rooms WHERE token_digest = ? AND revoked_at IS NULL")
-    .bind(await digest(token)).first<{ key: string }>();
-  return row ? { user: roomIdentity(row.key), agent: roomIdentity(row.key), room: row.key } : null;
+  const row = await db.prepare(`SELECT r.key, r.integration, i.name AS paired, i.revoked_at AS grant_revoked
+    FROM rooms r LEFT JOIN room_issuers i ON i.name = r.integration
+    WHERE r.token_digest = ? AND r.revoked_at IS NULL`)
+    .bind(await digest(token)).first<{ key: string; integration: string; paired: string | null; grant_revoked: string | null }>();
+  if (!row) return null;
+  const live = row.paired !== null ? row.grant_revoked === null : configured.includes(row.integration);
+  return live ? { user: roomIdentity(row.key), agent: roomIdentity(row.key), room: row.key } : null;
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
@@ -38,11 +56,11 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
  * inherits a removed one's memory.
  */
 // Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — the integration that manages the room sets its links; the bot never does.
-export async function handleRooms(request: Request, db: D1Database, issuer: string): Promise<Response> {
+export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean }): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (request.method === "DELETE" && path.startsWith(`${ROOMS_PATH}/`)) {
-    const id = decodeURIComponent(path.slice(ROOMS_PATH.length + 1));
-    if (!ROOM_ID.test(id)) return json({ error: "bad room id" }, 400);
+    const id = pathSegment(path.slice(ROOMS_PATH.length + 1));
+    if (id === null || !ROOM_ID.test(id)) return json({ error: "bad room id" }, 400);
     const key = `${issuer}:${id}`;
     await db.prepare("UPDATE rooms SET revoked_at = ?, updated_at = ? WHERE key = ? AND revoked_at IS NULL").bind(now(), now(), key).run();
     return json({ room: roomIdentity(key), revoked: true });
@@ -61,6 +79,9 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
     return json({ error: `links must be a list of at most ${MAX_LINKS} registered project names` }, 400);
   }
   const unique = [...new Set(links as string[])];
+  // Why: a paired grant is approved by a self-named app, and links open a repo's memory to the
+  // room, so only an operator-configured issuer may set them (checked before any name lookup).
+  if (unique.length && !opts.canLink) return json({ error: "a paired app can't link rooms to repos" }, 403);
   const { results } = unique.length
     ? await db.prepare(`SELECT name FROM projects WHERE name IN (${unique.map(() => "?").join(",")})`).bind(...unique).all()
     : { results: [] };
