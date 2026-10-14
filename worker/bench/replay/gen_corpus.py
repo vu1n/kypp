@@ -69,6 +69,7 @@ for _ in range(a.q):
     queries.append({"q": q, "project": rnd.choice(PROJECTS[:8]), "limit": 10})
 
 out = pathlib.Path(a.out)
+out.mkdir(parents=True, exist_ok=True)
 with open(out / "corpus.jsonl", "w") as f:
     for c in claims:
         f.write(json.dumps(c, ensure_ascii=False) + "\n")
