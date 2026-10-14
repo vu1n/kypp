@@ -295,9 +295,11 @@ Amended 2026-10-14 (ratified by Vu). A chat room (one Huddles huddle's room) is 
 see a lesson, not a level on §8's origin ladder, where a lesson applies. It sits beside §8 and never
 inside its roll-up.
 
-1. **A room lane is a principal.** Each room bot gets its own kypp identity, `room:<id>`, issued to
-   that one bot participation. Its claims are stored with `scope='room'`, keyed by that identity the
-   way `user` claims are keyed by the person. The lane's audience is that room's bot alone; another
+1. **A room lane is a principal.** Each room gets its own kypp identity, `room:<id>`. Every bot
+   the integration seats in that room gets its own *member* token for the same identity (amended
+   2026-10-14, ratified by Vu), so bots come and go and the room keeps its memory; removing a bot
+   revokes only its member token. Claims are stored with `scope='room'`, keyed by that identity the
+   way `user` claims are keyed by the person. The lane's audience is that room's bots alone; another
    room, a coding agent or the operator's session never sees it in `recall` or `briefing`.
 2. **The credential pins everything.** For a room identity the server sets origin and lane from the
    credential. The `project` argument, the `X-Kypp-Project` header and the `scope` argument are
@@ -325,13 +327,17 @@ inside its roll-up.
    and checks that the code matches the one the integration shows. The kypp owner approves with the
    owner passphrase. The integration then redeems its handle once for an issuer token. Codes expire
    after 10 minutes and redeem only once. The approval page says the display name is self-asserted.
-   `POST /pair` is unauthenticated, so it is rate limited. An issuer token can only call `POST
-   /rooms` and `DELETE /rooms/<id>` for its own rooms. It never reads or writes memory. Each grant
-   is its own issuer namespace (`room:<issuer>:<id>`). A registered room returns a per-room bearer
-   token once, and kypp keeps only its digest. Revoking a room token makes the lane unreachable.
-   Revoking an issuer grant revokes every room it issued and stops new ones. The integration can
-   revoke its own grant, the owner can revoke any paired grant, and the operator can remove a
-   configured name. Claims stay as history (append-only), and an operator can still read them.
+   `POST /pair` is unauthenticated, so it is rate limited. An issuer token can only register, seat
+   members in, and revoke its own rooms. It never reads or writes memory, and a paired grant can't
+   link rooms to repos. Each grant is its own issuer namespace (`room:<issuer>:<id>`). Seating a
+   member returns its bearer token once, and kypp keeps only its digest. Revoking a room closes the
+   lane for good. Revoking an issuer grant stops every token under it and stops new ones, but keeps
+   its rooms, members and claims (amended 2026-10-14, ratified by Vu): when approving a later
+   pairing, the owner may *continue* a revoked paired grant, and the new token takes over its
+   namespace, so its rooms and members work again. Only revoked grants can be continued, and the
+   page says continuing hands the app that grant's room memory. The integration can revoke its own
+   grant, the owner can revoke any paired grant, and the operator can remove a configured name.
+   Claims stay as history (append-only), and an operator can still read them.
 8. **No authority is minted.** Room and shared claims are agent authority; §6 and `authority-order`
    are unchanged.
 
