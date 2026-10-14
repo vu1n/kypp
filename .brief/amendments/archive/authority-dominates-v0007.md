@@ -49,3 +49,8 @@ only where they write changes. The new risk is a second Worker secret that grant
 authority: a leaked `KYPP_OPERATOR_TOKEN` lets its holder override any claim. That is the same
 exposure as a leaked `KYPP_SYNC_TOKEN`, and it gets the same handling (separate secret, 404 when
 unset, every write logged).
+
+
+---
+ratified_rev: 0007
+ratified_by: Vu
