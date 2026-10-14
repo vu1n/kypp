@@ -3,21 +3,26 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  // Create both, then paste their ids here: `wrangler d1 create kypp`, `wrangler kv namespace create OAUTH_KV`.
+  // No ids: `wrangler deploy` (and the Deploy to Cloudflare button) creates the database and namespace
+  // on first deploy and keeps them linked after. An existing deployment stays bound to the ones it has.
   "d1_databases": [
-    { "binding": "DB", "database_name": "kypp", "database_id": "00000000-0000-4000-8000-000000000000", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "kypp", "migrations_dir": "migrations" }
   ],
   "kv_namespaces": [
-    { "binding": "OAUTH_KV", "id": "00000000000000000000000000000000" }
+    { "binding": "OAUTH_KV" }
   ],
+  // KYPP_PUBLIC_URL and KYPP_OIDC_OWNERS are per-install, so they are set on the Worker (dashboard or
+  // `wrangler deploy --var`), not here; keep_vars stops a deploy from wiping them.
+  "keep_vars": true,
   // The cleanup pass (supersede duplicates, promote two-session claims) runs here, in one place.
-  // The public origin, used as the OAuth issuer and the MCP resource id (<url>/mcp).
+  // KYPP_PUBLIC_URL (optional): the public origin, used as the OAuth issuer, the MCP resource id
+  // (<url>/mcp) and the OIDC audience. Unset, the Worker uses the origin each request came in on.
   // KYPP_RECUR_GAP_MINUTES: how far apart the sessions behind a promotion must be.
   // KYPP_CORRECT: "off" hides `correct`, which lands accepted claims past the gate and the
   // two-session rule. Off for the alpha; set "on" once agents should be trusted with it.
-  // KYPP_OIDC_OWNERS: GitHub owners (comma list, e.g. "vu1n") whose Actions may call /v1/systemone
-  // with an OIDC token whose audience is KYPP_PUBLIC_URL (no trailing slash). Empty refuses OIDC.
-  "vars": { "KYPP_PUBLIC_URL": "https://kypp.vu1n.dev", "KYPP_RECUR_GAP_MINUTES": "60", "KYPP_CORRECT": "off", "KYPP_OIDC_OWNERS": "vu1n" },
+  // KYPP_OIDC_OWNERS (optional): GitHub owners (comma list, e.g. "vu1n") whose Actions may call
+  // /v1/systemone with an OIDC token whose audience is the public origin. Unset refuses OIDC.
+  "vars": { "KYPP_RECUR_GAP_MINUTES": "60", "KYPP_CORRECT": "off" },
   // The System One gate runs Clef here when no TYPESAFE_API_KEY is set (KYPP_S1_MODEL picks clef-flash).
   "ai": { "binding": "AI" },
   // Passphrase attempts on the sign-in page: 5 a minute per IP. Client registrations: 3 a minute per IP.

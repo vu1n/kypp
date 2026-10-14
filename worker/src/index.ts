@@ -14,7 +14,7 @@ export interface Env extends S1Env {
   DB: D1Database;
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: any; // injected by OAuthProvider for the default handler
-  KYPP_PUBLIC_URL: string; // e.g. https://kypp.<account>.workers.dev
+  KYPP_PUBLIC_URL?: string; // e.g. https://kypp.<account>.workers.dev; unset = the origin the request came in on
   KYPP_OWNER_SECRET: string;
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
@@ -128,21 +128,29 @@ async function tokenName(token: string, list: string | undefined): Promise<strin
 
 const oidc = oidcVerifier();
 
-// /v1/systemone callers: a GitHub Actions OIDC token for <KYPP_PUBLIC_URL> from a listed owner, or
+// The public origin: the OAuth issuer, the MCP resource id (<base>/mcp) and the OIDC audience.
+// KYPP_PUBLIC_URL pins it; a Deploy to Cloudflare install leaves it unset and gets the request's origin.
+export function publicBase(env: Pick<Env, "KYPP_PUBLIC_URL">, request: Request): string {
+  return (env.KYPP_PUBLIC_URL || new URL(request.url).origin).replace(/\/+$/, "");
+}
+
+// /v1/systemone callers: a GitHub Actions OIDC token for <base> from a listed owner, or
 // a KYPP_S1_TOKENS token for callers outside Actions. Returns a label for logs, never the token.
-async function systemOneCaller(token: string, env: Env): Promise<string | null> {
+async function systemOneCaller(token: string, env: Env, base: string): Promise<string | null> {
   if (looksLikeJwt(token)) {
-    const c = await oidc.verify(token, { audience: env.KYPP_PUBLIC_URL.replace(/\/+$/, ""), owners: owners(env.KYPP_OIDC_OWNERS) });
+    const c = await oidc.verify(token, { audience: base, owners: owners(env.KYPP_OIDC_OWNERS) });
     if (c) return `oidc ${c.repository} ${c.workflow}`;
   }
   const name = await tokenName(token, env.KYPP_S1_TOKENS);
   return name ? `token ${name}` : null;
 }
 
-let provider: OAuthProvider<Env> | null = null;
-function oauthProvider(env: Env): OAuthProvider<Env> {
-  const base = env.KYPP_PUBLIC_URL.replace(/\/+$/, "");
-  provider ??= new OAuthProvider<Env>({
+// One provider per public origin, so a Worker reached on two hostnames keeps each one's issuer apart.
+const providers = new Map<string, OAuthProvider<Env>>();
+function oauthProvider(base: string): OAuthProvider<Env> {
+  let provider = providers.get(base);
+  if (provider) return provider;
+  provider = new OAuthProvider<Env>({
     apiRoute: "/mcp",
     apiHandler: {
       fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcp(request, env.DB, (ctx as any).props as Caller,
@@ -167,6 +175,7 @@ function oauthProvider(env: Env): OAuthProvider<Env> {
       return name ? { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` } : null as any;
     },
   });
+  providers.set(base, provider);
   return provider;
 }
 
@@ -178,8 +187,9 @@ export default {
       && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "register"))) return tooMany();
     // TypeSafe-compatible System One for headless tools (brief triage in CI). GitHub Actions OIDC or
     // its own tokens, never KYPP_API_TOKENS or OAuth, so a CI caller can reach the model but not memory.
-    if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => systemOneCaller(token, env));
-    return oauthProvider(env).fetch(request, env, ctx);
+    const base = publicBase(env, request);
+    if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => systemOneCaller(token, env, base));
+    return oauthProvider(base).fetch(request, env, ctx);
   },
 
   // The defrag pass: file unsorted claims, supersede duplicates and promote subjects that recur

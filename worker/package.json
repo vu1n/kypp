@@ -5,9 +5,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "dev:local": "sed '/\"ai\":/d' wrangler.jsonc > wrangler.local.jsonc && wrangler dev -c wrangler.local.jsonc",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run db:migrate && wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types test/*.test.ts"
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "db:migrate": "wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
@@ -17,5 +18,15 @@
     "@cloudflare/workers-types": "^5.20261005.1",
     "typescript": "^7.0.2",
     "wrangler": "^4.147.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "KYPP_OWNER_SECRET": {
+        "description": "The passphrase you type on kypp's sign-in page when an agent connects. Make it long; anyone with it can read and write your memory."
+      },
+      "CONSENT_SECRET": {
+        "description": "Signs sign-in and session state. 32 or more random characters: `openssl rand -hex 32`."
+      }
+    }
   }
 }
