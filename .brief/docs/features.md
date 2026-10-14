@@ -99,6 +99,11 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 ### Gotchas
 - `memory.ts` mirrors `arbiter.py` and `view.py` by hand. A ranking or promotion change lands in
   both, or local and hosted memory disagree.
+- `ftsQuery` splits on Unicode letters, marks, digits and `_` so a query word reaches `unicode61`
+  whole and gets the same case and accent folding as the index. An ASCII-only split turned `café`
+  into `caf` and `日本語` into an empty match. A recall query with text but no words returns
+  nothing, never browse results. Recall order ends in `c.id`, so ties don't depend on the engine.
+  `worker/bench/replay` replays one query set against every store to check this.
 - The OAuth resource id is exactly `<KYPP_PUBLIC_URL>/mcp`. A path or query suffix on the MCP URL
   breaks token audience checks, so the project travels as a tool argument or the
   `X-Kypp-Project` header.
