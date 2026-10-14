@@ -94,7 +94,7 @@ test("a paired issuer's rooms live in its own namespace", async () => {
   assert.notEqual(ra.room, rb.room);
 });
 
-test("unlinking revokes the issuer token and every room it issued, and no other", async () => {
+test("unlinking revokes the issuer token and pauses every room it issued, and no other", async () => {
   const db = memoryD1();
   const a = await paired(db), b = await paired(db);
   const room = async (issuer: string) =>
@@ -146,4 +146,54 @@ test("a configured issuer's rooms close when the operator removes it", async () 
   const token = (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, "huddles", { canLink: true })).json() as any).token;
   assert.ok(await roomCaller(db, token, ["huddles"]));
   assert.equal(await roomCaller(db, token, []), null);
+});
+
+const seat = async (db: D1Database, issuer: string, member: string, id = "room-1") =>
+  (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id, member }) }), db, issuer, { canLink: false })).json() as any).token as string;
+const unlink = (db: D1Database, token: string) =>
+  handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }), db, deps);
+
+test("a new pairing can continue an unlinked grant, and its rooms and bots work again", async () => {
+  const db = memoryD1();
+  const old = await paired(db, "Huddles workspace Launch");
+  const bot = await seat(db, old.issuer, "bot-a");
+  const lane = (await roomCaller(db, bot, []))!.room;
+  await unlink(db, old.token);
+  assert.equal(await roomCaller(db, bot, []), null);
+
+  const p = await start(db, "Huddles workspace Launch");
+  const pageText = await (await handlePair(new Request(p.verification_uri), db, deps)).text();
+  assert.match(pageText, /Continue the memory of/);
+  assert.match(pageText, /gives this app every room that earlier link made/);
+  await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: old.issuer });
+  const again = (await redeem(db, p.handle)).body;
+  assert.equal(again.issuer, old.issuer);
+  assert.equal(again.resumed, true);
+  assert.equal((await roomCaller(db, bot, []))!.room, lane);
+  assert.equal(await pairedIssuer(db, old.token), null);
+  assert.equal(await pairedIssuer(db, again.token), old.issuer);
+});
+
+test("only an unlinked grant can be continued, and a fresh pairing starts empty", async () => {
+  const db = memoryD1();
+  const live = await paired(db);
+  const p = await start(db);
+  assert.doesNotMatch(await (await handlePair(new Request(p.verification_uri), db, deps)).text(), /Continue the memory/);
+  const refused = await (await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: live.issuer })).text();
+  assert.match(refused, /be continued any more/);
+  assert.equal((await redeem(db, p.handle)).body.error, "authorization_pending");
+  await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass" });
+  const fresh = (await redeem(db, p.handle)).body;
+  assert.notEqual(fresh.issuer, live.issuer);
+  assert.equal(await pairedIssuer(db, live.token), live.issuer);
+});
+
+test("two pairings can't both continue the same grant", async () => {
+  const db = memoryD1();
+  const old = await paired(db);
+  await unlink(db, old.token);
+  const [p, q] = [await start(db), await start(db)];
+  for (const x of [p, q]) await form(db, `/pair/${x.user_code}`, { decision: "approve", secret: "owner-pass", resume: old.issuer });
+  assert.equal((await redeem(db, p.handle)).body.issuer, old.issuer);
+  assert.equal((await redeem(db, q.handle)).body.error, "access_denied");
 });

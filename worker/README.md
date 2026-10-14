@@ -66,23 +66,28 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
   operator's `kypp correct` (authority-order@0004 also allows a ratified-decision `POST /sync`, not
   built yet).
-- **Rooms** (memory-scope-decay §11): a chat room's bot is its own principal with a private lane.
-  An integration whose `KYPP_API_TOKENS` name is listed in `KYPP_ROOM_ISSUERS` registers a room with
-  `POST /rooms {"id": "<room>", "links": ["<registered project>", ...]}` (Bearer: its API token) and
-  gets the room's `kypr_` token once; kypp keeps only its digest. Posting the same id again rotates the
-  token and replaces the links; `DELETE /rooms/<id>` revokes it for good. On `/mcp` a room token pins
-  everything: the bot reads its own lane plus its linked projects' settled memory (and their groups),
-  never user scope, global or the project list, and its claims stay in the lane. A claim leaves only
-  with `share_to` naming a linked project; it lands there as a candidate marked `shared_from`. Defrag
-  promotes inside a lane and never moves a claim out of it.
+- **Rooms** (memory-scope-decay §11): a chat room is its own principal with a private lane, shared
+  by every bot the integration seats there. An integration whose `KYPP_API_TOKENS` name is listed in
+  `KYPP_ROOM_ISSUERS` seats a bot with `POST /rooms {"id": "<room>", "member": "<bot>", "links":
+  ["<registered project>", ...]}` (Bearer: its API token) and gets that member's `kypr_` token once;
+  kypp keeps only its digest. The room is registered on first use. Seating the same member again
+  rotates its token; `links`, when given, replaces the room's links. `DELETE
+  /rooms/<id>/members/<member>` removes one bot; `DELETE /rooms/<id>` closes the room for good. On
+  `/mcp` a member token pins everything: the bot reads its room's lane plus its linked projects'
+  settled memory (and their groups), never user scope, global or the project list, and its claims
+  stay in the lane. A claim leaves only with `share_to` naming a linked project; it lands there as a
+  candidate marked `shared_from`. Defrag promotes inside a lane and never moves a claim out of it.
 - **Pairing** (memory-scope-decay §11.7): an app can earn the right to register rooms without any
   operator config. It calls `POST /pair {"name": "<who is asking>"}` and gets a secret `handle`, a
   `user_code` like `KQ7M-4TZ2` and a `verification_uri`. It shows the code and link, and polls `POST
   /pair/token {"handle"}` every `interval` seconds. Until the owner approves, the poll answers
   `authorization_pending` (RFC 8628 style). The owner opens the link, checks the code and approves
   with the passphrase. The next poll returns a `kypi_` issuer token once. That token only calls
-  `/rooms` for its own namespace; `DELETE /pair` with it unlinks the app and closes every room it
-  made. Codes expire in 10 minutes. The owner can see and unlink paired apps at `/pairs`.
+  `/rooms` for its own namespace, and can't set links. `DELETE /pair` with it unlinks the app: every
+  token under it stops working, but its rooms and their memory are kept. When approving a later
+  pairing, the owner can choose to continue an unlinked app; the new token takes over its namespace
+  (`"resumed": true` in the redeem answer) and its rooms and bots work again. Codes expire in 10
+  minutes. The owner can see and unlink paired apps at `/pairs`.
 - **No Durable Objects.** The MCP endpoint is stateless JSON over HTTP.
 
 ## Deploy

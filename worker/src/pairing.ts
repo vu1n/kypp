@@ -1,7 +1,8 @@
 // pairing.ts — paired room issuers (memory-scope-decay §11.7). An integration asks to pair and gets a
 // secret handle plus a short user code; a person opens kypp's page for that code, checks it matches
 // what the integration shows, and the owner approves with the passphrase; the integration then
-// redeems its handle once for an issuer token that can only register and revoke its own rooms.
+// redeems its handle once for an issuer token that can only register and revoke its own rooms. The
+// owner may instead let it continue a revoked paired grant, whose rooms then work again.
 import { digest, mintToken, now, pathSegment } from "./rooms.ts";
 
 export const PAIR_PATH = "/pair";
@@ -40,13 +41,13 @@ function userCode(): string {
 
 interface Pairing {
   handle_digest: string; user_code: string; name: string; expires_at: string;
-  approved_at: string | null; denied_at: string | null; redeemed_at: string | null;
+  approved_at: string | null; denied_at: string | null; redeemed_at: string | null; resume: string | null;
 }
 
 const live = (p: Pairing | null): p is Pairing =>
   !!p && !p.denied_at && !p.redeemed_at && p.expires_at > now();
 
-// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — an issuer token only registers and revokes its own rooms; it never reads or writes memory.
+// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — an issuer token only registers and revokes its own rooms; it never reads or writes memory.
 /** The issuer name a paired issuer token stands for, or null (unknown, revoked, or not one). */
 export async function pairedIssuer(db: D1Database, token: string): Promise<string | null> {
   if (!token.startsWith("kypi_")) return null;
@@ -55,14 +56,16 @@ export async function pairedIssuer(db: D1Database, token: string): Promise<strin
   return row?.name ?? null;
 }
 
-/** Revokes a paired grant and every room it issued. */
+// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — revoking a paired grant stops every token under it but keeps its rooms, so the owner can continue it later.
+/** Revokes a paired grant. Its rooms stay; `roomCaller` refuses their tokens while it is revoked. */
 async function revokeIssuer(db: D1Database, name: string): Promise<void> {
-  const ts = now();
-  await db.batch([
-    db.prepare("UPDATE room_issuers SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL").bind(ts, name),
-    db.prepare("UPDATE rooms SET revoked_at = ?, updated_at = ? WHERE integration = ? AND revoked_at IS NULL").bind(ts, ts, name),
-  ]);
+  await db.prepare("UPDATE room_issuers SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL").bind(now(), name).run();
 }
+
+interface Revoked { name: string; label: string; created_at: string; revoked_at: string }
+const revokedGrants = (db: D1Database) =>
+  db.prepare("SELECT name, label, created_at, revoked_at FROM room_issuers WHERE revoked_at IS NOT NULL ORDER BY revoked_at DESC LIMIT 20")
+    .all<Revoked>().then((r) => r.results);
 
 /**
  * `POST /pair {name}` starts a pairing; `POST /pair/token {handle}` redeems it (RFC 8628's
@@ -70,7 +73,7 @@ async function revokeIssuer(db: D1Database, name: string): Promise<void> {
  * /pair/<code>` is the owner's approval page; `DELETE /pair` (Bearer: the issuer token) unlinks.
  * The caller rate-limits `POST /pair`, which anyone can reach.
  */
-// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — pairing needs both the owner's approval on kypp and the integration's secret handle; codes expire in 10 minutes and redeem once.
+// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — pairing needs both the owner's approval on kypp and the integration's secret handle; codes expire in 10 minutes and redeem once.
 export async function handlePair(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (path === PAIR_PATH && request.method === "POST") return start(request, db, deps);
@@ -132,8 +135,16 @@ async function redeem(request: Request, db: D1Database): Promise<Response> {
   const claimed = await db.prepare("UPDATE pairings SET redeemed_at = ? WHERE handle_digest = ? AND redeemed_at IS NULL")
     .bind(now(), hd).run();
   if (!claimed.meta.changes) return json({ error: "expired_token" }, 400);
-  const issuer = `pair-${[...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
   const token = mintToken("kypi_");
+  if (p.resume) {
+    // Only a still-revoked grant is taken over, so a live one (or one another pairing just
+    // continued) can't be.
+    const resumed = await db.prepare("UPDATE room_issuers SET token_digest = ?, label = ?, revoked_at = NULL WHERE name = ? AND revoked_at IS NOT NULL")
+      .bind(await digest(token), p.name, p.resume).run();
+    if (!resumed.meta.changes) return json({ error: "access_denied" }, 400);
+    return json({ issuer: p.resume, token, token_type: "Bearer", resumed: true });
+  }
+  const issuer = `pair-${[...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
   await db.prepare("INSERT INTO room_issuers(name, label, token_digest, created_at) VALUES(?,?,?,?)")
     .bind(issuer, p.name, await digest(token), now()).run();
   return json({ issuer, token, token_type: "Bearer" });
@@ -144,6 +155,7 @@ async function approve(request: Request, db: D1Database, deps: PairingDeps, code
   if (!live(p) || p.approved_at) {
     return page("kypp pairing", "<h1>This code has expired or was already used.</h1><p>Start linking again from the app.</p>", 410);
   }
+  const earlier = await revokedGrants(db);
   let error = "";
   if (request.method === "POST") {
     const form = await request.formData();
@@ -152,12 +164,21 @@ async function approve(request: Request, db: D1Database, deps: PairingDeps, code
       return page("kypp pairing", "<h1>Pairing denied.</h1><p>The app can't create rooms with this code.</p>");
     }
     const check = await deps.checkOwner(String(form.get("secret") ?? ""));
-    if (check === "ok") {
-      await db.prepare("UPDATE pairings SET approved_at = ? WHERE user_code = ? AND approved_at IS NULL").bind(now(), code).run();
+    const chosen = String(form.get("resume") ?? "");
+    const resume = earlier.find((g) => g.name === chosen)?.name ?? null;
+    if (chosen && !resume) error = "That earlier link can't be continued any more.";
+    else if (check === "ok") {
+      await db.prepare("UPDATE pairings SET approved_at = ?, resume = ? WHERE user_code = ? AND approved_at IS NULL").bind(now(), resume, code).run();
       return page("kypp pairing", `<h1>Paired.</h1><p>Go back to ${escape(p.name)}; it finishes linking on its own.</p>`);
-    }
-    error = ownerError(check);
+    } else error = ownerError(check);
   }
+  // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — only a revoked paired grant can be continued, and the page says it hands over that grant's room memory.
+  const resumeChoices = earlier.length ? `<fieldset><legend>Room memory</legend>
+<p><label><input type="radio" name="resume" value="" checked style="width:auto"> Start new, empty room memory</label></p>
+${earlier.map((g) => `<p><label><input type="radio" name="resume" value="${escape(g.name)}" style="width:auto"> Continue the memory of
+<strong>${escape(g.label)}</strong> (paired ${escape(g.created_at.slice(0, 10))}, unlinked ${escape(g.revoked_at.slice(0, 10))})</label></p>`).join("")}
+<p>Continuing gives this app every room that earlier link made, and the bots it seated there work again.
+Only continue the same app you unlinked.</p></fieldset>` : "";
   return page("kypp pairing", `<h1>Let ${escape(p.name)} create room memory?</h1>
 <p>Check that this code matches the one the app shows:</p>
 <p><code>${escape(code)}</code></p>
@@ -166,13 +187,14 @@ for its chat rooms, which it can't link to your repos. It can't read or write an
 <a href="${escape(deps.base)}${PAIRS_PATH}">${escape(deps.base)}${PAIRS_PATH}</a>.</p>
 ${error ? `<p class="err">${escape(error)}</p>` : ""}
 <form method="post">
+${resumeChoices}
 ${PASSPHRASE}
 <p><button name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button></p>
 </form>`);
 }
 
 /** `GET /pairs` asks for the passphrase; `POST /pairs` lists paired grants and revokes one if asked. */
-// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — the owner can revoke any paired grant, which revokes every room it issued.
+// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — the owner can revoke any paired grant, which pauses every room it issued.
 export async function handlePairs(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const form = (error = "") => page("kypp paired apps", `<h1>Paired apps</h1>
 ${error ? `<p class="err">${escape(error)}</p>` : ""}
@@ -192,7 +214,7 @@ ${error ? `<p class="err">${escape(error)}</p>` : ""}
   const rows = results.map((r) => `<li><label><input type="radio" name="revoke" value="${escape(r.name)}" required style="width:auto">
 <strong>${escape(r.label)}</strong>, paired ${escape(r.created_at.slice(0, 10))}</label></li>`).join("");
   return page("kypp paired apps", `<h1>Paired apps</h1>
-${typeof revoke === "string" && revoke ? "<p>Unlinked. Its rooms' memory lanes are closed.</p>" : ""}
+${typeof revoke === "string" && revoke ? "<p>Unlinked. Its rooms' memory is kept; a later pairing can continue it.</p>" : ""}
 ${rows ? `<form method="post"><ul>${rows}</ul>
 ${PASSPHRASE}
 <p><button>Unlink</button></p></form>` : "<p>No apps are paired.</p>"}`);

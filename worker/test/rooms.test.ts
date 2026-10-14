@@ -165,3 +165,19 @@ test("a room recall with no words finds nothing rather than browsing", async () 
   await a("claim", { subject: "tone", content: "Keep replies informal here." });
   assert.doesNotMatch((await a("recall", { query: "🙂 ?!" })).text, /tone/);
 });
+
+test("bots in one room share its lane, and removing one leaves the others", async () => {
+  const db = memoryD1();
+  const seat = async (member: string, links?: string[]) =>
+    await (await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-a", member, ...(links ? { links } : {}) }) }), db, "huddles", { canLink: true })).json() as any;
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('huddles','','t')").run();
+  const a = await seat("bot-a", ["huddles"]), b = await seat("bot-b");
+  assert.deepEqual(a.links, ["huddles"]);
+  assert.equal(b.links, undefined);
+  assert.equal(((await db.prepare("SELECT COUNT(*) AS n FROM room_links").first()) as any).n, 1);
+  assert.deepEqual(await roomCaller(db, a.token, ["huddles"]), await roomCaller(db, b.token, ["huddles"]));
+  await handleRooms(new Request("https://k/rooms/room-a/members/bot-a", { method: "DELETE" }), db, "huddles", { canLink: true });
+  assert.equal(await roomCaller(db, a.token, ["huddles"]), null);
+  assert.ok(await roomCaller(db, b.token, ["huddles"]));
+  assert.equal((await handleRooms(new Request("https://k/rooms/room-a/oops/bot-a", { method: "DELETE" }), db, "huddles", { canLink: true })).status, 400);
+});

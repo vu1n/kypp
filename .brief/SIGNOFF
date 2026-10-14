@@ -30,3 +30,4 @@ scope-keys-decay amend-proposed: Add room lanes: principal-private memory per ch
 scope-keys-decay amend-proposed: Let an integration get a room-issuer grant by an owner-approved pairing code (device-flow style; per-issuer namespace; revoke cascades), alongside operator-configured issuers.
 scope-keys-decay conforms: room lanes and pairing implement memory-scope-decay §11 as ratified by Vu (@0006 room lanes, @0007 pairing issuers); the amend-proposed lines above are those ratified proposals.
 scope-keys-decay amend-proposed: Room lanes belong to the room with a token per member bot; revoking a paired grant pauses it and the owner may continue it from a new pairing.
+scope-keys-decay conforms: room members, kept rooms on unlink and continued paired grants implement memory-scope-decay §11.1 and §11.7 as ratified by Vu (@0008).

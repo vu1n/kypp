@@ -14,7 +14,7 @@ export type Authority = (typeof AUTHORITIES)[number];
 export const SCOPES = ["project", "group", "user", "global", "room"] as const;
 export type Scope = (typeof SCOPES)[number];
 
-// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
+// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
 // An exact name wins; then a registered path the origin ends with ("https://github.com/vu1n/kypp.git"
 // → "vu1n/kypp"); then the last path segment, so "vu1n/Kypp" resolves to "kypp". Each fallback
 // counts only when it names exactly one project: two registered "foo"s leave the claim unsorted.

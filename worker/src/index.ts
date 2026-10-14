@@ -131,7 +131,7 @@ async function tokenName(token: string, list: string | undefined): Promise<strin
 
 const oidc = oidcVerifier();
 
-// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
+// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
 // The caller's issuer name: its paired grant, or its KYPP_API_TOKENS name when that is listed in
 // KYPP_ROOM_ISSUERS. Only a configured issuer may link rooms to repos.
 async function roomIssuer(request: Request, env: Env): Promise<{ name: string; paired: boolean } | null> {
