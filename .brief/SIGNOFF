@@ -25,3 +25,4 @@ authority-dominates amend-proposed: reconcile @0004 so mark_verified is the only
 authority-dominates amend-proposed: qualify correct as the only local human writer; authenticated /sync, once built, is the sole other (import) writer of human authority
 scope-keys-decay amend-proposed: Permit separate principal-private expiring handoff/evidence-reference records; no claim promotion or task authority.
 compose-surface amend-proposed: Permit append_context/query_context as a bounded hosted memory contribution; clients retain context assembly.
+scope-keys-decay amend-proposed: Add room lanes: principal-private memory per chat-room bot, credential-pinned origin and lane, no automatic widening, explicit share to linked origins only.
