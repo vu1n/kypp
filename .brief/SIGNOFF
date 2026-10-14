@@ -26,3 +26,4 @@ authority-dominates amend-proposed: qualify correct as the only local human writ
 scope-keys-decay amend-proposed: Permit separate principal-private expiring handoff/evidence-reference records; no claim promotion or task authority.
 compose-surface amend-proposed: Permit append_context/query_context as a bounded hosted memory contribution; clients retain context assembly.
 scope-keys-decay amend-proposed: Add room lanes: principal-private memory per chat-room bot, credential-pinned origin and lane, no automatic widening, explicit share to linked origins only.
+scope-keys-decay amend-proposed: Let a kypp owner grant room-issuing to an integration by OAuth consent (rooms scope, per-issuer namespace, revoke cascades), alongside operator-configured issuers.
