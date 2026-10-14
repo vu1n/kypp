@@ -17,6 +17,8 @@ related_code:
   - "worker/migrations/*cooperation*"
   - "worker/src/rooms.ts"
   - "worker/migrations/*room*"
+  - "worker/src/pairing.ts"
+  - "worker/migrations/*pair*"
 ---
 
 <!-- brief:anchor scope-keys-decay -->
@@ -315,10 +317,21 @@ inside its roll-up.
    bot is told to share only when someone in the room asked. The server cannot check that, so the
    link is the hard boundary: the manager opts a room into each repo it may write to (§10.7's
    disclosure rule, applied to claims).
-7. **Issuing and revoking.** An operator-configured integration (a `KYPP_API_TOKENS` name, such as
-   `huddles`) registers a room with its links and receives a per-room bearer token once; kypp keeps
-   only its digest. Revoking the token makes the lane unreachable. Its claims stay as history
-   (append-only), and an operator can still read them.
+7. **Issuing and revoking.** An integration may register rooms only with an *issuer grant*, from
+   one of two sources. The first is operator configuration: a `KYPP_API_TOKENS` name listed in
+   `KYPP_ROOM_ISSUERS`. The second is **pairing** (amended 2026-10-14, ratified by Vu). The
+   integration asks kypp to pair (`POST /pair` with a display name) and gets back a secret pairing
+   handle, which it keeps, a short user code, and a URL that shows that code. A person opens the URL
+   and checks that the code matches the one the integration shows. The kypp owner approves with the
+   owner passphrase. The integration then redeems its handle once for an issuer token. Codes expire
+   after 10 minutes and redeem only once. The approval page says the display name is self-asserted.
+   `POST /pair` is unauthenticated, so it is rate limited. An issuer token can only call `POST
+   /rooms` and `DELETE /rooms/<id>` for its own rooms. It never reads or writes memory. Each grant
+   is its own issuer namespace (`room:<issuer>:<id>`). A registered room returns a per-room bearer
+   token once, and kypp keeps only its digest. Revoking a room token makes the lane unreachable.
+   Revoking an issuer grant revokes every room it issued and stops new ones. The integration can
+   revoke its own grant, the owner can revoke any paired grant, and the operator can remove a
+   configured name. Claims stay as history (append-only), and an operator can still read them.
 8. **No authority is minted.** Room and shared claims are agent authority; §6 and `authority-order`
    are unchanged.
 

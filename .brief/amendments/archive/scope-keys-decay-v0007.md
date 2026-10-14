@@ -58,3 +58,8 @@ has the issuer right.
   is useless without the integration's handle.
 - `POST /pair` is unauthenticated, so it is rate limited, and pending pairings expire.
 - Revoking a grant ends every room it created.
+
+
+---
+ratified_rev: 0007
+ratified_by: Vu
