@@ -693,20 +693,30 @@ AND NOT EXISTS (
     AND s.created_at <= :cutoff
 )
 """.strip()
+# A supplied repository, a supplied revision, or both. An omitted field is not a predicate.
+_EXACT_PREDICATE = """
+(:repository IS NOT NULL OR :revision IS NOT NULL)
+AND (:repository IS NULL OR r.repository = :repository)
+AND (:revision IS NULL OR r.candidate_revision = :revision)
+""".strip()
+# :limit is the candidate window plus one. The extra row is how the merge detects a cap.
 COOPERATION_FTS_MATCH_SQL = (
-    "SELECT r.id AS id, bm25(cooperation_fts) AS score\n"
+    "SELECT r.id AS id, bm25(cooperation_fts) AS score,\n"
+    f"  CASE WHEN {_EXACT_PREDICATE} THEN 1 ELSE 0 END AS exact\n"
     "FROM cooperation_records r\n"
     "JOIN cooperation_fts ON cooperation_fts.record_id = r.id\n"
     f"WHERE {_SEARCH_FILTER}\n"
-    "AND cooperation_fts MATCH :match"
+    "AND cooperation_fts MATCH :match\n"
+    "ORDER BY exact DESC, score ASC, r.id ASC\n"
+    "LIMIT :limit"
 )
 COOPERATION_EXACT_SQL = (
     "SELECT r.id AS id\n"
     "FROM cooperation_records r\n"
     f"WHERE {_SEARCH_FILTER}\n"
-    "AND :repository IS NOT NULL\n"
-    "AND r.repository = :repository\n"
-    "AND (:revision IS NULL OR r.candidate_revision = :revision)"
+    f"AND {_EXACT_PREDICATE}\n"
+    "ORDER BY r.id ASC\n"
+    "LIMIT :limit"
 )
 COOPERATION_BROWSE_SQL = (
     "SELECT r.id AS id\n"
@@ -719,7 +729,8 @@ COOPERATION_BROWSE_SQL = (
     "     AND (:revision IS NULL OR r.candidate_revision = :revision) THEN 0\n"
     "    ELSE 1\n"
     "  END ASC,\n"
-    "  r.id ASC"
+    "  r.id ASC\n"
+    "LIMIT :limit"
 )
 
 
@@ -752,14 +763,17 @@ def fts_query(text: str) -> str:
 def merge_search_hits(exact_ids: list[str], fts_hits: list[dict], window: int) -> dict:
     limit = min(max(window, 1), COOPERATION_LIMITS["candidate_window"])
     exact = set(exact_ids)
+    for hit in fts_hits:
+        if hit.get("exact"):
+            exact.add(hit["id"])
     scores = {hit["id"]: hit["score"] for hit in fts_hits}
 
     def by_score(item: str) -> tuple:
         score = scores.get(item)
         return (score is None, 0 if score is None else score, item)
 
-    exact_hits = sorted((item for item in exact_ids if item in scores), key=by_score)
-    exact_only = sorted(item for item in exact_ids if item not in scores)
+    exact_hits = sorted((item for item in exact if item in scores), key=by_score)
+    exact_only = sorted(item for item in exact if item not in scores)
     rest = sorted((hit["id"] for hit in fts_hits if hit["id"] not in exact), key=by_score)
     ranked = [*exact_hits, *exact_only, *rest]
     return {"ids": ranked[:limit], "window_capped": len(ranked) > limit}
@@ -803,7 +817,7 @@ def reference_search(records: list[dict], request: dict) -> dict:
         )
     kinds = request.get("kinds")
     kind = None if not kinds or len(kinds) == 2 else kinds[0]
-    window = int(request.get("window") or COOPERATION_LIMITS["candidate_window"])
+    window = min(max(int(request.get("window") or COOPERATION_LIMITS["candidate_window"]), 1), COOPERATION_LIMITS["candidate_window"])
     shared = {
         "principal": request["principal"],
         "origin": request["origin"],
@@ -812,14 +826,22 @@ def reference_search(records: list[dict], request: dict) -> dict:
         "kind": kind,
     }
     match = fts_query(request.get("query") or "")
-    exact = {"repository": request.get("repository"), "revision": request.get("candidate_revision")}
+    bound = {
+        "repository": request.get("repository"),
+        "revision": request.get("candidate_revision"),
+        "limit": window + 1,
+    }
     if match == "":
-        rows = connection.execute(COOPERATION_BROWSE_SQL + "\nLIMIT :limit", {**shared, **exact, "limit": window + 1}).fetchall()
+        rows = connection.execute(COOPERATION_BROWSE_SQL, {**shared, **bound}).fetchall()
         ids = [row[0] for row in rows]
-        return {"ids": ids[:window], "window_capped": len(ids) > window}
-    fts_hits = [{"id": row[0], "score": row[1]} for row in connection.execute(COOPERATION_FTS_MATCH_SQL, {**shared, "match": match})]
-    exact_ids = [row[0] for row in connection.execute(COOPERATION_EXACT_SQL, {**shared, **exact})]
-    return merge_search_hits(exact_ids, fts_hits, window)
+        return {"ids": ids[:window], "window_capped": len(ids) > window, "fts_rows": 0, "exact_rows": 0, "browse_rows": len(rows)}
+    fts_hits = [
+        {"id": row[0], "score": row[1], "exact": row[2] == 1}
+        for row in connection.execute(COOPERATION_FTS_MATCH_SQL, {**shared, **bound, "match": match})
+    ]
+    exact_ids = [row[0] for row in connection.execute(COOPERATION_EXACT_SQL, {**shared, **bound})]
+    ranked = merge_search_hits(exact_ids, fts_hits, window)
+    return {**ranked, "fts_rows": len(fts_hits), "exact_rows": len(exact_ids), "browse_rows": 0}
 
 
 def seal_contribution(draft: dict) -> dict:
@@ -928,6 +950,7 @@ def validate_contribution(value: object) -> dict:
     budget = _read_int(obj.get("budget_bytes"), "budget_bytes", 0, COOPERATION_LIMITS["response_max_bytes"])
     if budget > max_bytes:
         _fail("contribution exceeds max_bytes")
+    obj["records"] = checked
     if utf8_bytes(canonical_json(obj)) != budget:
         _fail("budget_bytes is not the canonical contribution size")
     if not isinstance(obj.get("window_capped"), bool) or not isinstance(obj.get("candidate_window_exhaustive"), bool):

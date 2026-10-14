@@ -127,16 +127,31 @@ An unmatched token list returns no FTS rows and is success, not an error.
 
 SQLite rejects `MATCH` inside `OR`. The store therefore runs two filtered
 statements. Both apply principal, origin, audience, `created_at <= cutoff`,
-`expires_at > now`, kind, and supersession-at-cutoff before any ranking. The
-MATCH statement orders by `bm25()`. Exact work-ref rows come from the second
-statement. The merge keeps exact matches first (their `bm25()` when they also
-matched, otherwise id), then the other hits by `bm25()` ascending, then id
-ascending. The ratified maximum is still 100 authorized candidates. That window
-is the top 100 by this order, not the 100 newest, so an older relevant row stays
-findable. A better-scoring row the caller cannot see is not in either statement,
-so it never appears and never takes a slot. A capped window sets `window_capped`
-and clears `candidate_window_exhaustive`. An empty authorized result is success.
-A failed read is not evidence that nothing matched.
+`expires_at > now`, kind, and supersession-at-cutoff before any ranking, and
+each one `ORDER BY`s its own rows and `LIMIT`s them to the candidate window plus
+one. That extra row is only how the merge sees that the window is capped. Neither
+statement materializes the rest of the population.
+
+An exact work-ref match uses whichever fields the caller supplied. A repository
+alone matches that repository at any revision. A `candidate_revision` alone
+matches that revision in any repository. Both together match both. Browse uses
+the same predicate to put those rows first.
+
+The MATCH statement orders exact rows ahead of other hits, then `bm25()`
+ascending, then id, and returns at most the window plus one. The exact statement
+returns at most the window plus one ids, ordered by id. The merge keeps exact
+matches first (their `bm25()` when they also matched, otherwise id), then the
+other hits by `bm25()` ascending, then id ascending, and keeps the window. The
+ratified maximum is still 100 authorized candidates. That window is the top 100
+by this order, not the 100 newest, so an older relevant row stays findable. A
+better-scoring row the caller cannot see is not in either statement, so it never
+appears and never takes a slot. A capped window sets `window_capped` and clears
+`candidate_window_exhaustive`. An empty authorized result is success. A failed
+read is not evidence that nothing matched.
+
+`validateContribution` returns those rebuilt records. Omitted nullable envelope
+fields (`client_label`, `session_id`, `reply_to`, `supersedes`) come back as
+null, and `budget_bytes` is the canonical size of that normalized contribution.
 
 ## Out of this slice
 

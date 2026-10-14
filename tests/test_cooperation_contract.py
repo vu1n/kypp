@@ -16,6 +16,9 @@ from jsonschema import Draft7Validator
 
 from kypp.cooperation import (
     APPEND_CONTEXT_INPUT_SCHEMA,
+    COOPERATION_BROWSE_SQL,
+    COOPERATION_EXACT_SQL,
+    COOPERATION_FTS_MATCH_SQL,
     COOPERATION_LIMITS,
     QUERY_CONTEXT_INPUT_SCHEMA,
     CooperationError,
@@ -214,6 +217,67 @@ class CooperationContractTest(unittest.TestCase):
         both = _search(rows, query="plain NOT lexical-hit")
         self.assertEqual(sorted(names[item] for item in both["ids"]), ["s-exact-lexical", "s-exact-plain", "s-lexical", "s-neither"])
 
+    def test_each_statement_stops_at_the_window_plus_one(self):
+        self.assertIn("ORDER BY exact DESC, score ASC, r.id ASC\nLIMIT :limit", COOPERATION_FTS_MATCH_SQL)
+        self.assertIn("ORDER BY r.id ASC\nLIMIT :limit", COOPERATION_EXACT_SQL)
+        self.assertTrue(COOPERATION_BROWSE_SQL.endswith("LIMIT :limit"))
+        base = json.loads(json.dumps(FIXTURE["selection"]["records"][3]["record"]))
+        lexical = []
+        for index in range(150):
+            row = json.loads(json.dumps(base))
+            row["id"] = f"{index:032x}"
+            row["work_ref"]["repository"] = f"https://github.com/vu1n/noise{index}"
+            row["work_ref"]["candidate_revision"] = "ab" * 20
+            row["payload"]["summary"] = "alpha"
+            lexical.append(row)
+        exact = json.loads(json.dumps(base))
+        exact["id"] = "f" * 32
+        exact["work_ref"]["repository"] = "https://github.com/vu1n/kypp"
+        exact["work_ref"]["candidate_revision"] = "cd" * 20
+        exact["payload"]["summary"] = "alpha " + ("padding " * 80)
+        ranked = _search([exact, *lexical], query="alpha", repository=exact["work_ref"]["repository"], candidate_revision=exact["work_ref"]["candidate_revision"])
+        self.assertEqual(ranked["fts_rows"], 101)
+        self.assertEqual(ranked["exact_rows"], 1)
+        self.assertEqual(len(ranked["ids"]), 100)
+        self.assertEqual(ranked["ids"][0], exact["id"])
+        self.assertIs(ranked["window_capped"], True)
+        self.assertNotIn(lexical[149]["id"], ranked["ids"])
+        revision_only = []
+        for row in lexical:
+            copy = json.loads(json.dumps(row))
+            copy["payload"]["summary"] = "quiet"
+            copy["work_ref"]["candidate_revision"] = "ef" * 20
+            revision_only.append(copy)
+        exact_only = _search(revision_only, query="zzznomatch", repository=None, candidate_revision="ef" * 20)
+        self.assertEqual(exact_only["fts_rows"], 0)
+        self.assertEqual(exact_only["exact_rows"], 101)
+        self.assertEqual(exact_only["ids"], sorted(row["id"] for row in revision_only)[:100])
+        self.assertIs(exact_only["window_capped"], True)
+
+    def test_exact_work_ref_matches_whichever_field_was_supplied(self):
+        base = json.loads(json.dumps(FIXTURE["selection"]["records"][3]["record"]))
+        shared = "ab" * 20
+        left = json.loads(json.dumps(base))
+        right = json.loads(json.dumps(base))
+        other = json.loads(json.dumps(base))
+        left["id"] = "a" * 32
+        right["id"] = "b" * 32
+        other["id"] = "c" * 32
+        left["work_ref"] = {**left["work_ref"], "repository": "https://github.com/vu1n/left", "candidate_revision": shared}
+        right["work_ref"] = {**right["work_ref"], "repository": "https://github.com/vu1n/right", "candidate_revision": shared}
+        other["work_ref"] = {**other["work_ref"], "repository": "https://github.com/vu1n/left", "candidate_revision": "cd" * 20}
+        for row in (left, right, other):
+            row["payload"]["summary"] = "quiet"
+        other["payload"]["summary"] = "alpha alpha alpha"
+        by_revision = _search([other, right, left], query="alpha", repository=None, candidate_revision=shared, window=2)
+        self.assertEqual(by_revision["ids"], [left["id"], right["id"]])
+        self.assertIs(by_revision["window_capped"], True)
+        by_repository = _search([other, right, left], query="zzznomatch", repository="https://github.com/vu1n/left", candidate_revision=None)
+        self.assertEqual(by_repository["ids"], [left["id"], other["id"]])
+        browsed = _search([other, right, left], query="", repository=None, candidate_revision=shared)
+        self.assertEqual(browsed["ids"], [left["id"], right["id"], other["id"]])
+        self.assertEqual(browsed["browse_rows"], 3)
+
     def test_bm25_ties_break_on_id(self):
         left = json.loads(json.dumps(FIXTURE["selection"]["records"][3]["record"]))
         right = json.loads(json.dumps(left))
@@ -246,6 +310,8 @@ class CooperationContractTest(unittest.TestCase):
     def test_stamped_records_reject_bad_id_and_kind(self):
         stamp = FIXTURE["visibility"]["stamp"]
         record = stamp_record({**stamp, "input": validate_append_context(BY_ID[stamp["case"]]["input"])})
+        record["client_label"] = None
+        record["session_id"] = None
         draft = {
             "schema_version": 1,
             "as_of": record["created_at"],
@@ -261,6 +327,17 @@ class CooperationContractTest(unittest.TestCase):
         }
         sealed = seal_contribution(draft)
         self.assertEqual(validate_contribution(sealed)["records"][0]["id"], record["id"])
+        sparse = json.loads(json.dumps(sealed))
+        for key in ("client_label", "session_id", "reply_to", "supersedes"):
+            del sparse["records"][0][key]
+        parsed = validate_contribution(sparse)
+        self.assertIsNone(parsed["records"][0]["client_label"])
+        self.assertIsNone(parsed["records"][0]["session_id"])
+        self.assertIsNone(parsed["records"][0]["reply_to"])
+        self.assertIsNone(parsed["records"][0]["supersedes"])
+        self.assertIn("client_label", parsed["records"][0])
+        self.assertEqual(parsed["records"], sealed["records"])
+        self.assertEqual(parsed["budget_bytes"], utf8_bytes(canonical_json(parsed)))
         bad_id = json.loads(json.dumps(sealed))
         bad_id["records"][0]["id"] = "NOT-AN-ID"
         with self.assertRaises(CooperationError) as caught:

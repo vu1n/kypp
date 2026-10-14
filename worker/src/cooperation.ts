@@ -270,12 +270,16 @@ export interface SearchWindow {
 // origin, audience, expiry, cutoff, kind, and supersession are predicates of that
 // same statement, before bm25(). SQLite rejects MATCH inside OR, so exact work-ref
 // rows are a second filtered read and the store merges them ahead of other hits.
-// Order is exact work-ref, then bm25() ascending, then id ascending, capped at the
-// ratified 100-record authorized window. That window is the top 100, not the 100
-// newest. An empty token list is browse, not MATCH *. getByIds keeps expired rows
-// and does not hide superseded rows. Neither method calls a model or returns
-// another principal's ids. append resolves an identical idempotency key before the
-// population cap; a changed payload with that key is IDEMPOTENCY_CONFLICT.
+// Each statement orders its own rows and LIMITs to the window plus one, so neither
+// read materializes the rest of the population. The extra row only tells the merge
+// that the window is capped. Exact work-ref matches on whichever of repository and
+// candidate_revision the caller supplied. Order is exact work-ref, then bm25()
+// ascending, then id ascending, capped at the ratified 100-record authorized
+// window. That window is the top 100, not the 100 newest. An empty token list is
+// browse, not MATCH *. getByIds keeps expired rows and does not hide superseded
+// rows. Neither method calls a model or returns another principal's ids. append
+// resolves an identical idempotency key before the population cap; a changed
+// payload with that key is IDEMPOTENCY_CONFLICT.
 export interface CooperationRepository {
   append(request: AppendRequest): Promise<AppendReceipt>;
   getByIds(request: ExactReadRequest): Promise<CooperationRecord[]>;
@@ -857,18 +861,27 @@ AND NOT EXISTS (
     AND s.created_at <= :cutoff
 )`;
 
-export const COOPERATION_FTS_MATCH_SQL = `SELECT r.id AS id, bm25(cooperation_fts) AS score
+// A supplied repository, a supplied revision, or both. An omitted field is not a predicate.
+const EXACT_PREDICATE = `(:repository IS NOT NULL OR :revision IS NOT NULL)
+AND (:repository IS NULL OR r.repository = :repository)
+AND (:revision IS NULL OR r.candidate_revision = :revision)`;
+
+// :limit is the candidate window plus one. The extra row is how the merge detects a cap.
+export const COOPERATION_FTS_MATCH_SQL = `SELECT r.id AS id, bm25(cooperation_fts) AS score,
+  CASE WHEN ${EXACT_PREDICATE} THEN 1 ELSE 0 END AS exact
 FROM cooperation_records r
 JOIN cooperation_fts ON cooperation_fts.record_id = r.id
 WHERE ${SEARCH_FILTER}
-AND cooperation_fts MATCH :match`;
+AND cooperation_fts MATCH :match
+ORDER BY exact DESC, score ASC, r.id ASC
+LIMIT :limit`;
 
 export const COOPERATION_EXACT_SQL = `SELECT r.id AS id
 FROM cooperation_records r
 WHERE ${SEARCH_FILTER}
-AND :repository IS NOT NULL
-AND r.repository = :repository
-AND (:revision IS NULL OR r.candidate_revision = :revision)`;
+AND ${EXACT_PREDICATE}
+ORDER BY r.id ASC
+LIMIT :limit`;
 
 export const COOPERATION_BROWSE_SQL = `SELECT r.id AS id
 FROM cooperation_records r
@@ -880,7 +893,8 @@ ORDER BY
      AND (:revision IS NULL OR r.candidate_revision = :revision) THEN 0
     ELSE 1
   END ASC,
-  r.id ASC`;
+  r.id ASC
+LIMIT :limit`;
 
 export interface FtsDocument {
   record_id: string;
@@ -909,11 +923,13 @@ export function ftsQuery(text: string): string {
 export interface FtsHit {
   id: string;
   score: number;
+  exact?: boolean;
 }
 
 export function mergeSearchHits(exactIds: readonly string[], ftsHits: readonly FtsHit[], window: number): SearchWindow {
   const limit = Math.min(Math.max(window, 1), COOPERATION_LIMITS.candidateWindow);
   const exact = new Set(exactIds);
+  for (const hit of ftsHits) if (hit.exact) exact.add(hit.id);
   const scores = new Map(ftsHits.map((hit) => [hit.id, hit.score]));
   const byScore = (left: string, right: string) => {
     const leftScore = scores.get(left);
@@ -923,8 +939,8 @@ export function mergeSearchHits(exactIds: readonly string[], ftsHits: readonly F
     if (leftScore !== undefined && rightScore !== undefined && leftScore !== rightScore) return leftScore < rightScore ? -1 : 1;
     return left < right ? -1 : left > right ? 1 : 0;
   };
-  const exactHits = exactIds.filter((id) => scores.has(id)).sort(byScore);
-  const exactOnly = exactIds.filter((id) => !scores.has(id)).sort();
+  const exactHits = [...exact].filter((id) => scores.has(id)).sort(byScore);
+  const exactOnly = [...exact].filter((id) => !scores.has(id)).sort();
   const rest = ftsHits.map((hit) => hit.id).filter((id) => !exact.has(id)).sort(byScore);
   const ranked = [...exactHits, ...exactOnly, ...rest];
   return { ids: ranked.slice(0, limit), window_capped: ranked.length > limit };
@@ -1017,6 +1033,7 @@ export function validateContribution(input: unknown): ContextContribution {
   const max_bytes = readInt(obj.max_bytes, "max_bytes", COOPERATION_LIMITS.responseMinBytes, COOPERATION_LIMITS.responseMaxBytes);
   const budget_bytes = readInt(obj.budget_bytes, "budget_bytes", 0, COOPERATION_LIMITS.responseMaxBytes);
   if (budget_bytes > max_bytes) fail("contribution exceeds max_bytes");
+  obj.records = records;
   if (utf8Bytes(canonicalJson(obj)) !== budget_bytes) fail("budget_bytes is not the canonical contribution size");
   if (typeof obj.window_capped !== "boolean" || typeof obj.candidate_window_exhaustive !== "boolean") fail("window flags must be booleans");
   if (obj.candidate_window_exhaustive !== !obj.window_capped) fail("a capped window is not exhaustive");

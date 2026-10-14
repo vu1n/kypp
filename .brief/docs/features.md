@@ -190,8 +190,12 @@ later slices; this feature is the frozen schema, validators, and fixture.
 - `legacy_false` is `inconclusive_execution`, not `invalid_candidate`.
 - Search is FTS5 `unicode61` with `bm25()`, selector `cooperation-fts5-bm25-v1`.
   SQLite rejects `MATCH` inside `OR`, so exact work-ref rows are a second filtered
-  read. The 100-row cap is the ratified maximum, ranked by exact match then
-  `bm25()` then id, not the 100 newest rows.
+  read. Each statement `LIMIT`s to the window plus one before the merge. The extra
+  row only detects the cap. Exact match uses whichever of repository and
+  `candidate_revision` was supplied. The 100-row cap is the ratified maximum,
+  ranked by exact match then `bm25()` then id, not the 100 newest rows.
+- `validateContribution` returns the rebuilt records, with omitted nullable fields
+  filled. `budget_bytes` is the canonical size of that normalized object.
 - Fixture case `floating-brief-ref` stores `doc://kypp/memory-scope-decay@latest#scope-keys-decay`
   so both validators reject it. `brief pin` rewrites that counterexample to `@0005`,
   and the case then accepts. Restore `@latest` after pin. It is not a citation.

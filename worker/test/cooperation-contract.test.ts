@@ -210,23 +210,28 @@ function referenceSearch(records: CooperationRecord[], request: {
     kind: !kinds || kinds.length === 2 ? null : kinds[0],
   };
   const match = ftsQuery(request.query);
-  const window = request.window ?? COOPERATION_LIMITS.candidateWindow;
-  if (match === "") {
-    const rows = db.prepare(`${COOPERATION_BROWSE_SQL}\nLIMIT :limit`).all({
-      ...filter,
-      repository: request.repository,
-      revision: request.candidate_revision,
-      limit: window + 1,
-    }) as { id: string }[];
-    return { ids: rows.slice(0, window).map((row) => row.id), window_capped: rows.length > window };
-  }
-  const ftsHits = db.prepare(COOPERATION_FTS_MATCH_SQL).all({ ...filter, match }) as { id: string; score: number }[];
-  const exact = db.prepare(COOPERATION_EXACT_SQL).all({
-    ...filter,
+  const window = Math.min(Math.max(request.window ?? COOPERATION_LIMITS.candidateWindow, 1), COOPERATION_LIMITS.candidateWindow);
+  const bound = {
     repository: request.repository,
     revision: request.candidate_revision,
-  }) as { id: string }[];
-  return mergeSearchHits(exact.map((row) => row.id), ftsHits, window);
+    limit: window + 1,
+  };
+  if (match === "") {
+    const rows = db.prepare(COOPERATION_BROWSE_SQL).all({ ...filter, ...bound }) as { id: string }[];
+    return { ids: rows.slice(0, window).map((row) => row.id), window_capped: rows.length > window, fts_rows: 0, exact_rows: 0, browse_rows: rows.length };
+  }
+  const ftsHits = db.prepare(COOPERATION_FTS_MATCH_SQL).all({ ...filter, ...bound, match }) as { id: string; score: number; exact: number }[];
+  const exact = db.prepare(COOPERATION_EXACT_SQL).all({ ...filter, ...bound }) as { id: string }[];
+  return {
+    ...mergeSearchHits(
+      exact.map((row) => row.id),
+      ftsHits.map((row) => ({ id: row.id, score: row.score, exact: row.exact === 1 })),
+      window,
+    ),
+    fts_rows: ftsHits.length,
+    exact_rows: exact.length,
+    browse_rows: 0,
+  };
 }
 
 test("append and query schemas take no authority parameter", () => {
@@ -340,6 +345,84 @@ test("hostile match syntax cannot widen the authorized set", () => {
   assert.deepEqual(notOperator.ids.map((id) => names.get(id)).sort(), ["s-exact-lexical", "s-exact-plain", "s-lexical", "s-neither"].sort());
 });
 
+test("each search statement stops at the window plus one", () => {
+  assert.match(COOPERATION_FTS_MATCH_SQL, /ORDER BY exact DESC, score ASC, r\.id ASC\nLIMIT :limit$/);
+  assert.match(COOPERATION_EXACT_SQL, /ORDER BY r\.id ASC\nLIMIT :limit$/);
+  assert.match(COOPERATION_BROWSE_SQL, /LIMIT :limit$/);
+  const base = fixture.selection.records[3].record as CooperationRecord;
+  const lexical = Array.from({ length: 150 }, (_, index) => {
+    const row = structuredClone(base);
+    row.id = index.toString(16).padStart(32, "0");
+    row.work_ref = { ...row.work_ref, repository: `https://github.com/vu1n/noise${index}`, candidate_revision: "ab".repeat(20) };
+    row.payload = { ...row.payload, summary: "alpha" } as CooperationRecord["payload"];
+    return row;
+  });
+  const exact = structuredClone(base);
+  exact.id = "f".repeat(32);
+  exact.work_ref = { ...exact.work_ref, repository: "https://github.com/vu1n/kypp", candidate_revision: "cd".repeat(20) };
+  exact.payload = { ...exact.payload, summary: `alpha ${"padding ".repeat(80)}` } as CooperationRecord["payload"];
+  const ranked = referenceSearch([exact, ...lexical], {
+    principal: "owner",
+    origin: "kypp",
+    now: "2026-10-13T12:00:00Z",
+    cutoff: "2026-10-13T12:00:00Z",
+    query: "alpha",
+    repository: exact.work_ref.repository,
+    candidate_revision: exact.work_ref.candidate_revision,
+  });
+  assert.equal(ranked.fts_rows, 101);
+  assert.equal(ranked.exact_rows, 1);
+  assert.equal(ranked.ids.length, 100);
+  assert.equal(ranked.ids[0], exact.id);
+  assert.equal(ranked.window_capped, true);
+  assert.equal(ranked.ids.includes(lexical[149].id), false);
+  const revisionOnly = lexical.map((row) => {
+    const copy = structuredClone(row);
+    copy.payload = { ...copy.payload, summary: "quiet" } as CooperationRecord["payload"];
+    copy.work_ref = { ...copy.work_ref, candidate_revision: "ef".repeat(20) };
+    return copy;
+  });
+  const exactOnly = referenceSearch(revisionOnly, {
+    principal: "owner",
+    origin: "kypp",
+    now: "2026-10-13T12:00:00Z",
+    cutoff: "2026-10-13T12:00:00Z",
+    query: "zzznomatch",
+    repository: null,
+    candidate_revision: "ef".repeat(20),
+  });
+  assert.equal(exactOnly.fts_rows, 0);
+  assert.equal(exactOnly.exact_rows, 101);
+  assert.deepEqual(exactOnly.ids, revisionOnly.map((row) => row.id).sort().slice(0, 100));
+  assert.equal(exactOnly.window_capped, true);
+});
+
+test("exact work-ref matches whichever field was supplied", () => {
+  const base = fixture.selection.records[3].record as CooperationRecord;
+  const sharedRevision = "ab".repeat(20);
+  const otherRevision = "cd".repeat(20);
+  const left = structuredClone(base);
+  const right = structuredClone(base);
+  const other = structuredClone(base);
+  left.id = "a".repeat(32);
+  right.id = "b".repeat(32);
+  other.id = "c".repeat(32);
+  left.work_ref = { ...left.work_ref, repository: "https://github.com/vu1n/left", candidate_revision: sharedRevision };
+  right.work_ref = { ...right.work_ref, repository: "https://github.com/vu1n/right", candidate_revision: sharedRevision };
+  other.work_ref = { ...other.work_ref, repository: "https://github.com/vu1n/left", candidate_revision: otherRevision };
+  for (const row of [left, right, other]) row.payload = { ...row.payload, summary: "quiet" } as CooperationRecord["payload"];
+  other.payload = { ...other.payload, summary: "alpha alpha alpha" } as CooperationRecord["payload"];
+  const clock = { principal: "owner", origin: "kypp", now: "2026-10-13T12:00:00Z", cutoff: "2026-10-13T12:00:00Z" };
+  const byRevision = referenceSearch([other, right, left], { ...clock, query: "alpha", repository: null, candidate_revision: sharedRevision, window: 2 });
+  assert.deepEqual(byRevision.ids, [left.id, right.id]);
+  assert.equal(byRevision.window_capped, true);
+  const byRepository = referenceSearch([other, right, left], { ...clock, query: "zzznomatch", repository: "https://github.com/vu1n/left", candidate_revision: null });
+  assert.deepEqual(byRepository.ids, [left.id, other.id]);
+  const browsed = referenceSearch([other, right, left], { ...clock, query: "", repository: null, candidate_revision: sharedRevision });
+  assert.deepEqual(browsed.ids, [left.id, right.id, other.id]);
+  assert.equal(browsed.browse_rows, 3);
+});
+
 test("equal bm25 scores break ties by id", () => {
   const left = structuredClone(fixture.selection.records[3].record) as CooperationRecord;
   const right = structuredClone(left) as CooperationRecord;
@@ -392,6 +475,8 @@ test("json schema accepts fixture inputs and rejects closed nested objects", () 
 test("stamped contribution records reject a bad id and a bad kind", () => {
   const source = byId.get(fixture.visibility.stamp.case);
   const record = stampRecord({ ...fixture.visibility.stamp, input: validateAppendContext(source.input) });
+  record.client_label = null;
+  record.session_id = null;
   const draft = {
     schema_version: 1,
     as_of: record.created_at,
@@ -407,6 +492,19 @@ test("stamped contribution records reject a bad id and a bad kind", () => {
   };
   const sealed = sealContribution(draft);
   assert.equal(validateContribution(sealed).records[0].id, record.id);
+  const sparse = structuredClone(sealed);
+  delete sparse.records[0].client_label;
+  delete sparse.records[0].session_id;
+  delete sparse.records[0].reply_to;
+  delete sparse.records[0].supersedes;
+  const parsed = validateContribution(sparse);
+  assert.equal(parsed.records[0].client_label, null);
+  assert.equal(parsed.records[0].session_id, null);
+  assert.equal(parsed.records[0].reply_to, null);
+  assert.equal(parsed.records[0].supersedes, null);
+  assert.equal(Object.hasOwn(parsed.records[0], "client_label"), true);
+  assert.deepEqual(parsed.records, sealed.records);
+  assert.equal(parsed.budget_bytes, utf8Bytes(canonicalJson(parsed)));
   const badId = structuredClone(sealed);
   badId.records[0].id = "NOT-AN-ID";
   assert.throws(() => validateContribution(badId), (error: CooperationError) => error.code === "INVALID_RECORD" && /id/.test(error.message));
