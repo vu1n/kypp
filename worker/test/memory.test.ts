@@ -61,6 +61,7 @@ test("fts query keeps non-ASCII words whole", () => {
   assert.equal(ftsQuery("Straße"), '"Straße"');
   assert.equal(ftsQuery("日本語 tokenizer"), '"日本語" OR "tokenizer"');
   assert.equal(ftsQuery("cafe\u0301"), '"cafe\u0301"'); // decomposed é stays one word
+  assert.equal(ftsQuery("bm25 ٣"), '"bm25" OR "٣"'); // digits, any script
   assert.equal(ftsQuery("🚀 !!"), "");
 });
 
