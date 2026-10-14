@@ -44,8 +44,8 @@ export type Candidates = "none" | "origin" | "all";
 // What a caller sees: this project, the groups it rolls up to, their own user scope, the global
 // scope, and the unsorted claims their own session wrote; never superseded/rejected history.
 // `t` is the table alias.
-// Context: doc://kypp/memory-scope-decay@0006#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
-// Context: doc://kypp/memory-scope-decay@0006#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
+// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
+// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
 function visible(t: string, project: string | null, groups: string[], user: string | null, candidates: Candidates,
   session: string | null): [string, unknown[]] {
   const levels = [`${t}.scope = 'global'`];
@@ -71,7 +71,7 @@ function visible(t: string, project: string | null, groups: string[], user: stri
 /** A room bot's reach: its own lane, plus the projects its room is linked to and their groups. */
 export interface RoomScope { identity: string; links: string[]; groups: string[] }
 
-// Context: doc://kypp/memory-scope-decay@0006#scope-keys-decay — a room reads its own lane (its unconfirmed lessons too: one bot is the whole audience) and its linked origins' accepted memory; never user scope or global.
+// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — a room reads its own lane (its unconfirmed lessons too: one bot is the whole audience) and its linked origins' accepted memory; never user scope or global.
 function roomVisible(t: string, room: RoomScope, candidates: Candidates): [string, unknown[]] {
   const status = candidates === "none" ? `${t}.status = 'accepted'` : `${t}.status IN ('candidate','accepted')`;
   const parts = [`(${status} AND ${t}.scope = 'room' AND ${t}.user = ?)`];

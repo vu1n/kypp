@@ -10,6 +10,7 @@ import { D1Store } from "./store.ts";
 import { looksLikeJwt, oidcVerifier, owners } from "./oidc.ts";
 import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
 import { ROOMS_PATH, handleRooms, roomCaller } from "./rooms.ts";
+import { PAIRS_PATH, PAIR_PATH, type PairingDeps, handlePair, handlePairs, pairedIssuer } from "./pairing.ts";
 
 export interface Env extends S1Env {
   DB: D1Database;
@@ -25,7 +26,7 @@ export interface Env extends S1Env {
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
   KYPP_CORRECT?: string;            // "off" hides the trust-based `correct` tool
   AUTH_LIMIT?: RateLimit;     // passphrase attempts
-  REGISTER_LIMIT?: RateLimit; // OAuth client registrations, which anyone can attempt
+  REGISTER_LIMIT?: RateLimit; // OAuth client registrations and pairing starts, which anyone can attempt
 }
 type RateLimit = { limit(o: { key: string }): Promise<{ success: boolean }> };
 
@@ -130,12 +131,26 @@ async function tokenName(token: string, list: string | undefined): Promise<strin
 
 const oidc = oidcVerifier();
 
-// Context: doc://kypp/memory-scope-decay@0006#scope-keys-decay — only an operator-configured integration registers rooms; a room token never can.
-// The caller's KYPP_API_TOKENS name, when that name is listed in KYPP_ROOM_ISSUERS.
+// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
+// The caller's KYPP_API_TOKENS name when it is listed in KYPP_ROOM_ISSUERS, or its paired issuer name.
 async function roomIssuer(request: Request, env: Env): Promise<string | null> {
   const token = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
-  const name = token ? await tokenName(token, env.KYPP_API_TOKENS) : null;
+  if (!token) return null;
+  const paired = await pairedIssuer(env.DB, token);
+  if (paired) return paired;
+  const name = await tokenName(token, env.KYPP_API_TOKENS);
   return name && owners(env.KYPP_ROOM_ISSUERS).includes(name) ? name : null;
+}
+
+// The owner check for kypp's own pages, behind the passphrase rate limit.
+function pairingDeps(request: Request, env: Env, base: string): PairingDeps {
+  return {
+    base,
+    checkOwner: async (secret) => {
+      if (!(await allowAttempt(request, env))) return "limited";
+      return env.KYPP_OWNER_SECRET && (await sameSecret(secret, env.KYPP_OWNER_SECRET)) ? "ok" : "wrong";
+    },
+  };
 }
 
 // The public origin: the OAuth issuer, the MCP resource id (<base>/mcp) and the OIDC audience.
@@ -197,10 +212,14 @@ export default {
     const path = new URL(request.url).pathname;
     if (request.method === "POST" && path === "/oauth/register"
       && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "register"))) return tooMany();
+    if (request.method === "POST" && path === PAIR_PATH
+      && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "pair"))) return tooMany();
     // TypeSafe-compatible System One for headless tools (brief triage in CI). GitHub Actions OIDC or
     // its own tokens, never KYPP_API_TOKENS or OAuth, so a CI caller can reach the model but not memory.
     const base = publicBase(env, request);
     if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => systemOneCaller(token, env, base));
+    if (path === PAIR_PATH || path.startsWith(`${PAIR_PATH}/`)) return handlePair(request, env.DB, pairingDeps(request, env, base));
+    if (path === PAIRS_PATH) return handlePairs(request, env.DB, pairingDeps(request, env, base));
     if (path === ROOMS_PATH || path.startsWith(`${ROOMS_PATH}/`)) {
       const issuer = await roomIssuer(request, env);
       return issuer ? handleRooms(request, env.DB, issuer) : new Response("unauthorized", { status: 401 });

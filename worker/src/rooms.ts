@@ -9,19 +9,19 @@ const MAX_LINKS = 16;
 /** The principal a room's claims are keyed by, in the `user` column (as a person's are). */
 export const roomIdentity = (key: string) => `room:${key}`;
 
-const now = () => new Date().toISOString();
+export const now = () => new Date().toISOString();
 
-async function digest(token: string): Promise<string> {
+export async function digest(token: string): Promise<string> {
   const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
   return [...d].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function mintToken(): string {
+export function mintToken(prefix = "kypr_"): string {
   const b = crypto.getRandomValues(new Uint8Array(32));
-  return `kypr_${btoa(String.fromCharCode(...b)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`;
+  return `${prefix}${btoa(String.fromCharCode(...b)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`;
 }
 
-// Context: doc://kypp/memory-scope-decay@0006#scope-keys-decay — a room token names its room; kypp keeps only the digest, and a revoked room never signs in.
+// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — a room token names its room; kypp keeps only the digest, and a revoked room never signs in.
 export async function roomCaller(db: D1Database, token: string): Promise<Caller | null> {
   if (!token.startsWith("kypr_")) return null;
   const row = await db.prepare("SELECT key FROM rooms WHERE token_digest = ? AND revoked_at IS NULL")
@@ -37,7 +37,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
  * revokes it. A revoked room stays revoked: re-registering its id is refused, so a later bot never
  * inherits a removed one's memory.
  */
-// Context: doc://kypp/memory-scope-decay@0006#scope-keys-decay — the integration that manages the room sets its links; the bot never does.
+// Context: doc://kypp/memory-scope-decay@0007#scope-keys-decay — the integration that manages the room sets its links; the bot never does.
 export async function handleRooms(request: Request, db: D1Database, issuer: string): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (request.method === "DELETE" && path.startsWith(`${ROOMS_PATH}/`)) {

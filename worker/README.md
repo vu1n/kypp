@@ -75,6 +75,14 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   never user scope, global or the project list, and its claims stay in the lane. A claim leaves only
   with `share_to` naming a linked project; it lands there as a candidate marked `shared_from`. Defrag
   promotes inside a lane and never moves a claim out of it.
+- **Pairing** (memory-scope-decay §11.7): an app can earn the right to register rooms without any
+  operator config. It calls `POST /pair {"name": "<who is asking>"}` and gets a secret `handle`, a
+  `user_code` like `KQ7M-4TZ2` and a `verification_uri`. It shows the code and link, and polls `POST
+  /pair/token {"handle"}` every `interval` seconds. Until the owner approves, the poll answers
+  `authorization_pending` (RFC 8628 style). The owner opens the link, checks the code and approves
+  with the passphrase. The next poll returns a `kypi_` issuer token once. That token only calls
+  `/rooms` for its own namespace; `DELETE /pair` with it unlinks the app and closes every room it
+  made. Codes expire in 10 minutes. The owner can see and unlink paired apps at `/pairs`.
 - **No Durable Objects.** The MCP endpoint is stateless JSON over HTTP.
 
 ## Deploy
