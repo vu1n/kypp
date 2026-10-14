@@ -1,0 +1,242 @@
+[
+ {
+  "id": "90f2e3c8fe1dbe50",
+  "query": "would running lint and unit tests concurrently in one CI job save billed minutes"
+ },
+ {
+  "id": "cf4d5f5c639031a4",
+  "query": "how does the schema change linter tell real statements apart from comments"
+ },
+ {
+  "id": "deeb05a0995f3f65",
+  "query": "what goes into the guest filesystem image and how is it built for each architecture"
+ },
+ {
+  "id": "acac29b914d2e7a6",
+  "query": "how do I back up and sync workspace history to object storage with encryption"
+ },
+ {
+  "id": "38c5ea6ce6646558",
+  "query": "which parts of the evaluation experiment proved solid enough to build on"
+ },
+ {
+  "id": "ce12ee6f7c030663",
+  "query": "simplest way to give the coding agent my model provider key inside the sandbox"
+ },
+ {
+  "id": "2c5e63d68691f36d",
+  "query": "set up a local tracing viewer to inspect agent telemetry without an account"
+ },
+ {
+  "id": "fba24edc1ba99d77",
+  "query": "how do I run a sealed job against a repo commit and check its state"
+ },
+ {
+  "id": "3ece91668131f310",
+  "query": "how should I phrase recommendations in an improvement audit report"
+ },
+ {
+  "id": "6fa5311a730553f8",
+  "query": "where are stored credentials and environment files kept and how do they merge"
+ },
+ {
+  "id": "a270e98a95fa24b6",
+  "query": "what remains unknown about hidden holdout checks versus visible tests for agents"
+ },
+ {
+  "id": "79289f73493db262",
+  "query": "command to run one round of prompt optimization on the training task set"
+ },
+ {
+  "id": "8c48b7eedceb234a",
+  "query": "why the web dashboard cannot accept or reject stored lessons yet"
+ },
+ {
+  "id": "3945ee54810be902",
+  "query": "how well does the small model calibrate violation probability and what threshold to use"
+ },
+ {
+  "id": "2f4dab1efe6d17e0",
+  "query": "principle about systems surviving by capturing energy flow to persist"
+ },
+ {
+  "id": "40597989b2ce4648",
+  "query": "what release added proxying that swaps fake tokens for real ones at the network edge"
+ },
+ {
+  "id": "b478655f897d3338",
+  "query": "index of documentation pages for shipped features and when to read each"
+ },
+ {
+  "id": "82ad93bab3bb9eb9",
+  "query": "where do we record past architecture choices and how to supersede one"
+ },
+ {
+  "id": "3b29667fd24d18d4",
+  "query": "should durable facts about code live in agent memory or repository docs"
+ },
+ {
+  "id": "ff965b859c46795d",
+  "query": "how does the virtual machine guest talk to the host and reach the network"
+ },
+ {
+  "id": "a9b8819f8c7f90f5",
+  "query": "leave an agent running in the background and reconnect to it later"
+ },
+ {
+  "id": "b22d27caf898b5aa",
+  "query": "when was the pluggable execution backend abstraction introduced and what it replaced"
+ },
+ {
+  "id": "31e3df530661a978",
+  "query": "did the fixed test corpus pass all subtests after the repair"
+ },
+ {
+  "id": "720d982a6ca2125f",
+  "query": "limits of the multi perspective article writing method and source grounding"
+ },
+ {
+  "id": "7efc2dc635fd3f24",
+  "query": "review findings on grading workers in an isolated vm and restating the task"
+ },
+ {
+  "id": "f747b8cfe6f051b4",
+  "query": "changelog for grading fan-out workers in a protected copy of their workspace"
+ },
+ {
+  "id": "f4c811f02cdfd371",
+  "query": "rules for stopping and cleaning up lanes when a parallel plan hits a cap"
+ },
+ {
+  "id": "725bd8f84e83c6b8",
+  "query": "import a key that is already set in my shell environment into storage"
+ },
+ {
+  "id": "c8a2366775e151fe",
+  "query": "who can actually write human authority on stored lessons and what does the draft get wrong"
+ },
+ {
+  "id": "95f26148c592b821",
+  "query": "how do popular coding benchmarks decide a task is solved"
+ },
+ {
+  "id": "c2977aacae929766",
+  "query": "assessment of how likely the governance tool is to survive long term"
+ },
+ {
+  "id": "0ed86629d07f3b20",
+  "query": "timeout and polling behavior for the browser testing tool calls"
+ },
+ {
+  "id": "4b2194e734b94bd3",
+  "query": "known mismatches between documentation and code for scores and default worker count"
+ },
+ {
+  "id": "7c74c659615a434c",
+  "query": "how do I check from a script whether the setup is healthy"
+ },
+ {
+  "id": "0ea775d4c26072e5",
+  "query": "convert an existing repository to governed architecture records and audit drift"
+ },
+ {
+  "id": "29ea670bd085afcb",
+  "query": "how to hand an implementation plan to an isolated executor subagent"
+ },
+ {
+  "id": "a1d2053fb360cd51",
+  "query": "output format when gathering results from finished parallel sessions"
+ },
+ {
+  "id": "138528b866418e54",
+  "query": "which context lookup tools to call first when starting an end to end test session"
+ },
+ {
+  "id": "4a146b9a24813fcc",
+  "query": "how terminal and file syncing behaviors map onto the run state machine"
+ },
+ {
+  "id": "599d2d885b0b7bdf",
+  "query": "how much to trust personal coding preferences versus repo conventions"
+ },
+ {
+  "id": "af178f99a25524f0",
+  "query": "compute and memory limits for serverless workers and their sqlite databases"
+ },
+ {
+  "id": "dc2b5960ad8567a6",
+  "query": "steps for opening a pull request and passing CI from a secondary workspace"
+ },
+ {
+  "id": "e6123ed893fba78d",
+  "query": "scope and limits of the architecture deepening review skill"
+ },
+ {
+  "id": "df8c6d5c1c228bd3",
+  "query": "first step of finding shallow modules and friction when exploring a new codebase"
+ },
+ {
+  "id": "53c23eba577386b9",
+  "query": "evidence that agents stop rewriting firm design rules when they are read-only"
+ },
+ {
+  "id": "54d3305d38686965",
+  "query": "tests to run for the hosted agent droplet runtime integration"
+ },
+ {
+  "id": "9c5bca1936e803ca",
+  "query": "criticisms of the plan to fix search drift between local and hosted stores"
+ },
+ {
+  "id": "a6ea5daa0151736a",
+  "query": "why per worker token counts come back empty for some agents"
+ },
+ {
+  "id": "f505afa48ff1e1a1",
+  "query": "mount several sibling repositories into one sandbox run"
+ },
+ {
+  "id": "87c9a3cac12fa99c",
+  "query": "how the container credential proxy overlays fake login files"
+ },
+ {
+  "id": "ad48aa7dc6a23898",
+  "query": "why the replay harness could not run against the hosted database"
+ },
+ {
+  "id": "e3927f842b495c41",
+  "query": "how the old event types map to the new session event log"
+ },
+ {
+  "id": "09e4a9dc7a58e6bf",
+  "query": "implementation order for the oauth token rotation single writer"
+ },
+ {
+  "id": "e846faa64e80d46f",
+  "query": "run a single tool free text model turn with durable retry semantics"
+ },
+ {
+  "id": "9e0c16e68019949e",
+  "query": "how do other agent memory systems decide what to write or delete"
+ },
+ {
+  "id": "9a68018d7e9fe1dc",
+  "query": "other open source projects using the same lightweight vm library"
+ },
+ {
+  "id": "b4bd898df904ea49",
+  "query": "how to serialize terminal screen state so a reconnecting viewer redraws correctly"
+ },
+ {
+  "id": "b31212c1c2155a2f",
+  "query": "why not use the model judging its own outputs as the optimization reward"
+ },
+ {
+  "id": "e4f9ef243eb616a1",
+  "query": "which eval infrastructure pieces exist and which still need wiring"
+ },
+ {
+  "id": "86c6e64523cda1a8",
+  "query": "how to write a new ratified constraint document correctly"
+ }
+]

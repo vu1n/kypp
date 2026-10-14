@@ -18,6 +18,8 @@ change, because `brief check` blocks any glob that matches nothing.
 paths:
   - "kypp/store.py"
   - "kypp/vocab.py"
+  - "kypp/potion.py"
+  - "bench/potion/**"
 ```
 
 The tursodb-backed claim store holds observations, claims and usage rows. It handles
@@ -30,6 +32,12 @@ statuses and authorities.
   DDL and PRAGMAs are followed by `.fetchall()` or `.fetchone()`.
 - With no `KYPP_EMBED_MODEL`, claims are stored without embeddings, and recall silently
   falls back to keyword `LIKE` matching.
+- `KYPP_EMBED_MODEL=potion-code-16M-v2` (any name in `kypp/potion.py` `MODELS`, or a model
+  directory) embeds locally with no server; other values go to ollama. With an embedder wired,
+  recall orders by cosine alone, which loses exact subject and identifier lookups to BM25
+  (`bench/potion/README.md`). Cosine belongs as a light term on top of BM25, not instead of it.
+- `kypp/potion.py` must stay token-for-token equal to model2vec, or stored vectors drift from
+  query vectors. `tests/test_potion.py` pins golden ids when the model is cached.
 - `_write` retries an MVCC conflict 5 times with no backoff. Only `turso.OperationalError`
   triggers a rollback.
 - Schema changes are `ADD COLUMN` with a default only: no `NOT NULL`, no version table. Hosts

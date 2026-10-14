@@ -578,12 +578,17 @@ def ollama_embed(model: str, host: str = OLLAMA_DEFAULT_HOST, *, timeout: float 
 def store_from_env(embed: Callable[[str], list[float]] | None = None) -> MemoryStore:
     """Build a store from the kypp CLI env — the shared constructor for the MCP server and wire CLI.
     KYPP_MEMORY_DB = db path; KYPP_REPO_ROOT = the RipgrepResolver's repo; KYPP_EMBED_MODEL set →
-    semantic vector recall via ollama (KYPP_OLLAMA_HOST overrides), else keyword (LIKE) recall."""
+    semantic vector recall: a potion model name/dir embeds locally (kypp/potion.py), anything else via
+    ollama (KYPP_OLLAMA_HOST overrides); unset → keyword (LIKE) recall."""
     db = os.environ.get("KYPP_MEMORY_DB", os.path.expanduser("~/.kypp/memory.db"))
     os.makedirs(os.path.dirname(db) or ".", exist_ok=True)  # bare filename → dirname '' → makedirs raises
-    if embed is None and os.environ.get("KYPP_EMBED_MODEL"):
-        host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
-        embed = ollama_embed(os.environ["KYPP_EMBED_MODEL"], host)
+    model = os.environ.get("KYPP_EMBED_MODEL")
+    if embed is None and model:
+        from .potion import is_potion, potion_embed
+        if is_potion(model):  # local static embeddings: no server, model loads on first embed
+            embed = potion_embed(model)
+        else:
+            embed = ollama_embed(model, os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST))
     return MemoryStore(db, embed=embed, resolver=RipgrepResolver(root=os.environ.get("KYPP_REPO_ROOT", ".")))
 
 
@@ -777,6 +782,8 @@ if __name__ == "__main__":
     # store_from_env wires the embedder from KYPP_EMBED_MODEL (semantic recall) when set, else None
     os.environ["KYPP_MEMORY_DB"], os.environ["KYPP_EMBED_MODEL"] = db, "fake-embed"
     assert store_from_env().embed is not None, "KYPP_EMBED_MODEL should wire an embedder"
+    os.environ["KYPP_EMBED_MODEL"] = "potion-code-16M-v2"  # local embedder; lazy, so no download here
+    assert store_from_env().embed.__qualname__.startswith("potion_embed"), "potion name → local embedder"
     os.environ.pop("KYPP_EMBED_MODEL")
     assert store_from_env().embed is None, "no model → keyword recall"
     os.environ.pop("KYPP_MEMORY_DB")
