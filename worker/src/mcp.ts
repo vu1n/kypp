@@ -222,7 +222,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: st
         type: a.type ?? v.type ?? "fact", subject, content,
         scope: share !== null ? "project" : "room", project: share, origin: share ?? identity, session: ctx.session,
         confidence: a.confidence ?? 0.7, sourceIds: ctx.session && !echoOf.length ? [`session:${ctx.session}`] : [], codeRefs: [],
-        accept: false, agent: identity, user: identity, metadata,
+        accept: false, agent: identity, user: identity, metadata, ...(share !== null ? { sharedFrom: key } : {}),
       });
     }
     case "expand": {

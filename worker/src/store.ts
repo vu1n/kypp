@@ -97,6 +97,8 @@ export interface ClaimInput {
   agent: string | null;
   user: string | null;
   metadata?: Record<string, unknown>;
+  /** A room sharing into `project`: the write lands only while that room is still linked to it. */
+  sharedFrom?: string;
 }
 
 export class D1Store {
@@ -113,15 +115,22 @@ export class D1Store {
     const id = uid(), ts = now();
     const confidence = Math.min(1, Math.max(0, Number(c.confidence) || 0));
     const codeRefs = cleanCodeRefs(c.codeRefs);
-    await this.db.batch([
+    // Why: a room's share is checked against its links before the System One judge runs; the links
+    // can change meanwhile, so the write itself re-checks the link it shares through.
+    // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a lesson leaves the room only into a currently linked origin.
+    const linked = c.sharedFrom === undefined ? { sql: "", args: [] as unknown[] }
+      : { sql: " WHERE EXISTS (SELECT 1 FROM room_links WHERE room = ? AND project = ?)", args: [c.sharedFrom, c.project] };
+    const [inserted] = await this.db.batch([
       this.db.prepare(
         "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,created_at,updated_at)"
-        + " VALUES(?,?,?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?)",
+        + ` SELECT ?,?,?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?${linked.sql}`,
       ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.origin ?? c.project, c.session ?? null, c.agent, c.user,
         c.accept ? "accepted" : "candidate", confidence, JSON.stringify(c.sourceIds), JSON.stringify(codeRefs),
-        JSON.stringify(c.metadata ?? {}), ts, ts),
-      this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
+        JSON.stringify(c.metadata ?? {}), ts, ts, ...linked.args),
+      this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM memory_claims WHERE id = ?)")
+        .bind(id, c.subject, c.content, id),
     ]);
+    if (!inserted.meta.changes) throw new Error(`this room is no longer linked to ${c.project}, so the lesson stays out of it`);
     return id;
   }
 

@@ -133,6 +133,25 @@ test("sharing works only into a linked repo, and records where it came from", as
   assert.match((await coder("recall", { query: "release" })).text, /release notes/);
 });
 
+test("a share lands only if the room is still linked when it is written", async () => {
+  const db = await setup();
+  const { body } = await register(db, "room-a", ["huddles"]);
+  const caller = (await roomCaller(db, body.token, ["huddles"]))!;
+  // The manager unlinks the repo while System One judges the draft.
+  const s1 = { systemOne: async () => {
+    await register(db, "room-a", []);
+    return { answers: {} };
+  } };
+  const req = new Request("https://k/mcp", { method: "POST", headers: { "Mcp-Session-Id": "s1" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "claim", arguments: { subject: "release notes", content: "Release notes list user-visible changes first.", share_to: "huddles" } } }) });
+  const { result } = await (await handleMcp(req, db, caller, { s1 })).json() as any;
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /no longer linked to huddles/);
+  assert.deepEqual(await rows(db), []);
+  assert.deepEqual((await db.prepare("SELECT * FROM claims_fts").all()).results, []);
+});
+
 test("defrag promotes a lesson inside a lane but never moves it out", async () => {
   const db = await setup();
   const a1 = await roomClient(db, "room-a");
