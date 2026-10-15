@@ -61,8 +61,14 @@ const revoke = (db: D1Database, sql: string, ...keys: string[]) => db.prepare(sq
  * removes one bot; `DELETE /rooms/<id>` closes the room for good, so re-registering it is refused.
  */
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — the integration that manages the room sets its links; the bot never does.
-export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean }): Promise<Response> {
+export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean; grant?: string }): Promise<Response> {
   const path = new URL(request.url).pathname;
+  // Why: a paired caller was authenticated before its body was read, and an unlink and a continue
+  // can land in between. Every write re-checks, in the same statement, that the grant still holds
+  // the credential generation (token digest) the caller signed in with.
+  // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a revoked or continued grant's old token can't seat bots, even mid-request.
+  const held = opts.grant === undefined ? { sql: "", args: [] as string[] }
+    : { sql: " AND EXISTS (SELECT 1 FROM room_issuers WHERE name = ? AND token_digest = ? AND revoked_at IS NULL)", args: [issuer, opts.grant] };
   if (request.method === "DELETE" && path.startsWith(`${ROOMS_PATH}/`)) {
     const parts = path.slice(ROOMS_PATH.length + 1).split("/").map(pathSegment);
     const [id, kind, member] = parts;
@@ -72,11 +78,13 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
     }
     const key = `${issuer}:${id}`;
     if (parts.length === 1) {
-      await revoke(db, "UPDATE rooms SET revoked_at = ?, updated_at = ? WHERE key = ? AND revoked_at IS NULL", key);
-      return json({ room: roomIdentity(key), revoked: true });
+      const r = await revoke(db, `UPDATE rooms SET revoked_at = ?, updated_at = ? WHERE key = ? AND revoked_at IS NULL${held.sql}`, key, ...held.args);
+      return r.meta.changes || opts.grant === undefined || await stillHeld(db, issuer, opts.grant)
+        ? json({ room: roomIdentity(key), revoked: true }) : json({ error: "unauthorized" }, 401);
     }
-    await revoke(db, "UPDATE room_members SET revoked_at = ?, updated_at = ? WHERE room = ? AND member = ? AND revoked_at IS NULL", key, member as string);
-    return json({ room: roomIdentity(key), member, revoked: true });
+    const r = await revoke(db, `UPDATE room_members SET revoked_at = ?, updated_at = ? WHERE room = ? AND member = ? AND revoked_at IS NULL${held.sql}`, key, member as string, ...held.args);
+    return r.meta.changes || opts.grant === undefined || await stillHeld(db, issuer, opts.grant)
+      ? json({ room: roomIdentity(key), member, revoked: true }) : json({ error: "unauthorized" }, 401);
   }
   if (request.method !== "POST" || path !== ROOMS_PATH) return json({ error: "POST /rooms or DELETE /rooms/<id>[/members/<member>]" }, 405);
   let body: { id?: unknown; member?: unknown; expires_at?: unknown; links?: unknown };
@@ -110,17 +118,21 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
   const existing = await db.prepare("SELECT revoked_at FROM rooms WHERE key = ?").bind(key).first<{ revoked_at: string | null }>();
   if (existing?.revoked_at) return json({ error: "this room was closed; register it under a new id" }, 409);
   const token = mintToken(), ts = now(), td = await digest(token);
-  await db.batch([
-    db.prepare("INSERT INTO rooms(key, integration, created_at, updated_at) VALUES(?,?,?,?) ON CONFLICT(key) DO NOTHING")
-      .bind(key, issuer, ts, ts),
-    db.prepare(`INSERT INTO room_members(room, member, token_digest, created_at, updated_at, expires_at) VALUES(?,?,?,?,?,?)
+  const [, seated] = await db.batch([
+    db.prepare(`INSERT INTO rooms(key, integration, created_at, updated_at) SELECT ?,?,?,? WHERE 1${held.sql} ON CONFLICT(key) DO NOTHING`)
+      .bind(key, issuer, ts, ts, ...held.args),
+    db.prepare(`INSERT INTO room_members(room, member, token_digest, created_at, updated_at, expires_at) SELECT ?,?,?,?,?,? WHERE 1${held.sql}
       ON CONFLICT(room, member) DO UPDATE SET token_digest = excluded.token_digest, updated_at = excluded.updated_at,
         expires_at = excluded.expires_at, revoked_at = NULL`)
-      .bind(key, member, td, ts, ts, expires),
+      .bind(key, member, td, ts, ts, expires, ...held.args),
     ...(unique === null ? [] : [
       db.prepare("DELETE FROM room_links WHERE room = ?").bind(key),
       ...unique.map((p) => db.prepare("INSERT INTO room_links(room, project, created_at) VALUES(?,?,?)").bind(key, p, ts)),
     ]),
   ]);
+  if (!seated.meta.changes) return json({ error: "unauthorized" }, 401);
   return json({ room: roomIdentity(key), member, token, ...(unique === null ? {} : { links: unique }) }, existing ? 200 : 201);
 }
+
+const stillHeld = async (db: D1Database, name: string, grant: string) =>
+  !!(await db.prepare("SELECT 1 FROM room_issuers WHERE name = ? AND token_digest = ? AND revoked_at IS NULL").bind(name, grant).first());

@@ -193,3 +193,20 @@ test("a seat with an expiry stops working once it passes", async () => {
   await db.prepare("UPDATE room_members SET expires_at = '2020-01-01T00:00:00.000Z'").run();
   assert.equal(await roomCaller(db, token, ["huddles"]), null);
 });
+
+test("a busy linked room's briefing still lists its org's rules", async () => {
+  const db = await setup();
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('vu1n','',?)").bind(TS).run();
+  await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES('huddles','vu1n',?)").bind(TS).run();
+  const put = async (i: number, scope: string, project: string, subject: string) => {
+    const id = i.toString(16).padStart(32, "e");
+    await db.prepare("INSERT INTO memory_claims(id,type,subject,content,scope,project,status,confidence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .bind(id, "fact", subject, `${subject} lesson`, scope, project, "accepted", 0.9, TS, TS).run();
+    await db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, subject, `${subject} lesson`).run();
+  };
+  // More settled repo claims than the briefing's capped pool holds, all ranked above the org.
+  for (let i = 1; i <= 40; i++) await put(i, "project", "huddles", `repo rule ${i}`);
+  await put(99, "group", "vu1n", "draft PRs first");
+  const out = (await (await roomClient(db, "room-a", ["huddles"]))("briefing")).text;
+  assert.match(out, /^# how this org works\n.*draft PRs first/);
+});

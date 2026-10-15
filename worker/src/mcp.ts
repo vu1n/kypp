@@ -183,7 +183,11 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: st
         store.recentUserCandidates(identity, ctx.session, RECENT_USER, "room"),
       ]);
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
-      const org = settled.filter(isOrg).slice(0, ORG_RULES);
+      // Why a read of its own, as in a repo briefing: recall ranks the org last, so a busy room's
+      // capped list would crowd its rules out.
+      const org = orgs.size
+        ? (await store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit: ORG_RULES })).filter(isOrg)
+        : [];
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       await store.recordUsage(ctx.session, [...org, ...claims, ...yours], "briefing", null);
       return (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")

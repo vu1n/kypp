@@ -2,7 +2,7 @@
 // integration redeems its secret handle once, and the issuer token can only manage its own rooms.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type PairingDeps, handlePair, handlePairs, pairedIssuer } from "../src/pairing.ts";
+import { type PairingDeps, handlePair, handlePairs, pairedGrant, pairedIssuer } from "../src/pairing.ts";
 import { handleRooms, roomCaller } from "../src/rooms.ts";
 import { memoryD1 } from "./d1.ts";
 
@@ -201,4 +201,23 @@ test("two pairings can't both continue the same grant", async () => {
   for (const x of [p, q]) await form(db, `/pair/${x.user_code}`, { decision: "approve", secret: "owner-pass", resume: old.issuer });
   assert.equal((await redeem(db, p.handle)).body.issuer, old.issuer);
   assert.equal((await redeem(db, q.handle)).body.error, "access_denied");
+});
+
+test("a request that signed in before an unlink and a continue can't seat a bot after them", async () => {
+  const db = memoryD1();
+  const old = await paired(db);
+  // The request authenticates now, and its write lands later.
+  const signedIn = (await pairedGrant(db, old.token))!;
+  const late = (id: string) => handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id, member: "bot-x" }) }),
+    db, signedIn.name, { canLink: false, grant: signedIn.grant });
+  await unlink(db, old.token);
+  assert.equal((await late("room-1")).status, 401);
+  const p = await start(db);
+  await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: old.issuer });
+  assert.equal((await redeem(db, p.handle)).body.resumed, true);
+  assert.equal((await late("room-2")).status, 401);
+  assert.equal(((await db.prepare("SELECT COUNT(*) AS n FROM room_members").first()) as any).n, 0);
+  assert.equal(((await db.prepare("SELECT COUNT(*) AS n FROM rooms").first()) as any).n, 0);
+  const remove = await handleRooms(new Request(`${base}/rooms/room-1/members/bot-x`, { method: "DELETE" }), db, signedIn.name, { canLink: false, grant: signedIn.grant });
+  assert.equal(remove.status, 401);
 });

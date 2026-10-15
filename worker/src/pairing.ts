@@ -48,12 +48,21 @@ const live = (p: Pairing | null): p is Pairing =>
   !!p && !p.denied_at && !p.redeemed_at && p.expires_at > now();
 
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — an issuer token only registers and revokes its own rooms; it never reads or writes memory.
+/**
+ * The live paired grant a token stands for: its issuer name and the credential generation (the
+ * token's digest) that writes must still find, or null (unknown, revoked, or not one).
+ */
+export async function pairedGrant(db: D1Database, token: string): Promise<{ name: string; grant: string } | null> {
+  if (!token.startsWith("kypi_")) return null;
+  const grant = await digest(token);
+  const row = await db.prepare("SELECT name FROM room_issuers WHERE token_digest = ? AND revoked_at IS NULL")
+    .bind(grant).first<{ name: string }>();
+  return row ? { name: row.name, grant } : null;
+}
+
 /** The issuer name a paired issuer token stands for, or null (unknown, revoked, or not one). */
 export async function pairedIssuer(db: D1Database, token: string): Promise<string | null> {
-  if (!token.startsWith("kypi_")) return null;
-  const row = await db.prepare("SELECT name FROM room_issuers WHERE token_digest = ? AND revoked_at IS NULL")
-    .bind(await digest(token)).first<{ name: string }>();
-  return row?.name ?? null;
+  return (await pairedGrant(db, token))?.name ?? null;
 }
 
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — revoking a paired grant stops every token under it but keeps its rooms, so the owner can continue it later.
