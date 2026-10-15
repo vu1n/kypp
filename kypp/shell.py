@@ -34,8 +34,9 @@ def _identity_args(ap: argparse.ArgumentParser) -> None:
     # authorship provenance for WRITES, defaulting from env (KYPP_USER → OS login; KYPP_AGENT) — records
     # who/what created the claim. Reads are author-blind (memory is shared), so only the write CLIs use this.
     user, agent = identity_from_env()
-    # With KYPP_URL the Worker stamps its owner instead; the operator token is the identity there.
-    ap.add_argument("--user", default=user)
+    ap.add_argument("--user", default=user,
+                    help="authoring user (default KYPP_USER, else OS login); with KYPP_URL the Worker "
+                         "stamps its owner instead, since the operator token is the identity there")
     ap.add_argument("--agent", default=agent)
 
 

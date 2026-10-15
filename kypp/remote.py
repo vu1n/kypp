@@ -25,6 +25,16 @@ def default_project() -> str:
     return os.environ.get("KYPP_PROJECT") or os.path.basename(os.path.abspath(os.path.expanduser(root)))
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # Why: urllib re-sends every header but Content-* on a redirect, to any host, so following one
+    # would hand the operator token (and the verify commands we then run) to wherever it points.
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def call(op: str, **args) -> dict:
     """One operator request. Any failure (no token, unreachable, a refused or bad request) exits the CLI
     with the server's message, never a traceback and never a silent fall back to the local store."""
@@ -36,7 +46,7 @@ def call(op: str, **args) -> dict:
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with _opener.open(req, timeout=60) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
         text = e.read().decode(errors="replace")
@@ -47,6 +57,10 @@ def call(op: str, **args) -> dict:
         raise SystemExit(f"kypp: {url} answered {e.code}: {text.strip()}")
     except urllib.error.URLError as e:
         raise SystemExit(f"kypp: can't reach {url}: {e.reason}")
+    except TimeoutError:
+        raise SystemExit(f"kypp: {url} did not answer in time")
+    except ValueError:
+        raise SystemExit(f"kypp: {url} answered with something other than JSON; is KYPP_URL a kypp Worker?")
 
 
 class OperatorStore:
