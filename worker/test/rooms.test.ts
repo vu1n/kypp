@@ -9,6 +9,9 @@ import { handleRooms, roomCaller } from "../src/rooms.ts";
 import { D1Store } from "../src/store.ts";
 import { memoryD1 } from "./d1.ts";
 
+const CONFIGURED = new Map([["huddles", new Set(["d-huddles"])]]);
+const NONE = new Map<string, Set<string>>();
+
 const TS = "2026-10-14T00:00:00Z";
 
 async function setup() {
@@ -20,7 +23,7 @@ async function setup() {
 }
 
 async function register(db: D1Database, id: string, links: string[] = [], issuer = "huddles") {
-  const res = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id, links }) }), db, issuer, { canLink: true });
+  const res = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id, links }) }), db, issuer, { canLink: true, credential: "d-huddles" });
   return { status: res.status, body: await res.json() as any };
 }
 
@@ -35,7 +38,7 @@ function call(db: D1Database, caller: Caller, session: string, headers: Record<s
 
 async function roomClient(db: D1Database, id: string, links: string[] = [], session = "s1") {
   const { body } = await register(db, id, links);
-  const caller = await roomCaller(db, body.token, ["huddles"]);
+  const caller = await roomCaller(db, body.token, CONFIGURED);
   assert.ok(caller);
   return call(db, caller, session);
 }
@@ -50,8 +53,8 @@ test("registering a room returns a token once and keeps only its digest", async 
   assert.match(body.token, /^kypr_/);
   const stored = (await db.prepare("SELECT * FROM rooms").all()).results[0] as Record<string, string>;
   assert.notEqual(stored.token_digest, body.token);
-  assert.deepEqual(await roomCaller(db, body.token, ["huddles"]), { user: "room:huddles:room-a", agent: "room:huddles:room-a", room: "huddles:room-a" });
-  assert.equal(await roomCaller(db, "kypr_nope", ["huddles"]), null);
+  assert.deepEqual(await roomCaller(db, body.token, CONFIGURED), { user: "room:huddles:room-a", agent: "room:huddles:room-a", room: "huddles:room-a" });
+  assert.equal(await roomCaller(db, "kypr_nope", CONFIGURED), null);
 });
 
 test("links must be registered projects", async () => {
@@ -66,10 +69,10 @@ test("re-registering rotates the token; a revoked room stays revoked", async () 
   const first = (await register(db, "room-a")).body.token;
   const again = await register(db, "room-a", ["pillbox"]);
   assert.equal(again.status, 200);
-  assert.equal(await roomCaller(db, first, ["huddles"]), null);
-  assert.ok(await roomCaller(db, again.body.token, ["huddles"]));
-  await handleRooms(new Request("https://k/rooms/room-a", { method: "DELETE" }), db, "huddles", { canLink: true });
-  assert.equal(await roomCaller(db, again.body.token, ["huddles"]), null);
+  assert.equal(await roomCaller(db, first, CONFIGURED), null);
+  assert.ok(await roomCaller(db, again.body.token, CONFIGURED));
+  await handleRooms(new Request("https://k/rooms/room-a", { method: "DELETE" }), db, "huddles", { canLink: true, credential: "d-huddles" });
+  assert.equal(await roomCaller(db, again.body.token, CONFIGURED), null);
   assert.equal((await register(db, "room-a")).status, 409);
 });
 
@@ -136,7 +139,7 @@ test("sharing works only into a linked repo, and records where it came from", as
 test("a share lands only if the room is still linked when it is written", async () => {
   const db = await setup();
   const { body } = await register(db, "room-a", ["huddles"]);
-  const caller = (await roomCaller(db, body.token, ["huddles"]))!;
+  const caller = (await roomCaller(db, body.token, CONFIGURED))!;
   // The manager unlinks the repo while System One judges the draft.
   const s1 = { systemOne: async () => {
     await register(db, "room-a", []);
@@ -156,7 +159,7 @@ test("defrag promotes a lesson inside a lane but never moves it out", async () =
   const db = await setup();
   const a1 = await roomClient(db, "room-a");
   await a1("claim", { subject: "tone", content: "Keep replies informal here." });
-  const caller = (await roomCaller(db, (await register(db, "room-a")).body.token, ["huddles"]))!;
+  const caller = (await roomCaller(db, (await register(db, "room-a")).body.token, CONFIGURED))!;
   await call(db, caller, "s2")("claim", { subject: "tone", content: "Keep replies informal here." });
   await defrag(new D1Store(db), DEFAULT_POLICY, null);
   const live = (await rows(db)).filter((r) => r.status === "accepted");
@@ -168,7 +171,7 @@ test("defrag promotes a lesson inside a lane but never moves it out", async () =
 test("a room is offered only its own tools", async () => {
   const db = await setup();
   const { body } = await register(db, "room-a");
-  const caller = (await roomCaller(db, body.token, ["huddles"]))!;
+  const caller = (await roomCaller(db, body.token, CONFIGURED))!;
   const req = new Request("https://k/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
   const { result } = await (await handleMcp(req, db, caller)).json() as any;
   const tools = result.tools.map((t: any) => t.name);
@@ -188,29 +191,48 @@ test("a room recall with no words finds nothing rather than browsing", async () 
 test("bots in one room share its lane, and removing one leaves the others", async () => {
   const db = memoryD1();
   const seat = async (member: string, links?: string[]) =>
-    await (await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-a", member, ...(links ? { links } : {}) }) }), db, "huddles", { canLink: true })).json() as any;
+    await (await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-a", member, ...(links ? { links } : {}) }) }), db, "huddles", { canLink: true, credential: "d-huddles" })).json() as any;
   await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('huddles','','t')").run();
   const a = await seat("bot-a", ["huddles"]), b = await seat("bot-b");
   assert.deepEqual(a.links, ["huddles"]);
   assert.equal(b.links, undefined);
   assert.equal(((await db.prepare("SELECT COUNT(*) AS n FROM room_links").first()) as any).n, 1);
-  assert.deepEqual(await roomCaller(db, a.token, ["huddles"]), await roomCaller(db, b.token, ["huddles"]));
-  await handleRooms(new Request("https://k/rooms/room-a/members/bot-a", { method: "DELETE" }), db, "huddles", { canLink: true });
-  assert.equal(await roomCaller(db, a.token, ["huddles"]), null);
-  assert.ok(await roomCaller(db, b.token, ["huddles"]));
-  assert.equal((await handleRooms(new Request("https://k/rooms/room-a/oops/bot-a", { method: "DELETE" }), db, "huddles", { canLink: true })).status, 400);
+  assert.deepEqual(await roomCaller(db, a.token, CONFIGURED), await roomCaller(db, b.token, CONFIGURED));
+  await handleRooms(new Request("https://k/rooms/room-a/members/bot-a", { method: "DELETE" }), db, "huddles", { canLink: true, credential: "d-huddles" });
+  assert.equal(await roomCaller(db, a.token, CONFIGURED), null);
+  assert.ok(await roomCaller(db, b.token, CONFIGURED));
+  assert.equal((await handleRooms(new Request("https://k/rooms/room-a/oops/bot-a", { method: "DELETE" }), db, "huddles", { canLink: true, credential: "d-huddles" })).status, 400);
 });
 
 test("a seat with an expiry stops working once it passes", async () => {
   const db = memoryD1();
   const seat = (expires_at: unknown) =>
-    handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-a", member: "bot-a", expires_at }) }), db, "huddles", { canLink: true });
+    handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-a", member: "bot-a", expires_at }) }), db, "huddles", { canLink: true, credential: "d-huddles" });
   assert.equal((await seat("2020-01-01T00:00:00.000Z")).status, 400);
   assert.equal((await seat("tomorrow")).status, 400);
   const token = (await (await seat("2999-01-01T00:00:00.000Z")).json() as any).token;
-  assert.ok(await roomCaller(db, token, ["huddles"]));
+  assert.ok(await roomCaller(db, token, CONFIGURED));
   await db.prepare("UPDATE room_members SET expires_at = '2020-01-01T00:00:00.000Z'").run();
-  assert.equal(await roomCaller(db, token, ["huddles"]), null);
+  assert.equal(await roomCaller(db, token, CONFIGURED), null);
+});
+
+test("a configured issuer's seat stops with the secret that made it, and a new secret never revives it", async () => {
+  const db = memoryD1();
+  const seat = async (credential?: string) =>
+    (await (await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-a", member: "bot-a" }) }), db, "huddles",
+      { canLink: true, ...(credential ? { credential } : {}) })).json() as any).token as string;
+  const issuers = (...secrets: string[]) => new Map([["huddles", new Set(secrets)]]);
+  const old = await seat("d-old");
+  assert.ok(await roomCaller(db, old, issuers("d-old")));
+  // While a rotation overlaps, both secrets are listed and the old seat still works.
+  assert.ok(await roomCaller(db, old, issuers("d-old", "d-new")));
+  // The name removed, then listed again under a new secret: the old seat stays out.
+  assert.equal(await roomCaller(db, old, NONE), null);
+  assert.equal(await roomCaller(db, old, issuers("d-new")), null);
+  // Seating the bot again under the new secret is what brings it back.
+  assert.ok(await roomCaller(db, await seat("d-new"), issuers("d-new")));
+  // A seat with no recorded secret (made before seats recorded one) never signs in.
+  assert.equal(await roomCaller(db, await seat(), issuers("d-new")), null);
 });
 
 test("a busy linked room's briefing still lists its org's rules", async () => {

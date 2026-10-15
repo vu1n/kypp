@@ -34,19 +34,22 @@ export function pathSegment(raw: string): string | null {
 
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a member token names its room; kypp keeps only the digest, and a revoked member or room, or one whose issuer grant is revoked, never signs in.
 /**
- * The caller a member token stands for: its room's lane. `configured` lists the operator's live
- * issuer names; a paired issuer must still have an unrevoked grant. Checking the grant here is what
- * pauses a revoked grant's rooms without revoking them, so a continued grant brings them back.
+ * The caller a member token stands for: its room's lane. `configured` maps the operator's live
+ * issuer names to the digests of their current secrets, and a configured issuer's seat signs in
+ * only while the secret that made it is one of them; a paired issuer must still have an unrevoked grant. Checking
+ * the grant here is what pauses a revoked grant's rooms without revoking them.
  */
-export async function roomCaller(db: D1Database, token: string, configured: readonly string[]): Promise<Caller | null> {
+export async function roomCaller(db: D1Database, token: string, configured: ReadonlyMap<string, ReadonlySet<string>>): Promise<Caller | null> {
   if (!token.startsWith("kypr_")) return null;
-  const row = await db.prepare(`SELECT r.key, r.integration, i.name AS paired, i.revoked_at AS grant_revoked
+  const row = await db.prepare(`SELECT r.key, r.integration, m.issuer_digest, i.name AS paired, i.revoked_at AS grant_revoked
     FROM room_members m JOIN rooms r ON r.key = m.room LEFT JOIN room_issuers i ON i.name = r.integration
     WHERE m.token_digest = ? AND m.revoked_at IS NULL AND r.revoked_at IS NULL
       AND (m.expires_at IS NULL OR m.expires_at > ?)`)
-    .bind(await digest(token), now()).first<{ key: string; integration: string; paired: string | null; grant_revoked: string | null }>();
+    .bind(await digest(token), now()).first<{ key: string; integration: string; issuer_digest: string | null; paired: string | null; grant_revoked: string | null }>();
   if (!row) return null;
-  const live = row.paired !== null ? row.grant_revoked === null : configured.includes(row.integration);
+  // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a configured issuer's seat dies with the secret that made it, so re-enabling the name under a new secret never revives old seats.
+  const live = row.paired !== null ? row.grant_revoked === null
+    : row.issuer_digest !== null && !!configured.get(row.integration)?.has(row.issuer_digest);
   return live ? { user: roomIdentity(row.key), agent: roomIdentity(row.key), room: row.key } : null;
 }
 
@@ -61,7 +64,8 @@ const revoke = (db: D1Database, sql: string, ...keys: string[]) => db.prepare(sq
  * removes one bot; `DELETE /rooms/<id>` closes the room for good, so re-registering it is refused.
  */
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — the integration that manages the room sets its links; the bot never does.
-export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean; grant?: string }): Promise<Response> {
+/** `credential` is the digest of a configured issuer's secret, recorded on each seat it makes. */
+export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean; grant?: string; credential?: string }): Promise<Response> {
   const path = new URL(request.url).pathname;
   // Why: a paired caller was authenticated before its body was read, and an unlink and a continue
   // can land in between. Every write re-checks, in the same statement, that the grant still holds
@@ -121,10 +125,10 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
   const [, seated] = await db.batch([
     db.prepare(`INSERT INTO rooms(key, integration, created_at, updated_at) SELECT ?,?,?,? WHERE 1${held.sql} ON CONFLICT(key) DO NOTHING`)
       .bind(key, issuer, ts, ts, ...held.args),
-    db.prepare(`INSERT INTO room_members(room, member, token_digest, created_at, updated_at, expires_at) SELECT ?,?,?,?,?,? WHERE 1${held.sql}
+    db.prepare(`INSERT INTO room_members(room, member, token_digest, created_at, updated_at, expires_at, issuer_digest) SELECT ?,?,?,?,?,?,? WHERE 1${held.sql}
       ON CONFLICT(room, member) DO UPDATE SET token_digest = excluded.token_digest, updated_at = excluded.updated_at,
-        expires_at = excluded.expires_at, revoked_at = NULL`)
-      .bind(key, member, td, ts, ts, expires, ...held.args),
+        expires_at = excluded.expires_at, issuer_digest = excluded.issuer_digest, revoked_at = NULL`)
+      .bind(key, member, td, ts, ts, expires, opts.credential ?? null, ...held.args),
     ...(unique === null ? [] : [
       db.prepare("DELETE FROM room_links WHERE room = ?").bind(key),
       ...unique.map((p) => db.prepare("INSERT INTO room_links(room, project, created_at) VALUES(?,?,?)").bind(key, p, ts)),

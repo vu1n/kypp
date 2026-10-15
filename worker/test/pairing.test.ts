@@ -6,6 +6,9 @@ import { type PairingDeps, handlePair, handlePairs, pairedGrant, pairedIssuer } 
 import { handleRooms, roomCaller } from "../src/rooms.ts";
 import { memoryD1 } from "./d1.ts";
 
+const CONFIGURED = new Map([["huddles", new Set(["d-huddles"])]]);
+const NONE = new Map<string, Set<string>>();
+
 const base = "https://k";
 const deps: PairingDeps = { base, checkOwner: async (s) => (s === "owner-pass" ? "ok" : "wrong") };
 
@@ -103,8 +106,8 @@ test("unlinking revokes the issuer token and pauses every room it issued, and no
   const res = await handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${a.token}` } }), db, deps);
   assert.equal(res.status, 200);
   assert.equal(await pairedIssuer(db, a.token), null);
-  assert.equal(await roomCaller(db, ta, []), null);
-  assert.ok(await roomCaller(db, tb, []));
+  assert.equal(await roomCaller(db, ta, NONE), null);
+  assert.ok(await roomCaller(db, tb, NONE));
   assert.equal((await handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${a.token}` } }), db, deps)).status, 401);
 });
 
@@ -138,14 +141,14 @@ test("a room whose grant is revoked never signs in, even if it was registered du
   await handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${a.token}` } }), db, deps);
   // The race: a registration that passed its issuer check before the revoke committed.
   const late = (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-2" }) }), db, a.issuer, { canLink: false })).json() as any).token;
-  assert.equal(await roomCaller(db, late, []), null);
+  assert.equal(await roomCaller(db, late, NONE), null);
 });
 
 test("a configured issuer's rooms close when the operator removes it", async () => {
   const db = memoryD1();
-  const token = (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, "huddles", { canLink: true })).json() as any).token;
-  assert.ok(await roomCaller(db, token, ["huddles"]));
-  assert.equal(await roomCaller(db, token, []), null);
+  const token = (await (await handleRooms(new Request(`${base}/rooms`, { method: "POST", body: JSON.stringify({ id: "bot-1" }) }), db, "huddles", { canLink: true, credential: "d-huddles" })).json() as any).token;
+  assert.ok(await roomCaller(db, token, CONFIGURED));
+  assert.equal(await roomCaller(db, token, NONE), null);
 });
 
 const seat = async (db: D1Database, issuer: string, member: string, id = "room-1") =>
@@ -157,9 +160,9 @@ test("a new pairing can continue an unlinked grant: its rooms come back, its old
   const db = memoryD1();
   const old = await paired(db, "Huddles workspace Launch");
   const bot = await seat(db, old.issuer, "bot-a");
-  const lane = (await roomCaller(db, bot, []))!.room;
+  const lane = (await roomCaller(db, bot, NONE))!.room;
   await unlink(db, old.token);
-  assert.equal(await roomCaller(db, bot, []), null);
+  assert.equal(await roomCaller(db, bot, NONE), null);
 
   const p = await start(db, "Huddles workspace Launch");
   // The code alone doesn't show which apps were unlinked; the passphrase does.
@@ -173,8 +176,8 @@ test("a new pairing can continue an unlinked grant: its rooms come back, its old
   assert.equal(again.issuer, old.issuer);
   assert.equal(again.resumed, true);
   // Old seats stay closed (a bot removed while unlinked can't come back); the app seats its bots again.
-  assert.equal(await roomCaller(db, bot, []), null);
-  assert.equal((await roomCaller(db, await seat(db, again.issuer, "bot-a"), []))!.room, lane);
+  assert.equal(await roomCaller(db, bot, NONE), null);
+  assert.equal((await roomCaller(db, await seat(db, again.issuer, "bot-a"), NONE))!.room, lane);
   assert.equal(await pairedIssuer(db, old.token), null);
   assert.equal(await pairedIssuer(db, again.token), old.issuer);
 });

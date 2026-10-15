@@ -9,7 +9,7 @@ import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
 import { looksLikeJwt, oidcVerifier, owners } from "./oidc.ts";
 import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
-import { ROOMS_PATH, handleRooms, roomCaller } from "./rooms.ts";
+import { ROOMS_PATH, digest, handleRooms, roomCaller } from "./rooms.ts";
 import { PAIRS_PATH, PAIR_PATH, type PairingDeps, handlePair, handlePairs, pairedGrant } from "./pairing.ts";
 
 export interface Env extends S1Env {
@@ -134,19 +134,25 @@ const oidc = oidcVerifier();
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
 // The caller's issuer name: its paired grant, or its KYPP_API_TOKENS name when that is listed in
 // KYPP_ROOM_ISSUERS. Only a configured issuer may link rooms to repos.
-async function roomIssuer(request: Request, env: Env): Promise<{ name: string; grant?: string } | null> {
+async function roomIssuer(request: Request, env: Env): Promise<{ name: string; grant?: string; credential?: string } | null> {
   const token = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) return null;
   const paired = await pairedGrant(env.DB, token);
   if (paired) return paired;
   const name = await tokenName(token, env.KYPP_API_TOKENS);
-  return name && configuredIssuers(env).includes(name) ? { name } : null;
+  const credential = await digest(token);
+  return name && (await configuredIssuers(env)).get(name)?.has(credential) ? { name, credential } : null;
 }
 
-// KYPP_ROOM_ISSUERS names that still have a token; removing either one closes their rooms.
-const configuredIssuers = (env: Env) => {
-  const named = new Set(apiTokens(env.KYPP_API_TOKENS).values());
-  return owners(env.KYPP_ROOM_ISSUERS).filter((n) => named.has(n));
+// KYPP_ROOM_ISSUERS names that still have a token, each with its secrets' digests. Removing either
+// one pauses their rooms; a seat stops working once the secret that made it is gone.
+const configuredIssuers = async (env: Env) => {
+  const listed = new Set(owners(env.KYPP_ROOM_ISSUERS));
+  const issuers = new Map<string, Set<string>>();
+  for (const [secret, name] of apiTokens(env.KYPP_API_TOKENS)) {
+    if (listed.has(name)) issuers.set(name, (issuers.get(name) ?? new Set()).add(await digest(secret)));
+  }
+  return issuers;
 };
 
 // The owner check for kypp's own pages, behind the passphrase rate limit.
@@ -205,7 +211,7 @@ function oauthProvider(base: string): OAuthProvider<Env> {
     resolveExternalToken: async ({ token, env }) => {
       const name = await tokenName(token, env.KYPP_API_TOKENS);
       if (name) return { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` };
-      const room = await roomCaller(env.DB, token, configuredIssuers(env));
+      const room = await roomCaller(env.DB, token, await configuredIssuers(env));
       return room ? { props: room, audience: `${base}/mcp` } : null as any;
     },
   });
@@ -229,7 +235,7 @@ export default {
     if (path === PAIRS_PATH) return handlePairs(request, env.DB, pairingDeps(request, env, base));
     if (path === ROOMS_PATH || path.startsWith(`${ROOMS_PATH}/`)) {
       const issuer = await roomIssuer(request, env);
-      return issuer ? handleRooms(request, env.DB, issuer.name, issuer.grant === undefined ? { canLink: true } : { canLink: false, grant: issuer.grant }) : new Response("unauthorized", { status: 401 });
+      return issuer ? handleRooms(request, env.DB, issuer.name, issuer.grant === undefined ? { canLink: true, credential: issuer.credential } : { canLink: false, grant: issuer.grant }) : new Response("unauthorized", { status: 401 });
     }
     return oauthProvider(base).fetch(request, env, ctx);
   },

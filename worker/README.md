@@ -114,7 +114,9 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
   Unset refuses every OIDC token.
 - `KYPP_API_TOKENS` (secret, `huddles:<long random token>`): static tokens for headless clients.
 - `KYPP_ROOM_ISSUERS` (variable, e.g. `huddles`): `KYPP_API_TOKENS` names that may register chat
-  rooms (see Rooms). Unset refuses every registration.
+  rooms (see Rooms). Unset refuses every registration. Removing a name pauses its bots' seats; each
+  seat is tied to the secret that made it, so to cut those bots off for good, give the name a new
+  secret (old seats stay out even if the name comes back).
 - `KYPP_S1_TOKENS` (secret, `name:<long random token>`): `/v1/systemone` callers outside Actions.
 - `TYPESAFE_API_KEY` (secret): route the gate to TypeSafe instead of Clef on Workers AI.
 
