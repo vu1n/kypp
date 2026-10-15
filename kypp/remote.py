@@ -6,9 +6,11 @@ workerd (`wrangler dev`) is the documented offline fallback; the route and token
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from types import SimpleNamespace
 
@@ -42,6 +44,11 @@ def call(op: str, **args) -> dict:
     token = os.environ.get("KYPP_OPERATOR_TOKEN")
     if not token:
         raise SystemExit("kypp: KYPP_URL is set but KYPP_OPERATOR_TOKEN is not")
+    parts = urllib.parse.urlsplit(url)
+    # Why: the token grants human authority and the answers carry shell commands `kypp verify` runs,
+    # so plain http is allowed only to this machine (the `wrangler dev` fallback).
+    if parts.scheme != "https" and not (parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost", "::1")):
+        raise SystemExit(f"kypp: KYPP_URL must be https:// (or http:// to localhost), got {remote_url()!r}")
     body = json.dumps({"op": op, **{k: v for k, v in args.items() if v is not None}}).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
@@ -61,6 +68,8 @@ def call(op: str, **args) -> dict:
         raise SystemExit(f"kypp: {url} did not answer in time")
     except ValueError:
         raise SystemExit(f"kypp: {url} answered with something other than JSON; is KYPP_URL a kypp Worker?")
+    except (OSError, http.client.HTTPException) as e:
+        raise SystemExit(f"kypp: {url} dropped the connection: {e}")
 
 
 class OperatorStore:

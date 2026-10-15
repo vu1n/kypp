@@ -39,6 +39,13 @@ class RemoteTest(unittest.TestCase):
         self.assertIn("302", str(e.exception))
         self.assertEqual([m for m, _, _ in _Redirect.seen], ["POST"])
 
+    def test_plain_http_is_refused_except_to_this_machine(self):
+        for url in ("http://kypp.example.com", "kypp.example.com", "ftp://kypp.example.com"):
+            with mock.patch.dict(os.environ, {"KYPP_URL": url, "KYPP_OPERATOR_TOKEN": "t"}):
+                with self.assertRaises(SystemExit) as e:
+                    remote.call("recall", query="x")
+                self.assertIn("https", str(e.exception))
+
     def test_no_token_exits_before_any_request(self):
         with mock.patch.dict(os.environ, {"KYPP_URL": "http://127.0.0.1:9"}, clear=False):
             os.environ.pop("KYPP_OPERATOR_TOKEN", None)
