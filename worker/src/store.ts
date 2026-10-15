@@ -1,5 +1,5 @@
 // store.ts — the D1 side of kypp/store.py: claim, recall, get, usage, live claims, status writes.
-import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES } from "./memory.ts";
+import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope } from "./memory.ts";
 import type { ProjectInfo } from "./s1.ts";
 
 const MAX_CONTENT = 4000;
@@ -44,8 +44,8 @@ export type Candidates = "none" | "origin" | "all";
 // What a caller sees: this project, the groups it rolls up to, their own user scope, the global
 // scope, and the unsorted claims their own session wrote; never superseded/rejected history.
 // `t` is the table alias.
-// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
-// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
 function visible(t: string, project: string | null, groups: string[], user: string | null, candidates: Candidates,
   session: string | null): [string, unknown[]] {
   const levels = [`${t}.scope = 'global'`];
@@ -68,6 +68,20 @@ function visible(t: string, project: string | null, groups: string[], user: stri
   return [`(${parts.join(" OR ")})`, params];
 }
 
+/** A room bot's reach: its own lane, plus the projects its room is linked to and their groups. */
+export interface RoomScope { identity: string; links: string[]; groups: string[] }
+
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a room reads its own lane (its unconfirmed lessons too: the room's bots are the whole audience) and its linked origins' accepted memory; never user scope or global.
+function roomVisible(t: string, room: RoomScope, candidates: Candidates): [string, unknown[]] {
+  const status = candidates === "none" ? `${t}.status = 'accepted'` : `${t}.status IN ('candidate','accepted')`;
+  const parts = [`(${status} AND ${t}.scope = 'room' AND ${t}.user = ?)`];
+  const params: unknown[] = [room.identity];
+  const at = candidates === "all" ? `${t}.status IN ('candidate','accepted')` : `${t}.status = 'accepted'`;
+  if (room.links.length) { parts.push(`(${at} AND ${t}.scope = 'project' AND ${t}.project IN (${room.links.map(() => "?").join(",")}))`); params.push(...room.links); }
+  if (room.groups.length) { parts.push(`(${at} AND ${t}.scope = 'group' AND ${t}.project IN (${room.groups.map(() => "?").join(",")}))`); params.push(...room.groups); }
+  return [`(${parts.join(" OR ")})`, params];
+}
+
 export interface ClaimInput {
   type: ClaimType;
   subject: string;
@@ -83,6 +97,8 @@ export interface ClaimInput {
   agent: string | null;
   user: string | null;
   metadata?: Record<string, unknown>;
+  /** A room sharing into `project`: the write lands only while that room is still linked to it. */
+  sharedFrom?: string;
 }
 
 export class D1Store {
@@ -93,21 +109,28 @@ export class D1Store {
   async claim(c: ClaimInput): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
-    if (c.scope === "user" && !c.user) throw new Error("a user-scoped claim needs a signed-in user");
+    if (ownedScope(c.scope) && !c.user) throw new Error(`a ${c.scope}-scoped claim needs a signed-in ${c.scope}`);
     if (!c.subject.trim() || !c.content.trim()) throw new Error("subject and content are required");
     if (c.content.length > MAX_CONTENT) throw new Error(`content over ${MAX_CONTENT} chars; distill it`);
     const id = uid(), ts = now();
     const confidence = Math.min(1, Math.max(0, Number(c.confidence) || 0));
     const codeRefs = cleanCodeRefs(c.codeRefs);
-    await this.db.batch([
+    // Why: a room's share is checked against its links before the System One judge runs; the links
+    // can change meanwhile, so the write itself re-checks the link it shares through.
+    // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a lesson leaves the room only into a currently linked origin.
+    const linked = c.sharedFrom === undefined ? { sql: "", args: [] as unknown[] }
+      : { sql: " WHERE EXISTS (SELECT 1 FROM room_links WHERE room = ? AND project = ?)", args: [c.sharedFrom, c.project] };
+    const [inserted] = await this.db.batch([
       this.db.prepare(
         "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,created_at,updated_at)"
-        + " VALUES(?,?,?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?)",
+        + ` SELECT ?,?,?,?,?,?,?,?,?,?,?,'agent',?,?,?,?,?,?${linked.sql}`,
       ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.origin ?? c.project, c.session ?? null, c.agent, c.user,
         c.accept ? "accepted" : "candidate", confidence, JSON.stringify(c.sourceIds), JSON.stringify(codeRefs),
-        JSON.stringify(c.metadata ?? {}), ts, ts),
-      this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
+        JSON.stringify(c.metadata ?? {}), ts, ts, ...linked.args),
+      this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM memory_claims WHERE id = ?)")
+        .bind(id, c.subject, c.content, id),
     ]);
+    if (!inserted.meta.changes) throw new Error(`this room is no longer linked to ${c.project}, so the lesson stays out of it`);
     return id;
   }
 
@@ -115,16 +138,18 @@ export class D1Store {
   // store.recall: accepted, nearer level (project, then its groups, then user, then global), confidence.
   // The id is last so equal rows come back in the same order on every engine.
   async recall(match: string, project: string | null, user: string | null,
-    opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null } = {}): Promise<Claim[]> {
-    const [where, params] = visible("c", project, opts.groups ?? [], user, opts.candidates ?? "origin", opts.session ?? null);
+    opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null; room?: RoomScope } = {}): Promise<Claim[]> {
+    const [where, params] = opts.room
+      ? roomVisible("c", opts.room, opts.candidates ?? "origin")
+      : visible("c", project, opts.groups ?? [], user, opts.candidates ?? "origin", opts.session ?? null);
     const types = opts.types ?? [];
     let filter = types.length ? ` AND c.type IN (${types.map(() => "?").join(",")})` : "";
     const fparams: unknown[] = [...types];
     if (opts.agent) { filter += " AND c.agent = ?"; fparams.push(opts.agent); }
     // `groups` comes nearest first, so a parent's claim outranks a grandparent's.
-    const groups = opts.groups ?? [];
+    const groups = opts.room?.groups ?? opts.groups ?? [];
     const near = groups.length ? `1 + (CASE c.project ${groups.map((_, i) => `WHEN ? THEN ${i}`).join(" ")} END) * 0.01` : "1";
-    const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC, c.id`;
+    const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'room' THEN 0 WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC, c.id`;
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
     const sql = match
       ? `SELECT c.* FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
@@ -140,12 +165,18 @@ export class D1Store {
   // ambiguity check, so a prefix can't probe for them.
   // An unsorted claim resolves only for the session and user that wrote it, as in recall; with no
   // session on either side it resolves for nobody (NULL never matches).
-  async get(handle: string, user: string | null, session: string | null = null): Promise<Claim | null> {
+  // A room resolves only its own lane and its linked projects and groups, so a guessed prefix can't
+  // reach another repo's or another room's memory.
+  async get(handle: string, user: string | null, session: string | null = null, room?: RoomScope): Promise<Claim | null> {
     if (!/^[0-9a-f]{8,32}$/.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
+    const within = room
+      ? ` AND ((scope = 'room' AND user IS ?) OR (scope = 'project' AND project IN (${["", ...room.links].map(() => "?").join(",")}))`
+        + ` OR (scope = 'group' AND project IN (${["", ...room.groups].map(() => "?").join(",")})))`
+      : "";
     const { results } = await this.db.prepare(
-      "SELECT * FROM memory_claims WHERE id LIKE ? AND (scope != 'user' OR user IS ?)"
-      + " AND NOT (scope = 'project' AND project IS NULL AND NOT (session IS NOT NULL AND session = ? AND user IS ?)) LIMIT 2",
-    ).bind(`${handle}%`, user, session, user).all();
+      "SELECT * FROM memory_claims WHERE id LIKE ? AND (scope NOT IN ('user','room') OR user IS ?)"
+      + " AND NOT (scope = 'project' AND project IS NULL AND NOT (session IS NOT NULL AND session = ? AND user IS ?))" + within + " LIMIT 2",
+    ).bind(`${handle}%`, user, session, user, ...(room ? [room.identity, "", ...room.links, "", ...room.groups] : [])).all();
     if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
     return results.length ? hydrate(results[0]) : null;
   }
@@ -183,11 +214,12 @@ export class D1Store {
 
   // The user's own way of working, written by their other sessions and not yet accepted. A process
   // lesson is learned once per repo at most, so waiting for a second session would hide it for long.
-  async recentUserCandidates(user: string, session: string | null, limit: number): Promise<Claim[]> {
+  // A room's own lane works the same way (`scope` = "room").
+  async recentUserCandidates(user: string, session: string | null, limit: number, scope: "user" | "room" = "user"): Promise<Claim[]> {
     const { results } = await this.db.prepare(
-      "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = 'user' AND user = ? AND session IS NOT ?"
+      "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = ? AND user = ? AND session IS NOT ?"
       + " ORDER BY created_at DESC LIMIT ?",
-    ).bind(user, session, limit).all();
+    ).bind(scope, user, session, limit).all();
     return results.map(hydrate);
   }
 
@@ -204,14 +236,21 @@ export class D1Store {
   // Repeating what it was shown is not independent evidence, so such a claim doesn't count toward
   // accepting the subject.
   // `at` is the claim's level: a project, or the user's own scope.
-  async shownCandidate(session: string, subject: string, at: { project: string } | { user: string }): Promise<string[]> {
-    const [level, key] = "project" in at ? ["c.scope = 'project' AND c.project = ?", at.project] : ["c.scope = 'user' AND c.user = ?", at.user];
+  async shownCandidate(session: string, subject: string, at: { project: string } | { user: string } | { room: string }): Promise<string[]> {
+    const [level, key] = "project" in at ? ["c.scope = 'project' AND c.project = ?", at.project]
+      : "room" in at ? ["c.scope = 'room' AND c.user = ?", at.room] : ["c.scope = 'user' AND c.user = ?", at.user];
     const { results } = await this.db.prepare(
       "SELECT DISTINCT c.id FROM claim_usages u JOIN memory_claims c ON c.id = u.claim_id"
       + ` WHERE u.consumer = ? AND c.subject = ? AND ${level} AND c.status = 'candidate'`
       + " AND c.session IS NOT ?",
     ).bind(session, subject, key, session).all();
     return results.map((r) => r.id as string);
+  }
+
+  /** The registered projects a room may read and share into (memory-scope-decay §11). */
+  async roomLinks(key: string): Promise<string[]> {
+    const { results } = await this.db.prepare("SELECT project FROM room_links WHERE room = ? ORDER BY project").bind(key).all();
+    return results.map((r) => r.project as string);
   }
 
   async projects(): Promise<ProjectInfo[]> {
@@ -304,7 +343,7 @@ export class D1Store {
         this.db.prepare(
           "INSERT INTO consolidation_guard(ok) SELECT 0 WHERE (SELECT COUNT(*) || ':' || IFNULL(MAX(updated_at), '')"
           + " FROM memory_claims WHERE status IN ('candidate','accepted') AND subject = ? AND scope = ? AND project IS ?"
-          + " AND (scope != 'user' OR user IS ?)) != ?",
+          + " AND (scope NOT IN ('user','room') OR user IS ?)) != ?",
         ).bind(subject, scope, project, user, p.version),
         ...p.supersede.map((id) => this.db.prepare("UPDATE memory_claims SET status='superseded', updated_at=? WHERE id=?").bind(ts, id)),
         ...p.promote.map((id) => this.db.prepare("UPDATE memory_claims SET status='accepted', updated_at=? WHERE id=?").bind(ts, id)),

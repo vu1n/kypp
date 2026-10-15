@@ -66,6 +66,30 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
   operator's `kypp correct` (authority-order@0004 also allows a ratified-decision `POST /sync`, not
   built yet).
+- **Rooms** (memory-scope-decay §11): a chat room is its own principal with a private lane, shared
+  by every bot the integration seats there. An integration whose `KYPP_API_TOKENS` name is listed in
+  `KYPP_ROOM_ISSUERS` seats a bot with `POST /rooms {"id": "<room>", "member": "<bot>", "links":
+  ["<registered project>", ...]}` (Bearer: its API token) and gets that member's `kypr_` token once;
+  kypp keeps only its digest; with `"expires_at"` (UTC ISO) the token stops working after that time.
+  The room is registered on first use. Seating the same member again
+  rotates its token; `links`, when given, replaces the room's links. `DELETE
+  /rooms/<id>/members/<member>` removes one bot; `DELETE /rooms/<id>` closes the room for good. On
+  `/mcp` a member token pins everything: the bot reads its room's lane plus its linked projects'
+  settled memory (and their groups), never user scope, global or the project list, and its claims
+  stay in the lane. A claim leaves only with `share_to` naming a linked project; it lands there as a
+  candidate marked `shared_from`. Defrag promotes inside a lane and never moves a claim out of it.
+- **Pairing** (memory-scope-decay §11.7): an app can earn the right to register rooms without any
+  operator config. It calls `POST /pair {"name": "<who is asking>"}` and gets a secret `handle`, a
+  `user_code` like `KQ7M-4TZ2` and a `verification_uri`. It shows the code and link, and polls `POST
+  /pair/token {"handle"}` every `interval` seconds. Until the owner approves, the poll answers
+  `authorization_pending` (RFC 8628 style). The owner opens the link, checks the code and approves
+  with the passphrase. The next poll returns a `kypi_` issuer token once. That token only calls
+  `/rooms` for its own namespace, and can't set links. `DELETE /pair` with it unlinks the app: every
+  token under it stops working, but its rooms and their memory are kept. When approving a later
+  pairing, the owner can choose to continue an unlinked app; the new token takes over its namespace
+  (`"resumed": true` in the redeem answer) and its rooms and memory come back. Its old seats are
+  closed, so the app seats its current bots again. Codes expire in 10
+  minutes. The owner can see and unlink paired apps at `/pairs`.
 - **No Durable Objects.** The MCP endpoint is stateless JSON over HTTP.
 
 ## Deploy
@@ -89,6 +113,10 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
 - `KYPP_OIDC_OWNERS` (variable, e.g. `vu1n`): GitHub owners whose Actions may call `/v1/systemone`.
   Unset refuses every OIDC token.
 - `KYPP_API_TOKENS` (secret, `huddles:<long random token>`): static tokens for headless clients.
+- `KYPP_ROOM_ISSUERS` (variable, e.g. `huddles`): `KYPP_API_TOKENS` names that may register chat
+  rooms (see Rooms). Unset refuses every registration. Removing a name pauses its bots' seats; each
+  seat is tied to the secret that made it, so to cut those bots off for good, give the name a new
+  secret (old seats stay out even if the name comes back).
 - `KYPP_S1_TOKENS` (secret, `name:<long random token>`): `/v1/systemone` callers outside Actions.
 - `TYPESAFE_API_KEY` (secret): route the gate to TypeSafe instead of Clef on Workers AI.
 
@@ -110,7 +138,9 @@ npm run deploy                               # applies migrations, then deploys;
   header is pinned per repo. One Worker holds every repo's memory; a call with no known project
   reads only user and global claims, and its claims land unsorted (see Placement).
 - **Claude (projects and chat):** Settings → Connectors → Add custom connector → `https://<worker>/mcp`.
-- **Headless (huddles):** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
+- **Headless:** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
+- **Chat-room bots (Huddles):** register the room (see Rooms) and give the bot its `kypr_` token as
+  `Authorization: Bearer`.
 
 ## Develop
 
