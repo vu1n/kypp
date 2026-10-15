@@ -90,6 +90,9 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
   Unset refuses every OIDC token.
 - `KYPP_API_TOKENS` (secret, `huddles:<long random token>`): static tokens for headless clients.
 - `KYPP_S1_TOKENS` (secret, `name:<long random token>`): `/v1/systemone` callers outside Actions.
+- `KYPP_OPERATOR_TOKEN` (secret, a long random token): the operator's `kypp` CLI on `POST /v1/operator`.
+  It is the only credential that writes human authority (`kypp correct`), verify commands and
+  verified results (`kypp verify`) here. Unset, the route answers 404. It never works on `/mcp`.
 - `TYPESAFE_API_KEY` (secret): route the gate to TypeSafe instead of Clef on Workers AI.
 
 From a checkout instead of the button:
@@ -111,6 +114,10 @@ npm run deploy                               # applies migrations, then deploys;
   reads only user and global claims, and its claims land unsorted (see Placement).
 - **Claude (projects and chat):** Settings → Connectors → Add custom connector → `https://<worker>/mcp`.
 - **Headless (huddles):** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
+- **The `kypp` CLI (operator):** `KYPP_URL=https://<worker> KYPP_OPERATOR_TOKEN=<token> KYPP_PROJECT=<repo>`.
+  `recall`, `show`, `briefing`, `remember`, `correct`, `reject` and `verify` then use this Worker;
+  `verify` still runs each check on your machine. `wrangler dev` plus `KYPP_URL=http://127.0.0.1:8787`
+  is the offline fallback, with the same route and token.
 
 ## Develop
 

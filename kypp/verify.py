@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 
+from . import remote
 from .store import MemoryStore, store_from_env
 
 
@@ -63,7 +64,9 @@ def main():
     ap.add_argument("--timeout", type=float, default=30)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
-    res = verify_project(store_from_env(), project=args.project, subject=args.subject,
+    # With KYPP_URL the checks still run here; only the claim list and the verdicts go to the Worker.
+    store = remote.OperatorStore() if remote.remote_url() else store_from_env()
+    res = verify_project(store, project=args.project, subject=args.subject,
                          cwd=args.cwd, timeout=args.timeout)
     if args.json:
         print(json.dumps(res, indent=2))

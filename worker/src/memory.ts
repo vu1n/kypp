@@ -56,6 +56,7 @@ export interface Claim {
   code_refs: Record<string, unknown>[];
   created_at: string;
   updated_at: string;
+  verify?: string | null; // the operator's freshness command; set only through POST /v1/operator
 }
 
 // Context: doc://kypp/authority-order@0007#authority-dominates — rank survivors by authority first; agent < verified < human.

@@ -35,7 +35,7 @@ async function rows(db: D1Database): Promise<Row[]> {
 }
 
 // Models a future regression: tools/call's verify argument is written onto the row.
-// The production schema has no verify column; this wrapper adds one only in the test.
+// The verify column exists for the operator route (migration 0005); MCP must never fill it.
 function forwardingDb(base: D1Database, forwarded: { value: string | null }): D1Database {
   return {
     prepare(sql: string) {
@@ -135,7 +135,6 @@ test("declared tools have no verifier parameter and every tool is called", async
 
 test("a verifier forwarded through tools/call fails the ordinary collector", async () => {
   const db = memoryD1();
-  await db.prepare("ALTER TABLE memory_claims ADD COLUMN verify TEXT").run();
   await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)")
     .bind("pillbox", "", "2026-10-13T00:00:00Z").run();
   const forwarded = { value: "true" as string | null };
@@ -160,7 +159,6 @@ test("a verifier forwarded through tools/call fails the ordinary collector", asy
 
 test("a null verifier column is absence, and privileged authority still fails the assertion", async () => {
   const db = memoryD1();
-  await db.prepare("ALTER TABLE memory_claims ADD COLUMN verify TEXT").run();
   await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)")
     .bind("pillbox", "", "2026-10-13T00:00:00Z").run();
   await call(db, "tools/call", {

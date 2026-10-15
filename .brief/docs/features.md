@@ -47,10 +47,12 @@ statuses and authorities.
 paths:
   - "kypp/view.py"
   - "kypp/shell.py"
+  - "kypp/remote.py"
 ```
 
 `kypp recall`, `briefing`, `show`, `remember`, `correct`, `reject` and `usage` print one compact
-handle line per claim, and `show` expands a handle to the full claim.
+handle line per claim, and `show` expands a handle to the full claim. With `KYPP_URL` set, all but
+`usage` go to the hosted Worker (`kypp/remote.py`) and never open the local store.
 
 ### Gotchas
 - The briefing is the same top-N accepted claims for every task. It is not task-conditioned
@@ -104,6 +106,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   into `caf` and `日本語` into an empty match. A recall query with text but no words returns
   nothing, never browse results. Recall order ends in `c.id`, so ties don't depend on the engine.
   `worker/bench/replay` replays one query set against every store to check this.
+- `POST /v1/operator` (`worker/src/operator.ts`, `kypp/remote.py`) is the only hosted writer of human
+  authority, `verify` commands and verified results, behind `KYPP_OPERATOR_TOKEN`. Keep
+  `D1Store.operatorClaim`, `markVerified` and `operatorReject` off every MCP path, and log each in
+  `defrag_log`. `markVerified` mirrors `MemoryStore.mark_verified`: change one, change both.
 - The OAuth resource id is exactly `<KYPP_PUBLIC_URL>/mcp`. A path or query suffix on the MCP URL
   breaks token audience checks, so the project travels as a tool argument or the
   `X-Kypp-Project` header.

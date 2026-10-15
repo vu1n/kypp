@@ -26,3 +26,4 @@ authority-dominates amend-proposed: qualify correct as the only local human writ
 scope-keys-decay amend-proposed: Permit separate principal-private expiring handoff/evidence-reference records; no claim promotion or task authority.
 compose-surface amend-proposed: Permit append_context/query_context as a bounded hosted memory contribution; clients retain context assembly.
 authority-dominates amend-proposed: operator correct/verify write human and verified authority through authenticated POST /v1/operator (KYPP_OPERATOR_TOKEN) once the local store is removed
+operator-only-verify conforms: kypp remember/correct --verify still attach verify commands only from the operator's CLI (now also via KYPP_OPERATOR_TOKEN on POST /v1/operator); MCP tools take no verify argument; kypp verify still runs checks on the operator's machine with run_check unchanged

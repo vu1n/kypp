@@ -9,6 +9,8 @@ import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
 import { looksLikeJwt, oidcVerifier, owners } from "./oidc.ts";
 import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
+import { OPERATOR_PATH, handleOperator } from "./operator.ts";
+import { sameSecret } from "./secret.ts";
 
 export interface Env extends S1Env {
   DB: D1Database;
@@ -19,6 +21,7 @@ export interface Env extends S1Env {
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
   KYPP_S1_TOKENS?: string; // "name:token,..." for /v1/systemone only; never accepted on /mcp
+  KYPP_OPERATOR_TOKEN?: string; // the operator's kypp CLI on /v1/operator only; unset = that route is 404
   KYPP_OIDC_OWNERS?: string; // "owner,owner": GitHub owners whose Actions OIDC tokens may call /v1/systemone; unset refuses OIDC
   KYPP_RECUR_GAP_MINUTES?: string;  // default 60: how far apart the supporting sessions must be
   KYPP_CORRECT?: string;            // "off" hides the trust-based `correct` tool
@@ -41,14 +44,7 @@ async function allowAttempt(request: Request, env: Env, limiter = env.AUTH_LIMIT
 }
 const tooMany = () => new Response("Too many attempts. Wait a minute and try again.", { status: 429 });
 
-const enc = new TextEncoder();
 const escape = (v: string) => v.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
-
-async function sameSecret(a: string, b: string): Promise<boolean> {
-  // Hash both sides first so lengths match for the constant-time compare.
-  const [ha, hb] = await Promise.all([a, b].map((v) => crypto.subtle.digest("SHA-256", enc.encode(v))));
-  return crypto.subtle.timingSafeEqual(ha, hb);
-}
 
 function consentPage(d: { clientName: string; clientDomain?: string; redirectHost: string; redirectIsLoopback: boolean }, handle: string, error = ""): string {
   const name = escape(d.clientName);
@@ -189,6 +185,8 @@ export default {
     // its own tokens, never KYPP_API_TOKENS or OAuth, so a CI caller can reach the model but not memory.
     const base = publicBase(env, request);
     if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => systemOneCaller(token, env, base));
+    // The operator's CLI (KYPP_URL): its own secret, never OAuth or KYPP_API_TOKENS, and never on /mcp.
+    if (path === OPERATOR_PATH) return handleOperator(request, env.DB, env.KYPP_OPERATOR_TOKEN, { s1: s1Client(env), policy: policyFrom(env) });
     return oauthProvider(base).fetch(request, env, ctx);
   },
 

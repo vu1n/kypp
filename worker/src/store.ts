@@ -111,6 +111,75 @@ export class D1Store {
     return id;
   }
 
+  // Context: doc://kypp/authority-order@0007#authority-dominates — only POST /v1/operator calls this; it is the hosted writer of human authority and of verify commands.
+  // An operator write (kypp correct/remember over KYPP_URL) plus its defrag_log row, in one batch.
+  async operatorClaim(c: ClaimInput, authority: "agent" | "human", verify: string | null, op: string): Promise<string> {
+    if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
+    if (!SCOPES.includes(c.scope) || c.scope === "group") throw new Error(`bad scope ${c.scope}`);
+    if (c.scope === "project" && !c.project) throw new Error("a project-scoped operator claim needs a known project");
+    if (!c.subject.trim() || !c.content.trim()) throw new Error("subject and content are required");
+    if (c.content.length > MAX_CONTENT) throw new Error(`content over ${MAX_CONTENT} chars; distill it`);
+    const id = uid(), ts = now();
+    const confidence = Math.min(1, Math.max(0, Number(c.confidence) || 0));
+    await this.db.batch([
+      this.db.prepare(
+        "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,verify,created_at,updated_at)"
+        + " VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,'[]','[]','{}',?,?,?)",
+      ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.project, c.agent, c.user,
+        c.accept || authority === "human" ? "accepted" : "candidate", authority, confidence, verify, ts, ts),
+      this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
+      this.logOperator(id, op, c.scope === "project" ? c.project : null, `authority=${authority}${verify ? " verify" : ""}`),
+    ]);
+    return id;
+  }
+
+  // Every claim the operator's `kypp verify` re-checks in this project: any status, so a rejected
+  // claim revives when its check passes again, except a superseded human claim (as kypp/store.py).
+  async verifiable(project: string, user: string | null, subject?: string): Promise<Claim[]> {
+    let sql = "SELECT * FROM memory_claims WHERE verify IS NOT NULL AND NOT (authority = 'human' AND status = 'superseded')"
+      + " AND ((scope = 'project' AND project = ?) OR scope = 'global' OR (scope = 'user' AND user IS ?))";
+    const binds: unknown[] = [project, user];
+    if (subject) { sql += " AND subject = ?"; binds.push(subject); }
+    const { results } = await this.db.prepare(sql).bind(...binds).all();
+    return results.map(hydrate);
+  }
+
+  // Context: doc://kypp/authority-order@0007#authority-dominates — verify raises agent → verified, never lowers human.
+  // The hosted kypp/store.py mark_verified, logged: pass → accepted at verified authority (a human claim
+  // keeps human and its updated_at); fail → rejected. A superseded human claim stays superseded.
+  async markVerified(id: string, passed: boolean): Promise<boolean> {
+    const status = `CASE WHEN authority = 'human' AND status = 'superseded' THEN status ELSE '${passed ? "accepted" : "rejected"}' END`;
+    const [r] = await this.db.batch([
+      this.db.prepare(
+        `UPDATE memory_claims SET status = ${status},`
+        + (passed ? " authority = CASE WHEN authority = 'human' THEN 'human' ELSE 'verified' END," : "")
+        + " updated_at = CASE WHEN authority = 'human' THEN updated_at ELSE ? END WHERE id = ? AND verify IS NOT NULL",
+      ).bind(now(), id),
+      this.logOperator(id, "verify", null, passed ? "passed" : "failed", "SELECT 1 FROM memory_claims WHERE id = ? AND verify IS NOT NULL"),
+    ]);
+    return r.meta.changes > 0;
+  }
+
+  // Takes a claim out of recall by handle, keeping a superseded claim superseded (as kypp/store.py
+  // reject), with the reason in its metadata and a defrag_log row.
+  async operatorReject(id: string, reason: string | null): Promise<void> {
+    await this.db.batch([
+      this.db.prepare(
+        "UPDATE memory_claims SET status = CASE WHEN status = 'superseded' THEN status ELSE 'rejected' END,"
+        + " updated_at = ?, metadata = CASE WHEN ? IS NULL THEN metadata ELSE json_set(metadata, '$.rejected_reason', ?) END WHERE id = ?",
+      ).bind(now(), reason, reason, id),
+      this.logOperator(id, "reject", null, reason),
+    ]);
+  }
+
+  // One defrag_log row for an operator write, so every human/verified change can be traced.
+  // `when` (a query on the claim id) skips the row when the write it logs would not apply.
+  private logOperator(id: string, op: string, project: string | null, reason: string | null, when?: string): D1PreparedStatement {
+    const sql = "INSERT INTO defrag_log(id, claim_id, action, from_project, to_project, score, reason, created_at)"
+      + (when ? ` SELECT ?, ?, ?, NULL, ?, NULL, ?, ? WHERE EXISTS (${when})` : " VALUES(?, ?, ?, NULL, ?, NULL, ?, ?)");
+    return this.db.prepare(sql).bind(uid(), id, `operator:${op}`, project, reason, now(), ...(when ? [id] : []));
+  }
+
   // Browse (empty match) = strongest first; otherwise bm25 relevance, then the same tie-breaks as
   // store.recall: accepted, nearer level (project, then its groups, then user, then global), confidence.
   // The id is last so equal rows come back in the same order on every engine.

@@ -86,7 +86,7 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
-interface Ctx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy; correct: boolean }
+export interface ToolCtx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy; correct: boolean }
 
 export interface McpOptions {
   s1?: S1Client | null;
@@ -120,7 +120,7 @@ const ORG_RULES = 8; // accepted claims at the caller's org, listed first in a b
 const RECENT_USER = 5; // the user's own unconfirmed process and preferences, from their other sessions
 const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
 
-async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
+export async function callTool(store: D1Store, name: string, a: Args, ctx: ToolCtx): Promise<string> {
   // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
   const origin: string | null = a.project || ctx.project || null;
   const projects = name === "expand" ? [] : await store.projects();
@@ -224,7 +224,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
   throw new Error(`unknown tool ${name}`);
 }
 
-async function dispatch(msg: Rpc, store: D1Store, ctx: Ctx) {
+async function dispatch(msg: Rpc, store: D1Store, ctx: ToolCtx) {
   const ok = (result: unknown) => ({ jsonrpc: "2.0", id: msg.id, result });
   const err = (code: number, message: string) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
   switch (msg.method) {
@@ -269,7 +269,7 @@ export async function handleMcp(request: Request, db: D1Database, caller: Caller
   const issued = isInit ? await issueSession(opts.sessionKey) : null;
   const session = issued ? issued.split(".")[0] : await verifySession(opts.sessionKey, request.headers.get(SESSION_HEADER));
   const store = new D1Store(db);
-  const ctx: Ctx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY, correct: opts.correct ?? true };
+  const ctx: ToolCtx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY, correct: opts.correct ?? true };
   const replies = [];
   for (const m of msgs) {
     if (m.id === undefined) continue; // notifications get no reply
