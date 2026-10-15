@@ -168,7 +168,7 @@ const ORG_RULES = 8; // accepted claims at the caller's org, listed first in a b
 const RECENT_USER = 5; // the user's own unconfirmed process and preferences, from their other sessions
 const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
 
-// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — a room's token pins its lane and links; the project and scope arguments and the header are ignored, and no project list is shown.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a room's token pins its lane and links; the project and scope arguments and the header are ignored, and no project list is shown.
 async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: string): Promise<string> {
   const identity = roomIdentity(key);
   const links = await store.roomLinks(key);
@@ -199,7 +199,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: st
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
       const share = a.share_to === undefined || a.share_to === null || a.share_to === "" ? null : String(a.share_to);
-      // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — a lesson leaves the room only by an explicit share into a linked origin.
+      // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a lesson leaves the room only by an explicit share into a linked origin.
       if (share !== null && !links.includes(share)) {
         throw new Error(links.length ? `share_to must be one of this room's linked repos: ${links.join(", ")}` : "this room is linked to no repo, so lessons stay in the room");
       }
@@ -233,7 +233,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: st
 
 async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
   if (ctx.caller.room) return roomTool(store, name, a, ctx, ctx.caller.room);
-  // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
+  // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
   const origin: string | null = a.project || ctx.project || null;
   const projects = name === "expand" ? [] : await store.projects();
   const names = projects.map((p) => p.name);
@@ -251,10 +251,10 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
         store.orgs(groups),
         // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
         project ? store.recentCandidates(project, ctx.session, RECENT) : [],
-        // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — user scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
+        // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — user scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
         user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
       ]);
-      // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — an org's rules apply to every contributor, so they come first under their own heading.
+      // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — an org's rules apply to every contributor, so they come first under their own heading.
       // Why a read of its own: recall ranks the org (the farthest group) last, so a busy repo's capped list would crowd it out.
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const org = orgs.size
@@ -277,12 +277,12 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
     }
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
-      // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — a cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
+      // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
       const v = await judge(ctx.s1, { subject, content, project });
       if (v.keep !== null && v.keep < DROP_BELOW) {
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
       }
-      // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — reads are a channel between agents, so the gate holds back control text aimed at them.
+      // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — reads are a channel between agents, so the gate holds back control text aimed at them.
       if (v.control !== null && v.control > CONTROL_ABOVE) {
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson about the code or the person (p_control=${v.control.toFixed(2)}).`;
       }
@@ -292,7 +292,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
         throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
       }
       const scope: "project" | "user" = a.scope ?? "project";
-      // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
+      // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
       const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
       const echoOf = ctx.session && at ? await store.shownCandidate(ctx.session, subject, at) : [];
       const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}) };

@@ -70,7 +70,8 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   by every bot the integration seats there. An integration whose `KYPP_API_TOKENS` name is listed in
   `KYPP_ROOM_ISSUERS` seats a bot with `POST /rooms {"id": "<room>", "member": "<bot>", "links":
   ["<registered project>", ...]}` (Bearer: its API token) and gets that member's `kypr_` token once;
-  kypp keeps only its digest. The room is registered on first use. Seating the same member again
+  kypp keeps only its digest; with `"expires_at"` (UTC ISO) the token stops working after that time.
+  The room is registered on first use. Seating the same member again
   rotates its token; `links`, when given, replaces the room's links. `DELETE
   /rooms/<id>/members/<member>` removes one bot; `DELETE /rooms/<id>` closes the room for good. On
   `/mcp` a member token pins everything: the bot reads its room's lane plus its linked projects'
@@ -86,7 +87,8 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   `/rooms` for its own namespace, and can't set links. `DELETE /pair` with it unlinks the app: every
   token under it stops working, but its rooms and their memory are kept. When approving a later
   pairing, the owner can choose to continue an unlinked app; the new token takes over its namespace
-  (`"resumed": true` in the redeem answer) and its rooms and bots work again. Codes expire in 10
+  (`"resumed": true` in the redeem answer) and its rooms and memory come back. Its old seats are
+  closed, so the app seats its current bots again. Codes expire in 10
   minutes. The owner can see and unlink paired apps at `/pairs`.
 - **No Durable Objects.** The MCP endpoint is stateless JSON over HTTP.
 

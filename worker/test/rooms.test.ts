@@ -181,3 +181,15 @@ test("bots in one room share its lane, and removing one leaves the others", asyn
   assert.ok(await roomCaller(db, b.token, ["huddles"]));
   assert.equal((await handleRooms(new Request("https://k/rooms/room-a/oops/bot-a", { method: "DELETE" }), db, "huddles", { canLink: true })).status, 400);
 });
+
+test("a seat with an expiry stops working once it passes", async () => {
+  const db = memoryD1();
+  const seat = (expires_at: unknown) =>
+    handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-a", member: "bot-a", expires_at }) }), db, "huddles", { canLink: true });
+  assert.equal((await seat("2020-01-01T00:00:00.000Z")).status, 400);
+  assert.equal((await seat("tomorrow")).status, 400);
+  const token = (await (await seat("2999-01-01T00:00:00.000Z")).json() as any).token;
+  assert.ok(await roomCaller(db, token, ["huddles"]));
+  await db.prepare("UPDATE room_members SET expires_at = '2020-01-01T00:00:00.000Z'").run();
+  assert.equal(await roomCaller(db, token, ["huddles"]), null);
+});

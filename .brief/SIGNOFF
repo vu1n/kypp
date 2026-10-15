@@ -31,3 +31,5 @@ scope-keys-decay amend-proposed: Let an integration get a room-issuer grant by a
 scope-keys-decay conforms: room lanes and pairing implement memory-scope-decay §11 as ratified by Vu (@0006 room lanes, @0007 pairing issuers); the amend-proposed lines above are those ratified proposals.
 scope-keys-decay amend-proposed: Room lanes belong to the room with a token per member bot; revoking a paired grant pauses it and the owner may continue it from a new pairing.
 scope-keys-decay conforms: room members, kept rooms on unlink and continued paired grants implement memory-scope-decay §11.1 and §11.7 as ratified by Vu (@0008).
+scope-keys-decay amend-proposed: Seats may expire; continuing a paired grant restores its rooms but closes its old seats, which the app re-seats.
+scope-keys-decay conforms: expiring seats and closing old seats on continue implement memory-scope-decay §11.1 and §11.7 as ratified by Vu (@0009).

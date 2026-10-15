@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS rooms (
 CREATE TABLE IF NOT EXISTS room_members (
   room TEXT NOT NULL, member TEXT NOT NULL, token_digest TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, revoked_at TEXT,
+  -- When the issuer gave one, the seat's token stops working after it (the bot's access ending).
+  expires_at TEXT,
   PRIMARY KEY (room, member)
 );
 -- The registered projects a room may read and share into. Set by whoever manages the room, never by

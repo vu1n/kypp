@@ -298,7 +298,8 @@ inside its roll-up.
 1. **A room lane is a principal.** Each room gets its own kypp identity, `room:<id>`. Every bot
    the integration seats in that room gets its own *member* token for the same identity (amended
    2026-10-14, ratified by Vu), so bots come and go and the room keeps its memory; removing a bot
-   revokes only its member token. Claims are stored with `scope='room'`, keyed by that identity the
+   revokes only its member token. A seat may carry an expiry, after which its token stops working
+   (amended 2026-10-15, ratified by Vu). Claims are stored with `scope='room'`, keyed by that identity the
    way `user` claims are keyed by the person. The lane's audience is that room's bots alone; another
    room, a coding agent or the operator's session never sees it in `recall` or `briefing`.
 2. **The credential pins everything.** For a room identity the server sets origin and lane from the
@@ -334,7 +335,9 @@ inside its roll-up.
    lane for good. Revoking an issuer grant stops every token under it and stops new ones, but keeps
    its rooms, members and claims (amended 2026-10-14, ratified by Vu): when approving a later
    pairing, the owner may *continue* a revoked paired grant, and the new token takes over its
-   namespace, so its rooms and members work again. Only revoked grants can be continued, and the
+   namespace, so its rooms and their memory come back. Its old seats do not (amended 2026-10-15,
+   ratified by Vu): continuing closes them and the app seats its current bots again, so a bot removed
+   while the app was unlinked stays out. Only revoked grants can be continued, and the
    page says continuing hands the app that grant's room memory. The integration can revoke its own
    grant, the owner can revoke any paired grant, and the operator can remove a configured name.
    Claims stay as history (append-only), and an operator can still read them.

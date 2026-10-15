@@ -153,7 +153,7 @@ const seat = async (db: D1Database, issuer: string, member: string, id = "room-1
 const unlink = (db: D1Database, token: string) =>
   handlePair(new Request(`${base}/pair`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }), db, deps);
 
-test("a new pairing can continue an unlinked grant, and its rooms and bots work again", async () => {
+test("a new pairing can continue an unlinked grant: its rooms come back, its old seats don't", async () => {
   const db = memoryD1();
   const old = await paired(db, "Huddles workspace Launch");
   const bot = await seat(db, old.issuer, "bot-a");
@@ -172,7 +172,9 @@ test("a new pairing can continue an unlinked grant, and its rooms and bots work 
   const again = (await redeem(db, p.handle)).body;
   assert.equal(again.issuer, old.issuer);
   assert.equal(again.resumed, true);
-  assert.equal((await roomCaller(db, bot, []))!.room, lane);
+  // Old seats stay closed (a bot removed while unlinked can't come back); the app seats its bots again.
+  assert.equal(await roomCaller(db, bot, []), null);
+  assert.equal((await roomCaller(db, await seat(db, again.issuer, "bot-a"), []))!.room, lane);
   assert.equal(await pairedIssuer(db, old.token), null);
   assert.equal(await pairedIssuer(db, again.token), old.issuer);
 });

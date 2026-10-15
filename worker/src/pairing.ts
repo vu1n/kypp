@@ -47,7 +47,7 @@ interface Pairing {
 const live = (p: Pairing | null): p is Pairing =>
   !!p && !p.denied_at && !p.redeemed_at && p.expires_at > now();
 
-// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — an issuer token only registers and revokes its own rooms; it never reads or writes memory.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — an issuer token only registers and revokes its own rooms; it never reads or writes memory.
 /** The issuer name a paired issuer token stands for, or null (unknown, revoked, or not one). */
 export async function pairedIssuer(db: D1Database, token: string): Promise<string | null> {
   if (!token.startsWith("kypi_")) return null;
@@ -56,7 +56,7 @@ export async function pairedIssuer(db: D1Database, token: string): Promise<strin
   return row?.name ?? null;
 }
 
-// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — revoking a paired grant stops every token under it but keeps its rooms, so the owner can continue it later.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — revoking a paired grant stops every token under it but keeps its rooms, so the owner can continue it later.
 /** Revokes a paired grant. Its rooms stay; `roomCaller` refuses their tokens while it is revoked. */
 async function revokeIssuer(db: D1Database, name: string): Promise<void> {
   await db.prepare("UPDATE room_issuers SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL").bind(now(), name).run();
@@ -73,7 +73,7 @@ const revokedGrants = (db: D1Database) =>
  * /pair/<code>` is the owner's approval page; `DELETE /pair` (Bearer: the issuer token) unlinks.
  * The caller rate-limits `POST /pair`, which anyone can reach.
  */
-// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — pairing needs both the owner's approval on kypp and the integration's secret handle; codes expire in 10 minutes and redeem once.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — pairing needs both the owner's approval on kypp and the integration's secret handle; codes expire in 10 minutes and redeem once.
 export async function handlePair(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (path === PAIR_PATH && request.method === "POST") return start(request, db, deps);
@@ -139,8 +139,18 @@ async function redeem(request: Request, db: D1Database): Promise<Response> {
   if (p.resume) {
     // Only a still-revoked grant is taken over, so a live one (or one another pairing just
     // continued) can't be.
-    const resumed = await db.prepare("UPDATE room_issuers SET token_digest = ?, label = ?, revoked_at = NULL WHERE name = ? AND revoked_at IS NOT NULL")
-      .bind(await digest(token), p.name, p.resume).run();
+    const ts = now();
+    // The rooms come back, but no seat does: a bot removed while the app was unlinked couldn't be
+    // unseated then, so the app seats its current bots again. One batch, so the seats are closed
+    // before the new token can be used.
+    const [resumed] = await db.batch([
+      db.prepare("UPDATE room_issuers SET token_digest = ?, label = ?, revoked_at = NULL WHERE name = ? AND revoked_at IS NOT NULL")
+        .bind(await digest(token), p.name, p.resume),
+      db.prepare(`UPDATE room_members SET revoked_at = ?, updated_at = ? WHERE revoked_at IS NULL
+        AND room IN (SELECT key FROM rooms WHERE integration = ?)
+        AND EXISTS (SELECT 1 FROM room_issuers WHERE name = ? AND token_digest = ?)`)
+        .bind(ts, ts, p.resume, p.resume, await digest(token)),
+    ]);
     if (!resumed.meta.changes) return json({ error: "access_denied" }, 400);
     return json({ issuer: p.resume, token, token_type: "Bearer", resumed: true });
   }
@@ -178,14 +188,14 @@ async function approve(request: Request, db: D1Database, deps: PairingDeps, code
       }
     }
   }
-  // Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — only a revoked paired grant can be continued, and the page says it hands over that grant's room memory.
+  // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — only a revoked paired grant can be continued, and the page says it hands over that grant's room memory.
   const choices = earlier === null ? "" : `<fieldset><legend>Room memory</legend>
 <p><label><input type="radio" name="resume" value="" checked style="width:auto"> Start new, empty room memory</label></p>
 ${earlier.map((g) => `<p><label><input type="radio" name="resume" value="${escape(g.name)}" style="width:auto"> Continue the memory of
 <strong>${escape(g.label)}</strong> (paired ${escape(g.created_at.slice(0, 10))}, unlinked ${escape(g.revoked_at.slice(0, 10))})</label></p>`).join("")}
 ${earlier.length ? "" : "<p>No unlinked apps to continue.</p>"}
-<p>Continuing gives this app every room that earlier link made, and the bots it seated there work again.
-Only continue the same app you unlinked. Enter the passphrase again to approve.</p></fieldset>`;
+<p>Continuing gives this app every room that earlier link made and the memory in them; the app seats
+its bots again. Only continue the same app you unlinked. Enter the passphrase again to approve.</p></fieldset>`;
   const buttons = earlier === null
     ? `<button name="decision" value="approve">Approve</button><button name="decision" value="choose">Continue an earlier link…</button><button name="decision" value="deny" formnovalidate>Deny</button>`
     : `<button name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button>`;
@@ -204,7 +214,7 @@ ${PASSPHRASE}
 }
 
 /** `GET /pairs` asks for the passphrase; `POST /pairs` lists paired grants and revokes one if asked. */
-// Context: doc://kypp/memory-scope-decay@0008#scope-keys-decay — the owner can revoke any paired grant, which pauses every room it issued.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — the owner can revoke any paired grant, which pauses every room it issued.
 export async function handlePairs(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const form = (error = "") => page("kypp paired apps", `<h1>Paired apps</h1>
 ${error ? `<p class="err">${escape(error)}</p>` : ""}
