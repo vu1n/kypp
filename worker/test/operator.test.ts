@@ -41,6 +41,7 @@ test("correct writes human authority, supersedes the subject's agent claim, and 
   assert.equal(human.user, "owner");
   assert.equal((await row(agent.id)).status, "superseded");
   assert.deepEqual(await logged(res.body!.id), ["operator:correct"]);
+  assert.deepEqual(await logged(agent.id), ["operator:remember", "operator:supersede"]);
 });
 
 test("verify lists a project's verifier claims and records each verdict, logged", async () => {
@@ -69,6 +70,14 @@ test("a passing check keeps a human claim human; a failing one rejects it", asyn
   assert.equal((await row(id)).authority, "human");
   await call({ op: "mark_verified", id, passed: false });
   assert.equal((await row(id)).status, "rejected");
+});
+
+test("a superseded human claim is not re-checked: a newer correction replaced it", async () => {
+  const { call } = await setup();
+  const old = (await call({ op: "correct", subject: "s", content: "old answer", project: "p", verify: "true" })).body!.id;
+  await call({ op: "correct", subject: "s", content: "new answer", project: "p" });
+  const listed = (await call({ op: "verifiable", project: "p" })).body!.claims.map((c: any) => c.id);
+  assert.ok(!listed.includes(old), "superseded human claim listed for verify");
 });
 
 test("project writes need a registered project; unknown ops write nothing", async () => {

@@ -57,7 +57,7 @@ def verify_project(store: MemoryStore, *, project: str | None = None, subject: s
 def main():
     ap = argparse.ArgumentParser(
         description="re-check config/fact claims against ground truth (deterministic freshness channel)")
-    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
+    ap.add_argument("--project", default=remote.default_project() if remote.remote_url() else os.environ.get("KYPP_PROJECT", "default"))
     ap.add_argument("--subject", help="limit to one subject (default: every verifier-carrying claim in the project)")
     ap.add_argument("--cwd", default=os.environ.get("KYPP_REPO_ROOT", "."),
                     help="working dir the checks run in (default: KYPP_REPO_ROOT, else cwd)")

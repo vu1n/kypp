@@ -17,6 +17,14 @@ def remote_url() -> str | None:
     return os.environ.get("KYPP_URL") or None
 
 
+def default_project() -> str:
+    """The project for hosted calls: KYPP_PROJECT, else the repo directory's name. The Worker knows
+    projects by their registered names (as the MCP `X-Kypp-Project` header sends them), so the local
+    store's path-derived key (`-Users-me-code-foo`) would never match one."""
+    root = os.environ.get("KYPP_REPO_ROOT", ".")
+    return os.environ.get("KYPP_PROJECT") or os.path.basename(os.path.abspath(os.path.expanduser(root)))
+
+
 def call(op: str, **args) -> dict:
     """One operator request. Any failure (no token, unreachable, a refused or bad request) exits the CLI
     with the server's message, never a traceback and never a silent fall back to the local store."""

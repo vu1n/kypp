@@ -70,7 +70,7 @@ const TOOLS = [
   },
   {
     name: "correct",
-    description: "Record the right answer a human gave you for a subject memory got wrong. Lands accepted at top confidence and supersedes weaker agent claims on the subject, at agent authority (only the operator's local `kypp correct` writes human authority). Returns the claim id.",
+    description: "Record the right answer a human gave you for a subject memory got wrong. Lands accepted at top confidence and supersedes weaker agent claims on the subject, at agent authority (only the operator's `kypp correct` writes human authority). Returns the claim id.",
     inputSchema: {
       type: "object", required: ["subject", "content"],
       properties: { subject: { type: "string" }, content: { type: "string" }, type: { type: "string", enum: TYPES, default: "fact" }, project: projectProp },

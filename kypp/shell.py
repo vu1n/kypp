@@ -27,13 +27,14 @@ from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, SURFACES, TYPES
 def _project_arg(ap: argparse.ArgumentParser) -> None:
     # default single-sourced with the MCP server: explicit KYPP_PROJECT, else the per-repo key derived
     # from KYPP_REPO_ROOT — so `kypp recall` and the attached MCP read the SAME project bucket.
-    ap.add_argument("--project", default=project_from_env())
+    ap.add_argument("--project", default=remote.default_project() if remote.remote_url() else project_from_env())
 
 
 def _identity_args(ap: argparse.ArgumentParser) -> None:
     # authorship provenance for WRITES, defaulting from env (KYPP_USER → OS login; KYPP_AGENT) — records
     # who/what created the claim. Reads are author-blind (memory is shared), so only the write CLIs use this.
     user, agent = identity_from_env()
+    # With KYPP_URL the Worker stamps its owner instead; the operator token is the identity there.
     ap.add_argument("--user", default=user)
     ap.add_argument("--agent", default=agent)
 
@@ -59,7 +60,8 @@ def _local_only(what: str) -> None:
 def _session_arg(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--session", default=os.environ.get("KYPP_SESSION"),
                     help="record that this run/session was shown the results — usage provenance "
-                         "(run->claims-consumed), the foundation for outcome-driven memory quality")
+                         "(run->claims-consumed), the foundation for outcome-driven memory quality; "
+                         "local store only, not recorded with KYPP_URL")
 
 
 def recall_main():

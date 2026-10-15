@@ -89,7 +89,7 @@ export class D1Store {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
-  // Context: doc://kypp/authority-order@0007#authority-dominates — claims written here are agent authority; human and verified come only from the operator's `kypp correct`/`kypp verify` (via POST /v1/operator, once built) and authenticated POST /sync imports.
+  // Context: doc://kypp/authority-order@0007#authority-dominates — claims written here are agent authority; human and verified come only from operatorClaim/markVerified (POST /v1/operator) and authenticated POST /sync imports, once built.
   async claim(c: ClaimInput): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
@@ -170,6 +170,12 @@ export class D1Store {
       ).bind(now(), reason, reason, id),
       this.logOperator(id, "reject", null, reason),
     ]);
+  }
+
+  // The claims an operator correction superseded (through the consolidation pass), one log row each,
+  // so a status change a human write caused is traced like the write itself.
+  async logSuperseded(ids: string[], by: string): Promise<void> {
+    if (ids.length) await this.db.batch(ids.map((id) => this.logOperator(id, "supersede", null, `by ${by}`)));
   }
 
   // One defrag_log row for an operator write, so every human/verified change can be traced.

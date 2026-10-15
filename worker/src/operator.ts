@@ -68,10 +68,13 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       if (!human) return { id, status: (await store.get(id, OPERATOR_USER))!.status };
       // As kypp correct: the new human claim supersedes the subject's other live claims.
       const filter = { scope, project: where, subject, ...(scope === "user" ? { user: OPERATOR_USER } : {}) };
-      const before = (await store.liveClaims(filter)).filter((c) => c.id !== id).length;
+      const live = async () => new Set((await store.liveClaims(filter)).map((c) => c.id));
+      const before = await live();
       await consolidate(store, opts.policy ?? DEFAULT_POLICY, opts.s1 ?? null, filter);
-      const after = (await store.liveClaims(filter)).filter((c) => c.id !== id).length;
-      return { id, superseded: before - after };
+      const after = await live();
+      const superseded = [...before].filter((c) => c !== id && !after.has(c));
+      await store.logSuperseded(superseded, id);
+      return { id, superseded: superseded.length };
     }
     case "reject": {
       const c = await store.get(str(a.handle), OPERATOR_USER);
