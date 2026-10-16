@@ -135,6 +135,16 @@ write time an agent knows where it learned something, not how general it is.
    The user axis stays a write-time choice: a claim about how this person works (a preference or
    workflow) is still marked `user` by the agent, as `scope=user` is today, and is read from every
    repo. That marks *who* a lesson is about, not how general it is, so it needs no defrag move.
+   **Pinned tokens.** An operator may pin a `KYPP_API_TOKENS` token to a list of registered projects
+   (`name@projA|projB:token`). For such a caller the origin comes only from the pin: the
+   `X-Kypp-Project` header or the `project` argument selects among pinned projects (a single pin is
+   the default), and a name outside the pin is refused with an error, never remapped and never
+   answered with the registered-project list. Its project-scope writes must name a pinned project, so
+   they never land unsorted; §8.1's "a write with no origin, or an unknown one, still lands" does not
+   apply to it. Defrag's *File* step chooses only among the pin for any claim that token wrote, and a
+   pinned issuer (§11) links rooms only inside its pin. Unpinned tokens and OAuth grants keep §8.1 as
+   written.
+
 2. **Reads cascade.** `recall` and `briefing` take the caller's origin and return matches from origin,
    every group or org the origin rolls up to, user, and global, each line labelled with its level and
    status. Relevance ranks first, as the compose contract and today's Worker query do; nearness to the

@@ -18,7 +18,7 @@ on:
         required: true
   workflow_run:           # another PR workflow finished: retry the auto-merge (re-run
     # `brief init --ci` after adding or renaming a workflow)
-    workflows: ["spec-consistency", "worker"]
+    workflows: ["brief-amendments", "spec-consistency", "worker"]
     types: [completed]
 jobs:
   govern:
