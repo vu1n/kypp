@@ -18,6 +18,7 @@ import sys
 # updated_at) is the point. _claim_dict is the trimmed agent contract; don't unify the two.
 from dataclasses import asdict
 
+from . import remote
 from .store import BadHandle, Claim, MemoryStore, identity_from_env, project_from_env, store_from_env
 from .view import briefing_claims, render_claims
 from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, SURFACES, TYPES
@@ -26,14 +27,16 @@ from .vocab import HUMAN_CORRECTION_CONFIDENCE, SCOPES, SURFACES, TYPES
 def _project_arg(ap: argparse.ArgumentParser) -> None:
     # default single-sourced with the MCP server: explicit KYPP_PROJECT, else the per-repo key derived
     # from KYPP_REPO_ROOT — so `kypp recall` and the attached MCP read the SAME project bucket.
-    ap.add_argument("--project", default=project_from_env())
+    ap.add_argument("--project", default=remote.default_project() if remote.remote_url() else project_from_env())
 
 
 def _identity_args(ap: argparse.ArgumentParser) -> None:
     # authorship provenance for WRITES, defaulting from env (KYPP_USER → OS login; KYPP_AGENT) — records
     # who/what created the claim. Reads are author-blind (memory is shared), so only the write CLIs use this.
     user, agent = identity_from_env()
-    ap.add_argument("--user", default=user)
+    ap.add_argument("--user", default=user,
+                    help="authoring user (default KYPP_USER, else OS login); with KYPP_URL the Worker "
+                         "stamps its owner instead, since the operator token is the identity there")
     ap.add_argument("--agent", default=agent)
 
 
@@ -50,10 +53,16 @@ def _resolve_handle(store: MemoryStore, handle: str) -> Claim:
     return c
 
 
+def _local_only(what: str) -> None:
+    """Refuse a flag the hosted backend doesn't offer, rather than drop it silently."""
+    raise SystemExit(f"kypp: {what} needs the local store; unset KYPP_URL to use it")
+
+
 def _session_arg(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--session", default=os.environ.get("KYPP_SESSION"),
                     help="record that this run/session was shown the results — usage provenance "
-                         "(run->claims-consumed), the foundation for outcome-driven memory quality")
+                         "(run->claims-consumed), the foundation for outcome-driven memory quality; "
+                         "local store only, not recorded with KYPP_URL")
 
 
 def recall_main():
@@ -68,8 +77,14 @@ def recall_main():
     ap.add_argument("--json", action="store_true", help="full claims as JSON instead of compact lines")
     _session_arg(ap)
     args = ap.parse_args()
-    store = store_from_env()
     query = " ".join(args.query)
+    if remote.remote_url():
+        if args.json:
+            _local_only("--json")
+        print(remote.call("recall", query=query, project=args.project, types=args.types,
+                          include_candidates=args.candidates, limit=args.limit)["text"])
+        return
+    store = store_from_env()
     claims = store.recall(query, project=args.project, types=args.types,
                           include_candidates=args.candidates, limit=args.limit)
     store.record_usage(args.session, claims, surface="recall", project=args.project, query=query or None)
@@ -80,6 +95,9 @@ def show_main():
     ap = argparse.ArgumentParser(description="expand a claim handle (id or 8-char prefix) to the full claim")
     ap.add_argument("handle")
     args = ap.parse_args()
+    if remote.remote_url():
+        print(json.dumps(remote.call("show", handle=args.handle)["claim"], indent=2))
+        return
     print(json.dumps(asdict(_resolve_handle(store_from_env(), args.handle)), indent=2))
 
 
@@ -97,12 +115,18 @@ def remember_main():
     _project_arg(ap)
     _identity_args(ap)
     args = ap.parse_args()
-    store = store_from_env()
-    cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
-                      confidence=args.confidence, accept=args.accept, verify=args.verify,
-                      user=args.user, agent=args.agent)
-    # read the status back rather than re-spelling the store's rule (accept/authority decide it).
-    status = store.get(cid).status
+    if remote.remote_url():
+        res = remote.call("remember", type=args.type, subject=args.subject, content=args.content, scope=args.scope,
+                          project=args.project, confidence=args.confidence, accept=args.accept,
+                          verify=args.verify, agent=args.agent)
+        cid, status = res["id"], res["status"]
+    else:
+        store = store_from_env()
+        cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
+                          confidence=args.confidence, accept=args.accept, verify=args.verify,
+                          user=args.user, agent=args.agent)
+        # read the status back rather than re-spelling the store's rule (accept/authority decide it).
+        status = store.get(cid).status
     print(f"{cid[:8]} [{status} {args.type}] {args.subject}")
     if status == "candidate":
         # the footgun this warns about: briefing + default recall are accepted-only, so a naively
@@ -121,6 +145,11 @@ def briefing_main():
                          "lessons) — the same-project retry digest, not just accepted swarm truth")
     _session_arg(ap)
     args = ap.parse_args()
+    if remote.remote_url():
+        if args.candidates:
+            _local_only("--candidates")
+        print(remote.call("briefing", project=args.project, limit=args.limit)["text"])
+        return
     store = store_from_env()
     claims = briefing_claims(store, args.project, args.limit, include_candidates=args.candidates)
     store.record_usage(args.session, claims, surface="briefing", project=args.project)
@@ -145,9 +174,18 @@ def correct_main():
     _project_arg(ap)
     _identity_args(ap)
     args = ap.parse_args()
+    if remote.remote_url():
+        if args.semantic is not None:
+            _local_only("--semantic")
+        # Context: doc://kypp/authority-order@0007#authority-dominates — the operator's human writer; with KYPP_URL it writes through POST /v1/operator.
+        res = remote.call("correct", type=args.type, subject=args.subject, content=args.content, scope=args.scope,
+                          project=args.project, confidence=args.confidence, verify=args.verify, agent=args.agent)
+        print(f"{res['id'][:8]} [human {args.type}] {args.subject} — corrected; "
+              f"superseded {res['superseded']} prior claim(s)")
+        return
     from .arbiter import consolidate
     store = store_from_env()
-    # Context: doc://kypp/authority-order@0007#authority-dominates — the operator's human writer; writes here until POST /v1/operator is built (POST /sync, once built, is the import path)
+    # Context: doc://kypp/authority-order@0007#authority-dominates — the operator's human writer; without KYPP_URL it writes the local store.
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
                       confidence=args.confidence, authority="human", verify=args.verify,
                       user=args.user, agent=args.agent)
@@ -166,11 +204,16 @@ def reject_main():
     ap.add_argument("handle", help="claim id or 8-char prefix (from `kypp recall` / `kypp briefing`)")
     ap.add_argument("--reason", help="why it's being rejected — recorded in the claim's metadata for audit")
     args = ap.parse_args()
-    store = store_from_env()
-    c = _resolve_handle(store, args.handle)
-    store.reject(c.id, reason=args.reason)
-    status = store.get(c.id).status  # a superseded claim stays superseded (reason still recorded)
-    print(f"{c.id[:8]} [{status} {c.type}] {c.subject}" + (f" — {args.reason}" if args.reason else ""))
+    if remote.remote_url():
+        c = remote.call("reject", handle=args.handle, reason=args.reason)["claim"]
+        cid, status, ctype, subject = c["id"], c["status"], c["type"], c["subject"]
+    else:
+        store = store_from_env()
+        c = _resolve_handle(store, args.handle)
+        store.reject(c.id, reason=args.reason)
+        status = store.get(c.id).status  # a superseded claim stays superseded (reason still recorded)
+        cid, ctype, subject = c.id, c.type, c.subject
+    print(f"{cid[:8]} [{status} {ctype}] {subject}" + (f" — {args.reason}" if args.reason else ""))
 
 
 def usage_main():

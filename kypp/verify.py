@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 
+from . import remote
 from .store import MemoryStore, store_from_env
 
 
@@ -56,14 +57,16 @@ def verify_project(store: MemoryStore, *, project: str | None = None, subject: s
 def main():
     ap = argparse.ArgumentParser(
         description="re-check config/fact claims against ground truth (deterministic freshness channel)")
-    ap.add_argument("--project", default=os.environ.get("KYPP_PROJECT", "default"))
+    ap.add_argument("--project", default=remote.default_project() if remote.remote_url() else os.environ.get("KYPP_PROJECT", "default"))
     ap.add_argument("--subject", help="limit to one subject (default: every verifier-carrying claim in the project)")
     ap.add_argument("--cwd", default=os.environ.get("KYPP_REPO_ROOT", "."),
                     help="working dir the checks run in (default: KYPP_REPO_ROOT, else cwd)")
     ap.add_argument("--timeout", type=float, default=30)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
-    res = verify_project(store_from_env(), project=args.project, subject=args.subject,
+    # With KYPP_URL the checks still run here; only the claim list and the verdicts go to the Worker.
+    store = remote.OperatorStore() if remote.remote_url() else store_from_env()
+    res = verify_project(store, project=args.project, subject=args.subject,
                          cwd=args.cwd, timeout=args.timeout)
     if args.json:
         print(json.dumps(res, indent=2))

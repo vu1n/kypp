@@ -165,6 +165,7 @@ advisory flag set at recall when a code-anchored claim's anchors all fail to res
 | var | meaning |
 |---|---|
 | `KYPP_MEMORY_DB` | store path (default `~/.kypp/memory.db`) |
+| `KYPP_URL` | a hosted kypp Worker: `recall`, `show`, `briefing`, `remember`, `correct`, `reject` and `verify` use it through `POST /v1/operator` instead of the local store (unset → local). Needs `KYPP_OPERATOR_TOKEN`; see `worker/README.md` |
 | `KYPP_PROJECT` | project binding; unset → **derived from `KYPP_REPO_ROOT`** (its path as a `/`→`-` key, matching what `sweep` files under) so serve + CLI + capture share one bucket per repo; `sweep`/`capture` instead derive each session's project from its pillbox log path (`global/` vs `projects/<key>/`) |
 | `KYPP_REPO_ROOT` | repo the ripgrep code-resolver grounds against, and the source of the derived `KYPP_PROJECT` key (default `.`) |
 | `KYPP_USER` | authoring human, stamped on every claim as provenance (default: OS login) |

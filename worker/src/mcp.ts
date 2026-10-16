@@ -73,7 +73,7 @@ const TOOLS = [
   },
   {
     name: "correct",
-    description: "Record the right answer a human gave you for a subject memory got wrong. Lands accepted at top confidence and supersedes weaker agent claims on the subject, at agent authority (only the operator's local `kypp correct` writes human authority). Returns the claim id.",
+    description: "Record the right answer a human gave you for a subject memory got wrong. Lands accepted at top confidence and supersedes weaker agent claims on the subject, at agent authority (only the operator's `kypp correct` writes human authority). Returns the claim id.",
     inputSchema: {
       type: "object", required: ["subject", "content"],
       properties: { subject: { type: "string" }, content: { type: "string" }, type: { type: "string", enum: TYPES, default: "fact" }, project: projectProp },
@@ -135,7 +135,7 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
-interface Ctx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy; correct: boolean }
+export interface ToolCtx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy; correct: boolean }
 
 export interface McpOptions {
   s1?: S1Client | null;
@@ -170,7 +170,7 @@ const RECENT_USER = 5; // the user's own unconfirmed process and preferences, fr
 const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
 
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a room's token pins its lane and links; the project and scope arguments and the header are ignored, and no project list is shown.
-async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: string): Promise<string> {
+async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key: string): Promise<string> {
   const identity = roomIdentity(key);
   const links = await store.roomLinks(key);
   const groups = [...new Set((await Promise.all(links.map((l) => store.ancestors(l)))).flat())];
@@ -236,7 +236,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: st
   throw new Error(`unknown tool ${name}`);
 }
 
-async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
+export async function callTool(store: D1Store, name: string, a: Args, ctx: ToolCtx): Promise<string> {
   if (ctx.caller.room) return roomTool(store, name, a, ctx, ctx.caller.room);
   // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
   const pin = ctx.caller.projects;
@@ -251,7 +251,7 @@ async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promis
 }
 
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a pinned token's project comes only from its pin; a name outside it is refused, never remapped, and no project list is shown.
-async function pinnedTool(store: D1Store, name: string, a: Args, ctx: Ctx, pin: string[]): Promise<string> {
+async function pinnedTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, pin: string[]): Promise<string> {
   const allowed = (await store.projects()).filter((p) => pin.includes(p.name));
   const names = allowed.map((p) => p.name);
   const mayUse = names.length ? `this token may use: ${names.join(", ")}` : "this token may use no registered project";
@@ -276,7 +276,7 @@ async function pinnedTool(store: D1Store, name: string, a: Args, ctx: Ctx, pin: 
   return repoTool(store, name, a, ctx, { project, origin: project, projects: allowed, note });
 }
 
-async function repoTool(store: D1Store, name: string, a: Args, ctx: Ctx,
+async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
   at: { project: string | null; origin: string | null; projects: ProjectInfo[]; note: string }): Promise<string> {
   const { project, origin, projects, note } = at;
   const user = ctx.caller.user;
@@ -375,7 +375,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: Ctx,
   throw new Error(`unknown tool ${name}`);
 }
 
-async function dispatch(msg: Rpc, store: D1Store, ctx: Ctx) {
+async function dispatch(msg: Rpc, store: D1Store, ctx: ToolCtx) {
   const ok = (result: unknown) => ({ jsonrpc: "2.0", id: msg.id, result });
   const err = (code: number, message: string) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
   switch (msg.method) {
@@ -420,7 +420,7 @@ export async function handleMcp(request: Request, db: D1Database, caller: Caller
   const issued = isInit ? await issueSession(opts.sessionKey) : null;
   const session = issued ? issued.split(".")[0] : await verifySession(opts.sessionKey, request.headers.get(SESSION_HEADER));
   const store = new D1Store(db);
-  const ctx: Ctx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY, correct: opts.correct ?? true };
+  const ctx: ToolCtx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY, correct: opts.correct ?? true };
   const replies = [];
   for (const m of msgs) {
     if (m.id === undefined) continue; // notifications get no reply

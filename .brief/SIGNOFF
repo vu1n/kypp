@@ -33,3 +33,4 @@ scope-keys-decay amend-proposed: Room lanes belong to the room with a token per 
 scope-keys-decay conforms: room members, kept rooms on unlink and continued paired grants implement memory-scope-decay §11.1 and §11.7 as ratified by Vu (@0008).
 scope-keys-decay amend-proposed: Seats may expire; continuing a paired grant restores its rooms but closes its old seats, which the app re-seats.
 scope-keys-decay conforms: expiring seats and closing old seats on continue implement memory-scope-decay §11.1 and §11.7 as ratified by Vu (@0009).
+operator-only-verify conforms: kypp remember/correct --verify still attach verify commands only from the operator's CLI (now also via KYPP_OPERATOR_TOKEN on POST /v1/operator); MCP tools take no verify argument; kypp verify still runs checks on the operator's machine with run_check unchanged

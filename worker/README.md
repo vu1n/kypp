@@ -124,6 +124,9 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
   seat is tied to the secret that made it, so to cut those bots off for good, give the name a new
   secret (old seats stay out even if the name comes back).
 - `KYPP_S1_TOKENS` (secret, `name:<long random token>`): `/v1/systemone` callers outside Actions.
+- `KYPP_OPERATOR_TOKEN` (secret, a long random token): the operator's `kypp` CLI on `POST /v1/operator`.
+  It is the only credential that writes human authority (`kypp correct`), verify commands and
+  verified results (`kypp verify`) here. Unset, the route answers 404. It never works on `/mcp`.
 - `TYPESAFE_API_KEY` (secret): route the gate to TypeSafe instead of Clef on Workers AI.
 
 From a checkout instead of the button:
@@ -147,6 +150,10 @@ npm run deploy                               # applies migrations, then deploys;
 - **Headless:** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
 - **Chat-room bots (Huddles):** register the room (see Rooms) and give the bot its `kypr_` token as
   `Authorization: Bearer`.
+- **The `kypp` CLI (operator):** `KYPP_URL=https://<worker> KYPP_OPERATOR_TOKEN=<token> KYPP_PROJECT=<repo>`.
+  `recall`, `show`, `briefing`, `remember`, `correct`, `reject` and `verify` then use this Worker;
+  `verify` still runs each check on your machine. `wrangler dev` plus `KYPP_URL=http://127.0.0.1:8787`
+  is the offline fallback, with the same route and token.
 
 ## Develop
 
