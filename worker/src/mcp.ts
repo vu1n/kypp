@@ -12,6 +12,7 @@ export interface Caller {
   user: string | null;    // who signed in (OAuth props) or the API token's name
   agent: string | null;   // the client that holds the token
   room?: string | null;   // a room lane's key (memory-scope-decay §11); user and agent are then its identity
+  projects?: string[];    // a pinned static token's projects: it may read and write only these
 }
 
 const VERSIONS = ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"];
@@ -238,15 +239,49 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: Ctx, key: st
 async function callTool(store: D1Store, name: string, a: Args, ctx: Ctx): Promise<string> {
   if (ctx.caller.room) return roomTool(store, name, a, ctx, ctx.caller.room);
   // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
+  const pin = ctx.caller.projects;
+  if (pin) return pinnedTool(store, name, a, ctx, pin);
   const origin: string | null = a.project || ctx.project || null;
   const projects = name === "expand" ? [] : await store.projects();
   const names = projects.map((p) => p.name);
   // Why: the header is set in config and the argument by the model, so a wrong argument falls back to the header.
   const project = resolveOrigin(a.project, names) ?? resolveOrigin(ctx.project, names);
+  const note = project ? "" : `note: ${origin ? `"${origin}" is not a known project` : "no project given"}, so this shows user and global memory only, plus your own session's unsorted claims. Known projects: ${known(projects)}.\n`;
+  return repoTool(store, name, a, ctx, { project, origin, projects, note });
+}
+
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a pinned token's project comes only from its pin; a name outside it is refused, never remapped, and no project list is shown.
+async function pinnedTool(store: D1Store, name: string, a: Args, ctx: Ctx, pin: string[]): Promise<string> {
+  const allowed = (await store.projects()).filter((p) => pin.includes(p.name));
+  const names = allowed.map((p) => p.name);
+  const mayUse = names.length ? `this token may use: ${names.join(", ")}` : "this token may use no registered project";
+  const pick = (given: unknown) => {
+    const project = resolveOrigin(String(given), names);
+    if (!project) throw new Error(`"${given}" is not a project ${mayUse}`);
+    return project;
+  };
+  // Why: the argument wins over the header as for other callers, but each must be inside the pin.
+  const project = a.project ? pick(a.project) : ctx.project ? pick(ctx.project) : names.length === 1 ? names[0] : null;
+  if (name === "expand") {
+    const c = await store.get(String(a.handle ?? ""), ctx.caller.user, ctx.session);
+    const groups = new Set((await Promise.all(names.map((p) => store.ancestors(p)))).flat());
+    const visible = c && (c.scope === "project" ? c.project === null || names.includes(c.project) : c.scope === "group" ? groups.has(c.project ?? "") : true);
+    if (!c || !visible) throw new Error(`unknown claim handle ${a.handle}`);
+    await store.recordUsage(ctx.session, [c], "expand", c.project);
+    return JSON.stringify(claimDict(c), null, 2);
+  }
+  // Why: an unsorted claim from a pinned token could be filed anywhere, so it must name its project.
+  if (!project && name === "claim" && a.scope !== "user") throw new Error(`say which project this lesson is about: ${mayUse}`);
+  const note = project ? "" : `note: no project given, so this shows user and global memory only; ${mayUse}.\n`;
+  return repoTool(store, name, a, ctx, { project, origin: project, projects: allowed, note });
+}
+
+async function repoTool(store: D1Store, name: string, a: Args, ctx: Ctx,
+  at: { project: string | null; origin: string | null; projects: ProjectInfo[]; note: string }): Promise<string> {
+  const { project, origin, projects, note } = at;
   const user = ctx.caller.user;
   // Why: a read without a known project used to return less with no sign of it.
   const groups = project && name !== "expand" ? await store.ancestors(project) : [];
-  const note = project ? "" : `note: ${origin ? `"${origin}" is not a known project` : "no project given"}, so this shows user and global memory only, plus your own session's unsorted claims. Known projects: ${known(projects)}.\n`;
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);

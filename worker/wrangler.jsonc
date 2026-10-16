@@ -33,7 +33,8 @@
   "triggers": { "crons": ["17 * * * *"] }
   // Secrets (wrangler secret put): KYPP_OWNER_SECRET (sign-in passphrase), CONSENT_SECRET (32+ chars),
   // KYPP_API_TOKENS (optional "name:token,name:token" for headless clients such as huddles; the
-  // name is the token's user, so "owner:<token>" shares your own user scope), KYPP_S1_TOKENS
+  // name is the token's user, so "owner:<token>" shares your own user scope; "name@projA|projB:token"
+  // pins a token to those projects, see README), KYPP_S1_TOKENS
   // (optional "name:token,..." for /v1/systemone callers outside GitHub Actions; never accepted on /mcp).
   // System One gate: Clef on the AI binding by default. A TYPESAFE_API_KEY secret (plus optional
   // TYPESAFE_BASE_URL / TYPESAFE_DEFAULT_MODEL vars) routes it to TypeSafe instead. KYPP_S1=off disables it.

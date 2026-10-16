@@ -10,6 +10,7 @@ import { D1Store } from "./store.ts";
 import { looksLikeJwt, oidcVerifier, owners } from "./oidc.ts";
 import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
 import { ROOMS_PATH, digest, handleRooms, roomCaller } from "./rooms.ts";
+import { type ApiToken, apiTokens, tokenPins } from "./tokens.ts";
 import { PAIRS_PATH, PAIR_PATH, type PairingDeps, handlePair, handlePairs, pairedGrant } from "./pairing.ts";
 
 export interface Env extends S1Env {
@@ -113,20 +114,13 @@ async function authorize(request: Request, env: Env): Promise<Response> {
   }
 }
 
-// Static tokens for clients that can't do the browser flow. "name:token,name:token".
-function apiTokens(list: string | undefined): Map<string, string> {
-  const m = new Map<string, string>();
-  for (const pair of (list ?? "").split(",")) {
-    const i = pair.indexOf(":");
-    if (i > 0 && pair.length - i > 16) m.set(pair.slice(i + 1).trim(), pair.slice(0, i).trim());
-  }
-  return m;
-}
-
-// The name of the static token presented as `token`, or null.
-async function tokenName(token: string, list: string | undefined): Promise<string | null> {
-  for (const [secret, name] of apiTokens(list)) if (await sameSecret(token, secret)) return name;
+// The static token presented as `token`, or null.
+async function apiToken(token: string, list: string | undefined): Promise<ApiToken | null> {
+  for (const [secret, t] of apiTokens(list)) if (await sameSecret(token, secret)) return t;
   return null;
+}
+async function tokenName(token: string, list: string | undefined): Promise<string | null> {
+  return (await apiToken(token, list))?.name ?? null;
 }
 
 const oidc = oidcVerifier();
@@ -134,14 +128,14 @@ const oidc = oidcVerifier();
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
 // The caller's issuer name: its paired grant, or its KYPP_API_TOKENS name when that is listed in
 // KYPP_ROOM_ISSUERS. Only a configured issuer may link rooms to repos.
-async function roomIssuer(request: Request, env: Env): Promise<{ name: string; grant?: string; credential?: string } | null> {
+async function roomIssuer(request: Request, env: Env): Promise<{ name: string; grant?: string; credential?: string; projects?: string[] } | null> {
   const token = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) return null;
   const paired = await pairedGrant(env.DB, token);
   if (paired) return paired;
-  const name = await tokenName(token, env.KYPP_API_TOKENS);
+  const t = await apiToken(token, env.KYPP_API_TOKENS);
   const credential = await digest(token);
-  return name && (await configuredIssuers(env)).get(name)?.has(credential) ? { name, credential } : null;
+  return t && (await configuredIssuers(env)).get(t.name)?.has(credential) ? { name: t.name, credential, ...(t.projects ? { projects: t.projects } : {}) } : null;
 }
 
 // KYPP_ROOM_ISSUERS names that still have a token, each with its secrets' digests. Removing either
@@ -149,7 +143,7 @@ async function roomIssuer(request: Request, env: Env): Promise<{ name: string; g
 const configuredIssuers = async (env: Env) => {
   const listed = new Set(owners(env.KYPP_ROOM_ISSUERS));
   const issuers = new Map<string, Set<string>>();
-  for (const [secret, name] of apiTokens(env.KYPP_API_TOKENS)) {
+  for (const [secret, { name }] of apiTokens(env.KYPP_API_TOKENS)) {
     if (listed.has(name)) issuers.set(name, (issuers.get(name) ?? new Set()).add(await digest(secret)));
   }
   return issuers;
@@ -209,8 +203,8 @@ function oauthProvider(base: string): OAuthProvider<Env> {
     resourceMetadata: { resource: `${base}/mcp`, authorization_servers: [base], resource_name: "kypp memory" },
     clientIdMetadataDocumentEnabled: true,
     resolveExternalToken: async ({ token, env }) => {
-      const name = await tokenName(token, env.KYPP_API_TOKENS);
-      if (name) return { props: { user: name, agent: name } satisfies Caller, audience: `${base}/mcp` };
+      const t = await apiToken(token, env.KYPP_API_TOKENS);
+      if (t) return { props: { user: t.name, agent: t.name, ...(t.projects ? { projects: t.projects } : {}) } satisfies Caller, audience: `${base}/mcp` };
       const room = await roomCaller(env.DB, token, await configuredIssuers(env));
       return room ? { props: room, audience: `${base}/mcp` } : null as any;
     },
@@ -235,7 +229,7 @@ export default {
     if (path === PAIRS_PATH) return handlePairs(request, env.DB, pairingDeps(request, env, base));
     if (path === ROOMS_PATH || path.startsWith(`${ROOMS_PATH}/`)) {
       const issuer = await roomIssuer(request, env);
-      return issuer ? handleRooms(request, env.DB, issuer.name, issuer.grant === undefined ? { canLink: true, credential: issuer.credential } : { canLink: false, grant: issuer.grant }) : new Response("unauthorized", { status: 401 });
+      return issuer ? handleRooms(request, env.DB, issuer.name, issuer.grant === undefined ? { canLink: true, credential: issuer.credential, ...(issuer.projects ? { linkable: issuer.projects } : {}) } : { canLink: false, grant: issuer.grant }) : new Response("unauthorized", { status: 401 });
     }
     return oauthProvider(base).fetch(request, env, ctx);
   },
@@ -243,6 +237,6 @@ export default {
   // The defrag pass: file unsorted claims, supersede duplicates and promote subjects that recur
   // across sessions. Groups that changed while it ran are skipped and picked up next hour.
   async scheduled(_event: ScheduledController, env: Env) {
-    await defrag(new D1Store(env.DB), policyFrom(env), s1Client(env));
+    await defrag(new D1Store(env.DB), policyFrom(env), s1Client(env), tokenPins(env.KYPP_API_TOKENS));
   },
 };

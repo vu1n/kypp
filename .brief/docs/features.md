@@ -137,6 +137,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   (process and preferences), in every repo. A process lesson is often learned once per repo, so
   waiting for acceptance hid it. The echo guard covers user scope too: re-claiming a lesson the
   briefing showed doesn't count toward accepting it.
+- A `KYPP_API_TOKENS` entry `name@projA|projB:token` pins that token (`Caller.projects`). `callTool`
+  sends pinned callers to `pinnedTool`, which never shows the project list; defrag finds a pinned
+  token's claims by `user = agent = name` (`tokenPins`). A new read path, write path or filer must
+  honour the pin too, or the token reaches every registered project.
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.

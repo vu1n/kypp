@@ -112,7 +112,13 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
 
 - `KYPP_OIDC_OWNERS` (variable, e.g. `vu1n`): GitHub owners whose Actions may call `/v1/systemone`.
   Unset refuses every OIDC token.
-- `KYPP_API_TOKENS` (secret, `huddles:<long random token>`): static tokens for headless clients.
+- `KYPP_API_TOKENS` (secret, `huddles:<long random token>`): static tokens for headless clients,
+  comma-separated `name:token` pairs. The name is the token's user. Pin a token to projects with
+  `name@projA|projB:token`: it then reads and writes only those registered projects (exact names),
+  picked by the `X-Kypp-Project` header or the `project` argument, or the only one when it has one.
+  A name outside the pin is refused and the project list is never shown; its claims must name a
+  project, defrag never files them outside the pin, and as a room issuer it links rooms only inside
+  it. `name@:token` pins to nothing. A token without `@` keeps full access, like an OAuth sign-in.
 - `KYPP_ROOM_ISSUERS` (variable, e.g. `huddles`): `KYPP_API_TOKENS` names that may register chat
   rooms (see Rooms). Unset refuses every registration. Removing a name pauses its bots' seats; each
   seat is tied to the secret that made it, so to cut those bots off for good, give the name a new
