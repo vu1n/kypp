@@ -65,7 +65,7 @@ const revoke = (db: D1Database, sql: string, ...keys: string[]) => db.prepare(sq
  */
 // Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — the integration that manages the room sets its links; the bot never does.
 /** `credential` is the digest of a configured issuer's secret, recorded on each seat it makes. */
-export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean; grant?: string; credential?: string }): Promise<Response> {
+export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean; grant?: string; credential?: string; linkable?: string[] }): Promise<Response> {
   const path = new URL(request.url).pathname;
   // Why: a paired caller was authenticated before its body was read, and an unlink and a continue
   // can land in between. Every write re-checks, in the same statement, that the grant still holds
@@ -110,6 +110,9 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
   // Why: a paired grant is approved by a self-named app, and links open a repo's memory to the
   // room, so only an operator-configured issuer may set them (checked before any name lookup).
   if (unique?.length && !opts.canLink) return json({ error: "a paired app can't link rooms to repos" }, 403);
+  // Why: a room reads its links, so a pinned issuer linking outside its pin would step around it.
+  const outside = opts.linkable ? (unique ?? []).filter((l) => !opts.linkable!.includes(l)) : [];
+  if (outside.length) return json({ error: `this token may not link rooms to: ${outside.join(", ")}` }, 403);
   const { results } = unique?.length
     ? await db.prepare(`SELECT name FROM projects WHERE name IN (${unique.map(() => "?").join(",")})`).bind(...unique).all()
     : { results: [] };
