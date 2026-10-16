@@ -26,7 +26,7 @@ When you change code, develop *to* them:
 - If the task CANNOT be done without changing a ratified decision, you may NOT change it
   on your own authority. Write `.brief/amendments/<anchor-id>.md` (what should change and
   why), record `<anchor-id> amend-proposed: <reason>` in `.brief/SIGNOFF`, and STOP — it
-  needs ratification before code can land. The amendment PR may also carry the
+  needs ratification before code can land. The amendment PR must carry the
   proposed decision text (one amendment per anchor it changes); merging that PR is the
   ratification (a human's, or CI's when the model rates every amendment low-risk; you
   never merge it). If CI escalates an amendment, it opens a PR thread for it: answer
@@ -60,6 +60,13 @@ and close what it flags (wire a `// Context:` ref into governed code, pin a floa
 publish a draft you now rely on, re-verify a ref the latest revision made stale). It is
 advisory, not a gate: it exists so *you* catch latent drift instead of leaving it for a
 human to notice later.
+
+The repo-owned `brief-amendments` check complements Brief: every live amendment proposal
+must appear as `pending-ratification` in the normal gate (or remain explicitly rejected).
+A proposal file alone is invisible to Brief v0.5.2 triage. Include the proposed decision edit
+and an `amend-proposed` SIGNOFF line in the PR; never manufacture a revision or bot verdict.
+Run `python scripts/check_brief_amendments.py --base origin/main` in the same pinned Brief
+environment as CI. The check validates registration only, not approval or semantic conformance.
 
 ## Shared memory (kypp)
 

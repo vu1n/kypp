@@ -2,7 +2,9 @@
 
 **Decision:** doc://kypp/memory-scope-decay@0009#scope-keys-decay
 **Proposed by:** Claude, dev project thread "Pin static tokens to projects"   **Date:** 2026-10-16
-**Status:** proposed; Vu ratifies.
+**Status:** accepted by vu1n merging [PR #41](https://github.com/vu1n/kypp/pull/41)
+on 2026-10-16 at 12:20 UTC (commit `18063878c0251a7c76189f2615c4d56d31a8554e`).
+This recovery records that merge; it does not introduce a new approval or change the proposal.
 
 ## What should change
 
@@ -39,3 +41,9 @@ confinement without becoming a room.
 Tokens without `@` are unchanged, so existing deployments keep today's behaviour. A pinned token's
 claim without a project now fails instead of landing unsorted, which is the point. Rooms a pinned
 issuer linked before it was pinned keep their links until re-registered.
+
+
+---
+ratified_rev: 0010
+ratified_by: vu1n (merge of #41, https://github.com/vu1n/kypp/pull/41; 18063878c0251a7c76189f2615c4d56d31a8554e)
+ratified_via: human

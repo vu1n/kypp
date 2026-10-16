@@ -415,3 +415,21 @@ report. CI uploads that report and exits 0 when the checker itself finishes, fin
 - Git filenames are NUL-delimited and literal. A worktree deletion of a materialized index entry
   leaves both content and path inventories; selected symlinks, including symlinked parent
   directories, are rejected.
+
+<!-- brief:anchor governance -->
+## Amendment registration
+
+```yaml
+paths:
+  - "scripts/check_brief_amendments.py"
+  - "tests/governance/**"
+  - ".github/workflows/brief-amendments.yml"
+```
+
+The repo-owned PR check requires every live proposal to enter Brief's amendment workflow.
+It uses the pinned Brief gate; it never approves or ratifies an amendment.
+
+### Gotchas
+- Brief v0.5.2 triage discovers decision edits, not standalone proposal files. Include the
+  proposed decision edit and SIGNOFF entry together; a green gate alone is not ratification.
+- Keep this workflow separate from generated `brief.yml`, so `brief init --ci` cannot erase it.

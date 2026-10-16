@@ -1,0 +1,22 @@
+# Repo-owned complement to the generated brief.yml; brief init must not erase it.
+name: brief-amendments
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  amendment-registration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+      - name: Regression tests against pinned Brief
+        run: uvx --from git+https://github.com/vu1n/brief@v0.5.2 python -m unittest discover -s tests/governance -v
+      - name: Every proposal must enter Brief amendment triage
+        env:
+          BASE: ${{ github.base_ref }}
+        run: uvx --from git+https://github.com/vu1n/brief@v0.5.2 python scripts/check_brief_amendments.py --base "origin/$BASE"

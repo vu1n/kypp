@@ -36,7 +36,7 @@ export async function judgeLate(store: D1Store, s1: S1Client | null): Promise<nu
   return rejected;
 }
 
-// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a claim a pinned static token wrote is filed only into a project inside its pin.
+// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — a claim a pinned static token wrote is filed only into a project inside its pin.
 // `pins` maps a pinned KYPP_API_TOKENS name to its projects. Such a token writes as user = agent = its
 // name (an OAuth grant's agent is its client), so that pair marks its claims.
 const within = (projects: ProjectInfo[], c: Pick<Claim, "user" | "agent">, pins: Map<string, string[]>) => {
