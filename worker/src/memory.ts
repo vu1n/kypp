@@ -9,10 +9,12 @@ export type Authority = (typeof AUTHORITIES)[number];
 // Scopes: this repo, the signed-in user across repos, everyone. The agent is a label, not a scope.
 // `group` is a level in the roll-up table (a group or org several projects share); its claims carry the
 // group's name in `project`. Only defrag widens a claim into one; agents never write it.
-export const SCOPES = ["project", "group", "user", "global"] as const;
+// `room` is a chat room's private lane (memory-scope-decay §11), keyed by the room's identity in `user`
+// like a person's scope; it is an audience, not a level, so nothing widens out of it.
+export const SCOPES = ["project", "group", "user", "global", "room"] as const;
 export type Scope = (typeof SCOPES)[number];
 
-// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
 // An exact name wins; then a registered path the origin ends with ("https://github.com/vu1n/kypp.git"
 // → "vu1n/kypp"); then the last path segment, so "vu1n/Kypp" resolves to "kypp". Each fallback
 // counts only when it names exactly one project: two registered "foo"s leave the claim unsorted.
@@ -117,8 +119,11 @@ export function groupVersion(members: Claim[]): string {
   return `${members.length}:${members.reduce((m, c) => (c.updated_at > m ? c.updated_at : m), "")}`;
 }
 
+// Scopes keyed by a principal (a person, a room) group per owner, so two rooms never consolidate together.
+export const ownedScope = (scope: Scope) => scope === "user" || scope === "room";
+
 export function groupKey(c: Claim): GroupKey {
-  return { subject: c.subject, scope: c.scope, project: c.project, user: c.scope === "user" ? c.user : null };
+  return { subject: c.subject, scope: c.scope, project: c.project, user: ownedScope(c.scope) ? c.user : null };
 }
 
 // arbiter.consolidate, exact-subject phases only. Per group of live claims on one subject (and owner,

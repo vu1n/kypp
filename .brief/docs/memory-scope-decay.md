@@ -15,6 +15,10 @@ related_code:
   - "worker/src/cooperation-store.ts"
   - "worker/src/cooperation-query.ts"
   - "worker/migrations/*cooperation*"
+  - "worker/src/rooms.ts"
+  - "worker/migrations/*room*"
+  - "worker/src/pairing.ts"
+  - "worker/migrations/*pair*"
 ---
 
 <!-- brief:anchor scope-keys-decay -->
@@ -285,6 +289,61 @@ wall-clock expiry, and that expiry does not revive the rejected wall-clock TTL f
    Quota exhaustion refuses append without deleting history. Any later retention or archive policy
    is a separate reviewed change.
 
+### 11. Room lanes: private memory for a chat room's bot
+
+Amended 2026-10-14 (ratified by Vu). A chat room (one Huddles huddle's room) is an audience, who may
+see a lesson, not a level on §8's origin ladder, where a lesson applies. It sits beside §8 and never
+inside its roll-up.
+
+1. **A room lane is a principal.** Each room gets its own kypp identity, `room:<id>`. Every bot
+   the integration seats in that room gets its own *member* token for the same identity (amended
+   2026-10-14, ratified by Vu), so bots come and go and the room keeps its memory; removing a bot
+   revokes only its member token. A seat may carry an expiry, after which its token stops working
+   (amended 2026-10-15, ratified by Vu). Claims are stored with `scope='room'`, keyed by that identity the
+   way `user` claims are keyed by the person. The lane's audience is that room's bots alone; another
+   room, a coding agent or the operator's session never sees it in `recall` or `briefing`.
+2. **The credential pins everything.** For a room identity the server sets origin and lane from the
+   credential. The `project` argument, the `X-Kypp-Project` header and the `scope` argument are
+   ignored, and reads and writes never mention or list registered projects.
+3. **What a room bot reads:** its own lane, plus the origins its room is *linked* to, which cascade
+   as §8.2 describes. Links are set by whoever manages the room, outside the model. No link means the
+   lane only. A room bot reads no `user` scope and no `global`.
+4. **Inside the lane, the usual lifecycle.** The write gate (§2, §8.2's injection guard) applies;
+   candidates are accepted when they recur in two sessions, so two wakes count; event clocks (§4)
+   decay them.
+5. **Nothing leaves a lane automatically.** Defrag never files, widens or promotes a room claim.
+   Recurrence across rooms is not a reason to widen: rooms with different people saying similar
+   things have not agreed to share.
+6. **Leaving the lane is an explicit share.** A room identity may write a `project` claim only at one
+   of its room's linked origins, and only through an explicit share (`share_to` naming the linked
+   origin). The claim records `shared_from: room:<id>` and then follows §8 like any origin claim. The
+   bot is told to share only when someone in the room asked. The server cannot check that, so the
+   link is the hard boundary: the manager opts a room into each repo it may write to (§10.7's
+   disclosure rule, applied to claims).
+7. **Issuing and revoking.** An integration may register rooms only with an *issuer grant*, from
+   one of two sources. The first is operator configuration: a `KYPP_API_TOKENS` name listed in
+   `KYPP_ROOM_ISSUERS`. The second is **pairing** (amended 2026-10-14, ratified by Vu). The
+   integration asks kypp to pair (`POST /pair` with a display name) and gets back a secret pairing
+   handle, which it keeps, a short user code, and a URL that shows that code. A person opens the URL
+   and checks that the code matches the one the integration shows. The kypp owner approves with the
+   owner passphrase. The integration then redeems its handle once for an issuer token. Codes expire
+   after 10 minutes and redeem only once. The approval page says the display name is self-asserted.
+   `POST /pair` is unauthenticated, so it is rate limited. An issuer token can only register, seat
+   members in, and revoke its own rooms. It never reads or writes memory, and a paired grant can't
+   link rooms to repos. Each grant is its own issuer namespace (`room:<issuer>:<id>`). Seating a
+   member returns its bearer token once, and kypp keeps only its digest. Revoking a room closes the
+   lane for good. Revoking an issuer grant stops every token under it and stops new ones, but keeps
+   its rooms, members and claims (amended 2026-10-14, ratified by Vu): when approving a later
+   pairing, the owner may *continue* a revoked paired grant, and the new token takes over its
+   namespace, so its rooms and their memory come back. Its old seats do not (amended 2026-10-15,
+   ratified by Vu): continuing closes them and the app seats its current bots again, so a bot removed
+   while the app was unlinked stays out. Only revoked grants can be continued, and the
+   page says continuing hands the app that grant's room memory. The integration can revoke its own
+   grant, the owner can revoke any paired grant, and the operator can remove a configured name.
+   Claims stay as history (append-only), and an operator can still read them.
+8. **No authority is minted.** Room and shared claims are agent authority; §6 and `authority-order`
+   are unchanged.
+
 ## Considered and rejected
 
 - **Wall-clock TTL** (Copilot's 28-day expiry). A quiet repo would lose good memory for no reason.
@@ -308,3 +367,5 @@ wall-clock expiry, and that expiry does not revive the rejected wall-clock TTL f
 - Short-lived notes ("deploy is broken right now") are cooperation records under §10, not claims.
   The gate still rejects them as durable-claim status, and defrag never promotes them.
 - Tags for topical recall boost, never for visibility. Deferred until search misses show the need.
+- Forgetting on request (someone asks a room bot to forget what they said) collides with
+  append-only history. Until a decision covers it, revoking the room is the only removal.

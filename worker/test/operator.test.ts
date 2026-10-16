@@ -84,6 +84,8 @@ test("project writes need a registered project; unknown ops write nothing", asyn
   const { db, call } = await setup();
   assert.equal((await call({ op: "correct", subject: "s", content: "c", project: "nowhere" })).status, 400);
   assert.equal((await call({ op: "drop_table" })).status, 400);
+  // Rooms belong to their members' bots; the operator writes no room lane.
+  assert.equal((await call({ op: "remember", subject: "s", content: "c", scope: "room" })).status, 400);
   const n = await db.prepare("SELECT COUNT(*) AS n FROM memory_claims").first() as { n: number };
   assert.equal(n.n, 0);
 });

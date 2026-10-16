@@ -35,7 +35,7 @@ async function rows(db: D1Database): Promise<Row[]> {
 }
 
 // Models a future regression: tools/call's verify argument is written onto the row.
-// The verify column exists for the operator route (migration 0005); MCP must never fill it.
+// The verify column exists for the operator route (migration 0008); MCP must never fill it.
 function forwardingDb(base: D1Database, forwarded: { value: string | null }): D1Database {
   return {
     prepare(sql: string) {

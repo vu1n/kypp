@@ -36,12 +36,20 @@ export async function judgeLate(store: D1Store, s1: S1Client | null): Promise<nu
   return rejected;
 }
 
-export async function defrag(store: D1Store, policy: Policy, s1: S1Client | null) {
+// Context: doc://kypp/memory-scope-decay@0009#scope-keys-decay — a claim a pinned static token wrote is filed only into a project inside its pin.
+// `pins` maps a pinned KYPP_API_TOKENS name to its projects. Such a token writes as user = agent = its
+// name (an OAuth grant's agent is its client), so that pair marks its claims.
+const within = (projects: ProjectInfo[], c: Pick<Claim, "user" | "agent">, pins: Map<string, string[]>) => {
+  const pin = c.user !== null && c.user === c.agent ? pins.get(c.user) : undefined;
+  return pin ? projects.filter((p) => pin.includes(p.name)) : projects;
+};
+
+export async function defrag(store: D1Store, policy: Policy, s1: S1Client | null, pins: Map<string, string[]> = new Map()) {
   const held = await judgeLate(store, s1);
   const projects = await store.projects();
   let filed = 0;
   for (const c of await store.unsorted(BATCH)) {
-    if (await fileClaim(store, s1, c, projects)) filed++;
+    if (await fileClaim(store, s1, c, within(projects, c, pins))) filed++;
     else await store.fileTried(c.id);
   }
   return { held, filed, ...(await consolidate(store, policy, s1)) };

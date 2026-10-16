@@ -117,6 +117,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   stored. Don't add a Durable Object to hold sessions.
 - The `user` scope exists only in the Worker; local `vocab.Scope` is still project/global. On the
   user scope the `user` column is the owner, so a static token's name decides whose user scope it reads.
+- The `room` scope (memory-scope-decay §11) is Worker-only too, and also keys on `user` (as
+  `room:<integration>:<id>`). Any query that guards `scope != 'user'` must guard `room` as well, or one
+  room's lane leaks to other callers through that path; `roomVisible` and `get(…, room)` are the only
+  reads a room token gets.
 - The S1 gate runs Clef on the `AI` binding unless `TYPESAFE_API_KEY` is set. Workers AI is always
   remote, so plain `wrangler dev` fails without a Cloudflare login; `npm run dev:local` (and CI's
   smoke) strips the binding and uses the TypeSafe mock from `.dev.vars`.
@@ -139,6 +143,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   (process and preferences), in every repo. A process lesson is often learned once per repo, so
   waiting for acceptance hid it. The echo guard covers user scope too: re-claiming a lesson the
   briefing showed doesn't count toward accepting it.
+- A `KYPP_API_TOKENS` entry `name@projA|projB:token` pins that token (`Caller.projects`). `callTool`
+  sends pinned callers to `pinnedTool`, which never shows the project list; defrag finds a pinned
+  token's claims by `user = agent = name` (`tokenPins`). A new read path, write path or filer must
+  honour the pin too, or the token reaches every registered project.
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.
