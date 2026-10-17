@@ -35,6 +35,7 @@ import { memoryD1 } from "./d1.ts";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/cooperation/v1.json", import.meta.url), "utf8"));
 const diagnostics = JSON.parse(readFileSync(new URL("./fixtures/cooperation/diagnostics.json", import.meta.url), "utf8"));
+const regressions = JSON.parse(readFileSync(new URL("./fixtures/cooperation/regressions.json", import.meta.url), "utf8"));
 const byId = new Map(fixture.cases.map((item: { id: string }) => [item.id, item]));
 
 function run(item: { op: string; input: unknown }) {
@@ -265,6 +266,26 @@ test("fts query quotes tokens and drops match syntax", () => {
   assert.equal(ftsQuery("body:secret"), "\"body\" OR \"secret\"");
   assert.equal(ftsQuery("NEAR(alpha beta)"), "\"NEAR\" OR \"alpha\" OR \"beta\"");
   assert.equal(ftsQuery("café"), "\"café\"");
+});
+
+test("Unicode marks preserve FTS matches", () => {
+  const stamp = fixture.visibility.stamp;
+  for (const item of regressions.unicode_search) {
+    assert.equal(ftsQuery(item.query), item.match, item.id);
+    const record = stampRecord({ ...stamp, input: validateAppendContext(byId.get(stamp.case).input) });
+    record.payload.summary = item.text;
+    const ranked = referenceSearch([record], {
+      principal: record.author_principal,
+      origin: record.origin,
+      now: record.created_at,
+      cutoff: record.created_at,
+      query: item.query,
+      repository: null,
+      candidate_revision: null,
+    });
+    assert.deepEqual(ranked.ids, [record.id], item.id);
+    assert.equal(ranked.fts_rows, 1, item.id);
+  }
 });
 
 test("an invisible better match never surfaces or consumes a slot", () => {
@@ -522,6 +543,21 @@ test("nullable lineage links match schema and retry digest", () => {
     const request = { ...base, ...links };
     assert.equal(append(request), true);
     assert.equal(sha256Hex(canonicalJson(validateAppendContext(request))), expected);
+  }
+});
+
+test("contribution timestamps reject invalid values", () => {
+  for (const field of ["as_of", "cutoff"]) {
+    for (const item of [...regressions.invalid_timestamp_values, { id: "missing" }]) {
+      const draft = structuredClone(fixture.contribution.draft);
+      if (Object.hasOwn(item, "value")) draft[field] = item.value;
+      else delete draft[field];
+      // Reseal so rejection checks the timestamp, not a stale budget.
+      const sealed = sealContribution(draft);
+      assert.throws(() => validateContribution(sealed),
+        (error: CooperationError) => error.code === "INVALID_RECORD" && error.message.includes(field),
+        `${field}: ${item.id}`);
+    }
   }
 });
 

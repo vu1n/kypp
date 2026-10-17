@@ -271,6 +271,7 @@ paths:
   - "worker/test/cooperation-contract.test.ts"
   - "worker/test/fixtures/cooperation/v1.json"
   - "worker/test/fixtures/cooperation/diagnostics.json"
+  - "worker/test/fixtures/cooperation/regressions.json"
   - "tests/test_cooperation_contract.py"
   - "docs/cooperation-context.md"
 ```
@@ -301,6 +302,12 @@ later slices; this feature is the frozen schema, validators, and fixture.
   ranked by exact match then `bm25()` then id, not the 100 newest rows.
 - `validateContribution` returns the rebuilt records, with omitted nullable fields
   filled. `budget_bytes` is the canonical size of that normalized object.
+- Contribution timestamps must be strings without coercion: `String([timestamp])`
+  hides malformed JSON that Python rejects. Shared cases in `regressions.json`
+  reseal the byte budget before testing rejection.
+- Cooperation query tokens must retain combining marks, as claim tokens do. Splitting
+  decomposed `nai\u0308ve` into `nai` and `ve` loses a valid `unicode61` match;
+  `regressions.json` covers both token output and SQLite retrieval in both languages.
 - Append schemas accept null lineage links just like runtime validators; null and
   omission must retain the same retry digest.
 - Conflict diagnostics validate provenance tokens, full record IDs and bare SHA-256

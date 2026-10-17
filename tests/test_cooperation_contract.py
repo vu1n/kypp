@@ -45,6 +45,7 @@ from kypp.store import MemoryStore
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = json.loads((ROOT / "worker/test/fixtures/cooperation/v1.json").read_text())
 DIAGNOSTICS = json.loads((ROOT / "worker/test/fixtures/cooperation/diagnostics.json").read_text())
+REGRESSIONS = json.loads((ROOT / "worker/test/fixtures/cooperation/regressions.json").read_text())
 BY_ID = {item["id"]: item for item in FIXTURE["cases"]}
 LOCAL_TOOLS = (
     "observe",
@@ -185,6 +186,18 @@ class CooperationContractTest(unittest.TestCase):
         ranked = _search([visible, hidden], query="lexical-hit", window=1)
         self.assertEqual(ranked["ids"], [visible["id"]])
         self.assertIs(ranked["window_capped"], False)
+
+    def test_unicode_marks_preserve_fts_matches(self):
+        stamp = FIXTURE["visibility"]["stamp"]
+        for case in REGRESSIONS["unicode_search"]:
+            with self.subTest(case["id"]):
+                self.assertEqual(fts_query(case["query"]), case["match"])
+                record = stamp_record({**stamp, "input": validate_append_context(BY_ID[stamp["case"]]["input"])})
+                record["payload"]["summary"] = case["text"]
+                ranked = _search([record], query=case["query"], principal=record["author_principal"],
+                                 origin=record["origin"], now=record["created_at"], cutoff=record["created_at"])
+                self.assertEqual(ranked["ids"], [record["id"]])
+                self.assertEqual(ranked["fts_rows"], 1)
 
     def test_older_relevant_record_is_findable(self):
         old = json.loads(json.dumps(FIXTURE["selection"]["records"][0]["record"]))
@@ -402,6 +415,22 @@ class CooperationContractTest(unittest.TestCase):
         self.assertEqual(sha256_hex(canonical_json(sealed)), FIXTURE["contribution"]["sha256"])
         self.assertEqual(sealed["budget_bytes"], utf8_bytes(canonical_json(sealed)))
         self.assertEqual(validate_contribution(sealed)["budget_bytes"], sealed["budget_bytes"])
+
+    def test_contribution_timestamps_reject_invalid_values(self):
+        for field in ("as_of", "cutoff"):
+            for case in [*REGRESSIONS["invalid_timestamp_values"], {"id": "missing"}]:
+                with self.subTest(field=field, case=case["id"]):
+                    draft = dict(FIXTURE["contribution"]["draft"])
+                    if "value" in case:
+                        draft[field] = case["value"]
+                    else:
+                        del draft[field]
+                    # Reseal so rejection checks the timestamp, not a stale budget.
+                    sealed = seal_contribution(draft)
+                    with self.assertRaises(CooperationError) as caught:
+                        validate_contribution(sealed)
+                    self.assertEqual(caught.exception.code, "INVALID_RECORD")
+                    self.assertIn(field, str(caught.exception))
 
     def test_schemas_take_no_authority_parameter(self):
         self.assertIs(APPEND_CONTEXT_INPUT_SCHEMA["additionalProperties"], False)

@@ -912,11 +912,11 @@ export function ftsDocument(record: CooperationRecord): FtsDocument {
   };
 }
 
-// Quote each unicode61 token and OR-join them. Same shape as memory.ts ftsQuery,
-// with letters and numbers so the query tokenizer matches unicode61. Operators,
+// Quote Unicode word runs and OR-join them, as in memory.ts ftsQuery. Keep marks
+// with their letters so unicode61 applies the same accent folding as the index. Operators,
 // quotes, stars, and column filters never reach MATCH.
 export function ftsQuery(text: string): string {
-  const terms = text.match(/[\p{L}\p{N}_]+/gu) ?? [];
+  const terms = text.match(/[\p{L}\p{M}\p{N}_]+/gu) ?? [];
   return terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(" OR ");
 }
 
@@ -1019,8 +1019,8 @@ export function validateContribution(input: unknown): ContextContribution {
   const obj = readObject(input, ["schema_version", "as_of", "cutoff", "selector_version", "records", "selected", "max_bytes", "budget_bytes", "omissions", "diagnostics", "window_capped", "candidate_window_exhaustive"], "contribution");
   if (obj.schema_version !== 1) fail("schema_version must be 1");
   if (obj.selector_version !== SELECTOR_VERSION) fail("selector_version is not the v1 selector");
-  const as_of = assertTimestamp(String(obj.as_of), "as_of");
-  const cutoff = assertTimestamp(String(obj.cutoff), "cutoff");
+  const as_of = assertTimestamp(obj.as_of, "as_of");
+  assertTimestamp(obj.cutoff, "cutoff");
   if (!Array.isArray(obj.records) || obj.records.length > COOPERATION_LIMITS.resultMax) fail("too many records");
   const records = obj.records.map((item) => assertStampedRecord(item));
   if (!Array.isArray(obj.selected) || obj.selected.length !== records.length) fail("selected manifest does not match records");

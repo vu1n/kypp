@@ -744,13 +744,13 @@ def fts_document(record: dict) -> dict:
 
 
 def fts_query(text: str) -> str:
-    """Quote each unicode61 token and OR-join them. Operators never reach MATCH."""
+    """Quote Unicode word runs, retaining marks for unicode61 accent folding."""
     import unicodedata
 
     terms: list[str] = []
     buffer: list[str] = []
     for char in text:
-        if char == "_" or unicodedata.category(char).startswith(("L", "N")):
+        if char == "_" or unicodedata.category(char).startswith(("L", "M", "N")):
             buffer.append(char)
         elif buffer:
             terms.append("".join(buffer))

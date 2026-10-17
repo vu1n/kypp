@@ -130,9 +130,11 @@ reason, or statement. This mirrors the hosted Worker's FTS5 path. Local claim
 retrieval now depends on the adapter: sqlite3/libsql use FTS5, while pyturso uses
 `LIKE` for its lexical component (see [local-store parity](local-store-parity.md)).
 
-`ftsQuery` extracts Unicode letters, numbers, and underscores, quotes each token,
-and OR-joins them. That is the worker `ftsQuery` in `memory.ts`, widened to the
-characters `unicode61` indexes. Quotes, `*`, `NEAR`, column filters, and boolean
+`ftsQuery` extracts runs of Unicode letters, combining marks, numbers, and
+underscores, quotes each run, and OR-joins them, matching the claim tokenizers in
+`memory.ts` and `repository.py`. Marks stay attached so decomposed words such as
+`nai\u0308ve` reach `unicode61` intact and match `naïve` after accent folding.
+Quotes, `*`, `NEAR`, column filters, and boolean
 operators never reach `MATCH`. A query with no tokens is browse, not `MATCH *`.
 An unmatched token list returns no FTS rows and is success, not an error.
 
@@ -163,10 +165,14 @@ read is not evidence that nothing matched.
 `validateContribution` returns those rebuilt records. Omitted nullable envelope
 fields (`client_label`, `session_id`, `reply_to`, `supersedes`) come back as
 null, and `budget_bytes` is the canonical size of that normalized contribution.
+Contribution `as_of` and `cutoff` must be real UTC timestamp strings in
+`YYYY-MM-DDTHH:MM:SSZ` format; values are never coerced from arrays or other types.
 The append JSON schemas also accept explicit null `reply_to` and `supersedes`.
 Omitting either link and spelling it null have the same normalized retry digest.
 Malformed diagnostic cases are shared by both suites in
 `worker/test/fixtures/cooperation/diagnostics.json`; existing v1 golden hashes stay unchanged.
+Timestamp rejection and Unicode FTS regression cases are shared in the neighboring
+`regressions.json`, including resealed malformed contributions and actual SQLite lookups.
 
 ## Out of this slice
 
