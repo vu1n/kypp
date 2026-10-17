@@ -1,0 +1,402 @@
+{
+  "valid": {
+    "code": "conflicting_reported_evidence",
+    "causal_key": {
+      "producer_namespace": "huddles",
+      "original_record_id": "report-1",
+      "original_run_id": null
+    },
+    "record_ids": [
+      "00000000000000000000000000000000",
+      "11111111111111111111111111111111"
+    ],
+    "fingerprints": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+  },
+  "invalid": [
+    { "id": "null-producer", "path": ["causal_key", "producer_namespace"], "value": null },
+    { "id": "null-original-record", "path": ["causal_key", "original_record_id"], "value": null },
+    { "id": "missing-record-ids", "path": ["record_ids"], "omit": true },
+    { "id": "missing-fingerprints", "path": ["fingerprints"], "omit": true },
+    { "id": "missing-causal-key", "path": ["causal_key"], "omit": true },
+    { "id": "prefixed-fingerprint", "path": ["fingerprints"], "value": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] },
+    { "id": "sha1-fingerprint", "path": ["fingerprints"], "value": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] },
+    {
+      "id": "missing-producer_namespace",
+      "path": [
+        "causal_key",
+        "producer_namespace"
+      ],
+      "omit": true
+    },
+    {
+      "id": "producer_namespace-object",
+      "path": [
+        "causal_key",
+        "producer_namespace"
+      ],
+      "value": {}
+    },
+    {
+      "id": "producer_namespace-number",
+      "path": [
+        "causal_key",
+        "producer_namespace"
+      ],
+      "value": 123
+    },
+    {
+      "id": "producer_namespace-empty",
+      "path": [
+        "causal_key",
+        "producer_namespace"
+      ],
+      "value": ""
+    },
+    {
+      "id": "producer_namespace-whitespace",
+      "path": [
+        "causal_key",
+        "producer_namespace"
+      ],
+      "value": "bad token"
+    },
+    {
+      "id": "producer_namespace-overlong",
+      "path": [
+        "causal_key",
+        "producer_namespace"
+      ],
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "missing-original_record_id",
+      "path": [
+        "causal_key",
+        "original_record_id"
+      ],
+      "omit": true
+    },
+    {
+      "id": "original_record_id-object",
+      "path": [
+        "causal_key",
+        "original_record_id"
+      ],
+      "value": {}
+    },
+    {
+      "id": "original_record_id-number",
+      "path": [
+        "causal_key",
+        "original_record_id"
+      ],
+      "value": 123
+    },
+    {
+      "id": "original_record_id-empty",
+      "path": [
+        "causal_key",
+        "original_record_id"
+      ],
+      "value": ""
+    },
+    {
+      "id": "original_record_id-whitespace",
+      "path": [
+        "causal_key",
+        "original_record_id"
+      ],
+      "value": "bad token"
+    },
+    {
+      "id": "original_record_id-overlong",
+      "path": [
+        "causal_key",
+        "original_record_id"
+      ],
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "missing-original_run_id",
+      "path": [
+        "causal_key",
+        "original_run_id"
+      ],
+      "omit": true
+    },
+    {
+      "id": "original_run_id-object",
+      "path": [
+        "causal_key",
+        "original_run_id"
+      ],
+      "value": {}
+    },
+    {
+      "id": "original_run_id-number",
+      "path": [
+        "causal_key",
+        "original_run_id"
+      ],
+      "value": 123
+    },
+    {
+      "id": "original_run_id-empty",
+      "path": [
+        "causal_key",
+        "original_run_id"
+      ],
+      "value": ""
+    },
+    {
+      "id": "original_run_id-whitespace",
+      "path": [
+        "causal_key",
+        "original_run_id"
+      ],
+      "value": "bad token"
+    },
+    {
+      "id": "original_run_id-overlong",
+      "path": [
+        "causal_key",
+        "original_run_id"
+      ],
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "empty-causal-key",
+      "path": [
+        "causal_key"
+      ],
+      "value": {}
+    },
+    {
+      "id": "extra-causal-key",
+      "path": [
+        "causal_key",
+        "note"
+      ],
+      "value": "extra"
+    },
+    {
+      "id": "record_ids-not-array",
+      "path": [
+        "record_ids"
+      ],
+      "value": {}
+    },
+    {
+      "id": "record_ids-empty",
+      "path": [
+        "record_ids"
+      ],
+      "value": []
+    },
+    {
+      "id": "record_ids-singleton",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        "00000000000000000000000000000000"
+      ]
+    },
+    {
+      "id": "record_ids-duplicate",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        "00000000000000000000000000000000",
+        "00000000000000000000000000000000"
+      ]
+    },
+    {
+      "id": "record_ids-object-entry",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        {},
+        "11111111111111111111111111111111"
+      ]
+    },
+    {
+      "id": "record_ids-number-entry",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        123,
+        "11111111111111111111111111111111"
+      ]
+    },
+    {
+      "id": "record_ids-uppercase",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "11111111111111111111111111111111"
+      ]
+    },
+    {
+      "id": "record_ids-short",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        "bad",
+        "11111111111111111111111111111111"
+      ]
+    },
+    {
+      "id": "record_ids-overlong",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        "00000000000000000000000000000000a",
+        "11111111111111111111111111111111"
+      ]
+    },
+    {
+      "id": "record_ids-too-many",
+      "path": [
+        "record_ids"
+      ],
+      "value": [
+        "00000000000000000000000000000000",
+        "00000000000000000000000000000001",
+        "00000000000000000000000000000002",
+        "00000000000000000000000000000003",
+        "00000000000000000000000000000004",
+        "00000000000000000000000000000005",
+        "00000000000000000000000000000006",
+        "00000000000000000000000000000007",
+        "00000000000000000000000000000008",
+        "00000000000000000000000000000009",
+        "0000000000000000000000000000000a",
+        "0000000000000000000000000000000b",
+        "0000000000000000000000000000000c",
+        "0000000000000000000000000000000d",
+        "0000000000000000000000000000000e",
+        "0000000000000000000000000000000f",
+        "00000000000000000000000000000010"
+      ]
+    },
+    {
+      "id": "fingerprints-not-array",
+      "path": [
+        "fingerprints"
+      ],
+      "value": {}
+    },
+    {
+      "id": "fingerprints-empty",
+      "path": [
+        "fingerprints"
+      ],
+      "value": []
+    },
+    {
+      "id": "fingerprints-singleton",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    },
+    {
+      "id": "fingerprints-duplicate",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    },
+    {
+      "id": "fingerprints-object-entry",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        {},
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "id": "fingerprints-number-entry",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        123,
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "id": "fingerprints-uppercase",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "id": "fingerprints-short",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        "bad",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "id": "fingerprints-overlong",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    },
+    {
+      "id": "fingerprints-too-many",
+      "path": [
+        "fingerprints"
+      ],
+      "value": [
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000001",
+        "0000000000000000000000000000000000000000000000000000000000000002",
+        "0000000000000000000000000000000000000000000000000000000000000003",
+        "0000000000000000000000000000000000000000000000000000000000000004",
+        "0000000000000000000000000000000000000000000000000000000000000005",
+        "0000000000000000000000000000000000000000000000000000000000000006",
+        "0000000000000000000000000000000000000000000000000000000000000007",
+        "0000000000000000000000000000000000000000000000000000000000000008",
+        "0000000000000000000000000000000000000000000000000000000000000009",
+        "000000000000000000000000000000000000000000000000000000000000000a",
+        "000000000000000000000000000000000000000000000000000000000000000b",
+        "000000000000000000000000000000000000000000000000000000000000000c",
+        "000000000000000000000000000000000000000000000000000000000000000d",
+        "000000000000000000000000000000000000000000000000000000000000000e",
+        "000000000000000000000000000000000000000000000000000000000000000f",
+        "0000000000000000000000000000000000000000000000000000000000000010"
+      ]
+    }
+  ]
+}
