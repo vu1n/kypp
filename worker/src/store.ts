@@ -29,7 +29,7 @@ const uid = () => crypto.randomUUID().replaceAll("-", "");
 const POINTER_SQL = "INSERT OR IGNORE INTO code_pointers(id,claim_id,entry_ref,project,doc_id,anchor,revision,path,symbol,kind,created_at)";
 const DOC_REF = /doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)/g;
 
-// Context: doc://kypp/memory-scope-decay@0005#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
+// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
 function pointerRow(claimId: string, entryRef: string, path: string, symbol: string, kind: string,
   project = "", docId = "", revision = "", anchor = ""): unknown[] {
   if (!project && entryRef.startsWith("doc://")) {
@@ -105,8 +105,8 @@ export type Candidates = "none" | "origin" | "all";
 // What a caller sees: this project, the groups it rolls up to, their own user scope, the global
 // scope, and the unsorted claims their own session wrote; never superseded/rejected history.
 // `t` is the table alias.
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
+// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — reads cover every level the caller rolls up to; other sessions' candidates show only in the caller's own project.
+// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — an unsorted claim is visible only to the session (and user) that wrote it until it is filed.
 function visible(t: string, project: string | null, groups: string[], user: string | null, candidates: Candidates,
   session: string | null): [string, unknown[]] {
   const levels = [`${t}.scope = 'global'`];
@@ -132,7 +132,7 @@ function visible(t: string, project: string | null, groups: string[], user: stri
 /** A room bot's reach: its own lane, plus the projects its room is linked to and their groups. */
 export interface RoomScope { identity: string; links: string[]; groups: string[] }
 
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — a room reads its own lane (its unconfirmed lessons too: the room's bots are the whole audience) and its linked origins' accepted memory; never user scope or global.
+// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a room reads its own lane (its unconfirmed lessons too: the room's bots are the whole audience) and its linked origins' accepted memory; never user scope or global.
 function roomVisible(t: string, room: RoomScope, candidates: Candidates): [string, unknown[]] {
   const status = candidates === "none" ? `${t}.status = 'accepted'` : `${t}.status IN ('candidate','accepted')`;
   const parts = [`(${status} AND ${t}.scope = 'room' AND ${t}.user = ?)`];
@@ -166,7 +166,7 @@ export class D1Store {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
 
-  // Context: doc://kypp/authority-order@0007#authority-dominates — claims written here are agent authority; human and verified come only from operatorClaim/markVerified (POST /v1/operator) and authenticated POST /sync imports, once built.
+  // Context: doc://kypp/authority-order@0008#authority-dominates — claims written here are agent authority; human and verified come only from operatorClaim/markVerified (POST /v1/operator) and authenticated POST /sync imports, once built.
   async claim(c: ClaimInput): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope)) throw new Error(`bad scope ${c.scope}`);
@@ -178,7 +178,7 @@ export class D1Store {
     const codeRefs = cleanCodeRefs(c.codeRefs);
     // Why: a room's share is checked against its links before the System One judge runs; the links
     // can change meanwhile, so the write itself re-checks the link it shares through.
-    // Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — a lesson leaves the room only into a currently linked origin.
+    // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a lesson leaves the room only into a currently linked origin.
     const linked = c.sharedFrom === undefined ? { sql: "", args: [] as unknown[] }
       : { sql: " WHERE EXISTS (SELECT 1 FROM room_links WHERE room = ? AND project = ?)", args: [c.sharedFrom, c.project] };
     const [inserted] = await this.db.batch([
@@ -198,7 +198,7 @@ export class D1Store {
     return id;
   }
 
-  // Context: doc://kypp/authority-order@0007#authority-dominates — only POST /v1/operator calls this; it is the hosted writer of human authority and of verify commands.
+  // Context: doc://kypp/authority-order@0008#authority-dominates — only POST /v1/operator calls this; it is the hosted writer of human authority and of verify commands.
   // An operator write (kypp correct/remember over KYPP_URL) plus its defrag_log row, in one batch.
   async operatorClaim(c: ClaimInput, authority: "agent" | "human", verify: string | null, op: string): Promise<string> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
@@ -212,9 +212,9 @@ export class D1Store {
     await this.db.batch([
       this.db.prepare(
         "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,verify,created_at,updated_at)"
-        + " VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,'[]','[]','{}',?,?,?)",
+        + " VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,'[]',?,'{}',?,?,?)",
       ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.project, c.agent, c.user,
-        c.accept || authority === "human" ? "accepted" : "candidate", authority, confidence, verify, ts, ts),
+        c.accept || authority === "human" ? "accepted" : "candidate", authority, confidence, JSON.stringify(codeRefs), verify, ts, ts),
       this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
       this.logOperator(id, op, c.scope === "project" ? c.project : null, `authority=${authority}${verify ? " verify" : ""}`),
       ...pointerRows(id, c.subject, c.content, codeRefs).map((row) => this.db.prepare(
@@ -235,7 +235,7 @@ export class D1Store {
     return results.map(hydrate);
   }
 
-  // Context: doc://kypp/authority-order@0007#authority-dominates — verify raises agent → verified, never lowers human.
+  // Context: doc://kypp/authority-order@0008#authority-dominates — verify raises agent → verified, never lowers human.
   // The hosted kypp/store.py mark_verified, logged: pass → accepted at verified authority (a human claim
   // keeps human and its updated_at); fail → rejected. A superseded human claim stays superseded.
   async markVerified(id: string, passed: boolean): Promise<boolean> {
@@ -346,9 +346,11 @@ export class D1Store {
 
   async pathsForEntry(entryRef: string): Promise<Record<string, unknown>[]> {
     const anchor = entryRef.includes("#") ? entryRef.slice(entryRef.indexOf("#") + 1) : entryRef;
+    const doc = /^doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)$/.exec(entryRef);
+    const identity = doc ? "project = ? AND doc_id = ? AND anchor = ?" : "anchor != '' AND anchor = ?";
     const { results } = await this.db.prepare(
-      "SELECT * FROM code_pointers WHERE entry_ref = ? OR claim_id = ? OR (anchor != '' AND anchor = ?) ORDER BY path",
-    ).bind(entryRef, entryRef, anchor).all();
+      `SELECT * FROM code_pointers WHERE entry_ref = ? OR claim_id = ? OR (${identity}) ORDER BY path`,
+    ).bind(entryRef, entryRef, ...(doc ? [doc[1], doc[2], doc[4]] : [anchor])).all();
     return results;
   }
 
@@ -482,7 +484,7 @@ export class D1Store {
       : this.db.prepare("UPDATE memory_claims SET metadata = json_set(metadata, '$.s1_tried', ?) WHERE id = ?").bind(now(), id)).run();
   }
 
-  // Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim.
+  // Context: doc://kypp/append-only-history@0002#never-delete — change status; never DELETE a claim.
   // Takes a live claim out of memory with the reason in its metadata; bumps updated_at so a plan
   // already made for its group goes stale.
   async reject(id: string, reason: string): Promise<boolean> {
@@ -522,7 +524,7 @@ export class D1Store {
     return results.map(hydrate);
   }
 
-  // Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim.
+  // Context: doc://kypp/append-only-history@0002#never-delete — change status; never DELETE a claim.
   // One transaction per group, guarded by the version read at plan time: if the group changed since
   // (a correction, a new claim, a review), the guard's CHECK fails, the group's batch rolls back and
   // the next pass replans it. Returns how many groups were applied and skipped as stale.

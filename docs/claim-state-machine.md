@@ -1,9 +1,15 @@
-# Claim state machine: proposed executable contract
+# Claim state machine: ratified contract and staged adapters
 
-Status: proposed; merging the amendment PR ratifies the decision changes. The reference model in
-`specs/claim_state_machine/model.py` is deliberately outside the runtime package. No current store,
-CLI, MCP handler or scheduled job implements this contract yet. Tests exercise the proposal, not
-production conformance. No schema migration or deployment is part of this first slice.
+Status: ratified by [#43](https://github.com/vu1n/kypp/pull/43), published on 2026-10-17:
+append-only-history@0002, authority-order@0008, verify-operator-only@0003,
+memory-scope-decay@0011 and agent-mcp-surface-compose@0003. Runtime activation is still pending.
+
+The pure Python kernel now lives in `kypp/claim_machine.py`; the former reference-model path is a
+compatibility import. `LocalClaimCommands` runs it over sqlite3, libsql or pyturso. The Worker has
+an independent TypeScript port and `D1ClaimCommands`. These adapters use isolated `claim_command_*`
+tables. No CLI, MCP handler, operator route or scheduled job calls them yet; they do not read,
+migrate, or project into `memory_claims`, its FTS index or code pointers. Installing their empty
+tables does not activate a live store. Existing production behavior remains the stated legacy behavior.
 
 Ratification and activation are separate: merging adopts the target contract and the explicit staged
 activation clauses in each amended anchor. The new runtime transition rules bind a store only after
@@ -136,12 +142,13 @@ public HTTP command dialect. `v1.json` is a portable trace format, not that futu
 
 ## Delivery and migration
 
-1. Merge this proposed contract, reference model, portable vectors, tests and decision amendments.
-   The amendments are ratified by merge; CI owns revision publication. This PR changes no production
-   behavior. The target runtime rules bind only at the adapter/store cutover described above.
-2. Adapt PR #33's repository boundary to commands. Implement the same traces and richer shared
-   conformance tests against the Worker and every local backend; keep its search/pointer improvements.
-   Fix pre-limit visibility filtering and preserve current room, pin and operator handling on rebase.
+1. **Done:** #43 adopted the contract, portable vectors and decision amendments. CI published the
+   revisions. The target runtime rules bind only at the adapter/store cutover described above.
+2. **Adapter checkpoint:** PR #33's retrieval interface remains an explicitly legacy `ClaimStore`;
+   new mutation code uses the separate `ClaimCommands` read/execute interface, without a set-status
+   command. Local and D1 adapters persist the same portable traces, tokens, evidence, events and
+   retry fingerprints. Search/pointers are preserved; eligibility filters precede lexical and pointer
+   caps, Unicode tokenization stays intact, and room, pin and operator tests remain in the suite.
 3. Implement additive migrations: defaulted claim revisions, group heads/revisions, acceptance
    provenance, successor links, check attempts/results and unique command receipts/events. Legacy
    acceptance reasons stay `legacy_unknown`; do not manufacture a passing check or independent source.
@@ -171,6 +178,28 @@ qualify live claims without adding approval states. The standing docs-promotion 
 merged owning-feature PR; that future retirement command records its pinned doc successor. The v1
 reference covers claim-to-claim supersession only, not a completed docs-promotion workflow.
 
+### Adapter checkpoint: what it establishes, and what it does not
+
+The first durable representation is deliberately an aggregate snapshot per exact group, plus global
+claim-ID and `(principal, command_id)` receipt indexes. A single SQL read loads a consistent group.
+A checked SQL guard fences the planned revision inside the transaction; the snapshot contains the
+claims, head, source generations, tokens, acceptance evidence and event history, so they commit
+together. A duplicate racing the commit returns the original receipt. A failed guard or later SQL
+statement rolls back the snapshot and indexes. A command ID cannot be retargeted to another group.
+Pyturso retries rerun the SQL guard, not an unconditional saved update. Schema bootstrap uses its
+ordinary DDL path: `BEGIN CONCURRENT` cannot create tables.
+
+This establishes the domain persistence boundary, **not production conformance**. The snapshots grow
+with group history; size and latency budgets remain unmeasured. Large histories may need normalized
+storage without changing the command contract. No auth or source-stamping middleware is proved by
+accepting an in-process `Actor` or `Stamp`. No external shell/model side effect is run in a transaction.
+
+Before activation, steps 3–6 still require a copied-database migration/validation report, a search and
+pointer projection committed with each command, all writers/readers routed through that boundary,
+an upgraded hosted check-token protocol, and the operator verification sweep. Old binaries must not
+share an upgraded store. In particular, leaving the current verifier callback and cron in place while
+switching only MCP is not a valid cutover. No deployment or full migration has been performed here.
+
 ## Tests and optional proof
 
 Run `python -m unittest discover -s tests -p test_claim_state_machine_spec.py -v`.
@@ -178,6 +207,17 @@ Tests cover terminality, explicit/recurrence acceptance, immutable assertion ide
 same-count group changes, stale attempts, failed/unknown checks, echo sources, replay receipts, all six
 orders of two check results plus correction, and all 2,401 length-four sequences over seven commands.
 Those finite schedules are bounded model exploration, not unbounded correctness or database proofs.
+
+`test_claim_commands.py` also runs the portable traces through each local SQL backend, tests a
+second connection committing between plan and write, replays, cross-group identity conflicts,
+injected mid-transaction failure, reopening, and all six check-completion/correction orders.
+Actual concurrent local connections also test exactly one CAS winner, including pyturso's generic
+`DatabaseError: Write-write conflict` retry path; a retry must re-evaluate the SQL revision guard.
+`worker/test/claim-commands.test.ts` runs the D1 SQL adapter on the transactional node:sqlite harness.
+It invokes the stdlib-only `tests/claim_trace_oracle.py` to compare full Python/Worker state and
+receipts, including six interleavings and Unicode whitespace agreement. The ten original vectors
+retain independent lifecycle expectations; Python-derived results check the port, not the truth of
+the kernel. The Python alias is not a second independent model. The harness is not a live D1 service.
 
 After real adapter conformance passes, a small Lean model could prove terminality, privilege
 preservation and no state change on failed revision checks. Its assumptions would include trusted

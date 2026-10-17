@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { consolidate } from "../src/consolidate.ts";
-import { ftsQuery, planConsolidation } from "../src/memory.ts";
+import { planConsolidation } from "../src/memory.ts";
 import type { S1Client } from "../src/s1.ts";
 import { type ClaimInput, D1Store, cleanCodeRefs } from "../src/store.ts";
 import { memoryD1 } from "./d1.ts";
@@ -56,6 +56,41 @@ test("path pointers resolve from the file and from the entry, and recall ranks t
   assert.equal(hits[0]?.id, id);
 });
 
+test("full doc pointer identity does not alias another project's or document's anchor", async () => {
+  const store = new D1Store(memoryD1());
+  // Foreign fixture identities, not Context bindings to this repo's decisions.
+  const ref = (project: string, doc: string, revision: string) => `doc://${project}/${doc}@${revision}#shared`;
+  for (const [project, doc, path] of [["a", "one", "right.py"],
+    ["b", "one", "other-project.py"], ["a", "two", "other-doc.py"]]) {
+    await store.linkPointer(ref(project, doc, "0001"), path);
+  }
+  assert.deepEqual((await store.pathsForEntry(ref("a", "one", "0002"))).map((p) => p.path), ["right.py"]);
+  assert.equal((await store.pathsForEntry("shared")).length, 3);
+});
+
+test("operator claim pointers, code refs and audit are stored together", async () => {
+  const db = memoryD1(), store = new D1Store(db), refs = [{ path: "a.py", symbol: "f" }];
+  const id = await store.operatorClaim(base({ codeRefs: refs }), "human", null, "correct");
+  assert.deepEqual((await store.get(id, "vu"))!.code_refs, refs);
+  assert.equal((await store.entriesForPath("a.py"))[0].claim_id, id);
+  assert.equal((await db.prepare("SELECT action FROM defrag_log WHERE claim_id=?").bind(id).first())!.action, "operator:correct");
+});
+
+test("a refused room share leaves no dependent pointer rows", async () => {
+  const db = memoryD1(), store = new D1Store(db);
+  await assert.rejects(store.claim(base({ sharedFrom: "unlinked-room", codeRefs: [{ path: "a.py" }] })), /no longer linked/);
+  for (const table of ["memory_claims", "claims_fts", "code_pointers"]) {
+    assert.equal((await db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first())!.n, 0);
+  }
+});
+
+test("recall accepts raw text, not a pre-built FTS expression, on every caller", async () => {
+  const store = new D1Store(memoryD1());
+  await store.claim(base({ subject: "ordinary", content: "or", accept: true }));
+  const wanted = await store.claim(base({ subject: "needle", content: "needle hay", accept: true }));
+  assert.deepEqual((await store.recall("needle hay", "p", "vu")).map((c) => c.id), [wanted]);
+});
+
 test("code_refs are validated before storage", async () => {
   assert.deepEqual(cleanCodeRefs([{ path: "a.py", line: 3 }]), [{ path: "a.py" }]);
   for (const bad of [{ path: "a" }, [null], [[1]], [{ path: 3 }], [{}], new Array(11).fill({ path: "x" })]) {
@@ -85,9 +120,9 @@ test("recall matches accented and non-Latin words, folded the way the index fold
   const jp = await store.claim(base({ subject: "tokenizer", content: "日本語 text splits per run", accept: true }));
   await store.claim(base({ subject: "other", content: "unrelated e note", accept: true }));
   for (const q of ["café", "cafe", "CAFÉ"]) {
-    assert.deepEqual((await store.recall(ftsQuery(q), "p", "vu")).map((c) => c.id), [cafe], q);
+    assert.deepEqual((await store.recall(q, "p", "vu")).map((c) => c.id), [cafe], q);
   }
-  assert.deepEqual((await store.recall(ftsQuery("日本語"), "p", "vu")).map((c) => c.id), [jp]);
+  assert.deepEqual((await store.recall("日本語", "p", "vu")).map((c) => c.id), [jp]);
 });
 
 test("recall breaks exact ties by id", async () => {
@@ -100,6 +135,6 @@ test("recall breaks exact ties by id", async () => {
     await db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, "tie", "same words").run();
   }
   const want = ["a", "b", "c"].map((ch) => ch.repeat(32));
-  assert.deepEqual((await store.recall(ftsQuery("same words"), "p", "vu")).map((c) => c.id), want);
+  assert.deepEqual((await store.recall("same words", "p", "vu")).map((c) => c.id), want);
   assert.deepEqual((await store.recall("", "p", "vu")).map((c) => c.id), want);
 });

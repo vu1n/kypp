@@ -8,10 +8,9 @@ existing MVCC file, because those files are not SQLite databases.
 from __future__ import annotations
 
 import os
-import re
 import sqlite3
 
-from .repository import SemanticUnavailable, StoreCapabilities, reciprocal_rank
+from .repository import SemanticUnavailable, StoreCapabilities, query_tokens, reciprocal_rank
 from .store import MemoryStore
 
 # unicode61 is the FTS5 default the Worker already ships. Named here so a reader
@@ -26,7 +25,9 @@ class _FtsWrites:
     """FTS5 maintenance shared by the sqlite and libsql adapters."""
 
     def _extra_ddl(self) -> list[str]:
-        return [FTS_DDL]
+        return [FTS_DDL,
+                "INSERT INTO claims_fts(claim_id,subject,content) "
+                "SELECT id,subject,content FROM memory_claims WHERE id NOT IN (SELECT claim_id FROM claims_fts)"]
 
     def _claim_side_writes(self, cid, subject, content, code_refs, now):
         rows = super()._claim_side_writes(cid, subject, content, code_refs, now)
@@ -36,16 +37,18 @@ class _FtsWrites:
         ))
         return rows
 
-    def _fts_ids(self, query: str, limit: int) -> list[str]:
-        terms = re.findall(r"[A-Za-z0-9_]+", query)
+    def _fts_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
+        terms = query_tokens(query)
         if not terms:
             return []
-        # Tokens are already [A-Za-z0-9_], so quoting them cannot change the MATCH grammar.
+        # Tokens contain no FTS syntax. Visibility/eligibility MUST precede the cap.
         match = " OR ".join(f'"{term}"' for term in terms)
         cur = self.db.cursor()
         rows = cur.execute(
-            "SELECT claim_id FROM claims_fts WHERE claims_fts MATCH ? ORDER BY bm25(claims_fts) LIMIT ?",
-            (match, limit),
+            "SELECT c.id FROM claims_fts JOIN memory_claims c ON c.id=claims_fts.claim_id "
+            "WHERE claims_fts MATCH ? AND " + " AND ".join(where)
+            + " ORDER BY bm25(claims_fts),c.id LIMIT ?",
+            [match, *params, limit],
         ).fetchall()
         return [row[0] for row in rows]
 
@@ -69,7 +72,7 @@ class SqliteFtsStore(_FtsWrites, MemoryStore):
         )
 
     def _native_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
-        return self._fts_ids(query, limit)
+        return self._fts_ids(query, where, params, limit)
 
     def similar_pairs(self, project: str | None = None, *, max_distance: float = 0.15) -> list[tuple[str, str]]:
         raise SemanticUnavailable(
@@ -109,7 +112,7 @@ class LibsqlStore(_FtsWrites, MemoryStore):
 
     def _native_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
         rankings: list[list[str]] = []
-        lexical = self._fts_ids(query, limit)
+        lexical = self._fts_ids(query, where, params, limit)
         if lexical:
             rankings.append(lexical)
         if self.embed and query.strip():

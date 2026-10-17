@@ -12,21 +12,38 @@ touches. Internal areas count as features too. When code moves, update `paths:` 
 change, because `brief check` blocks any glob that matches nothing.
 
 <!-- brief:anchor claim-transition-contract -->
-## Proposed claim transition contract
+## Claim transition contract and staged command adapters
 
 ```yaml
 paths:
   - "specs/claim_state_machine/model.py"
   - "specs/claim_state_machine/v1.json"
+  - "kypp/claim_machine.py"
+  - "kypp/claim_commands.py"
+  - "worker/src/claim-machine.ts"
+  - "worker/src/claim-commands.ts"
+  - "worker/migrations/0010_claim_commands.sql"
   - "tests/test_claim_state_machine_spec.py"
+  - "tests/test_claim_commands.py"
+  - "tests/claim_trace_oracle.py"
+  - "worker/test/claim-commands.test.ts"
   - "docs/claim-state-machine.md"
 ```
 
-An unconnected executable proposal for lifecycle, acceptance, verification fencing and atomic
-commands. The amendment PR ratifies decision changes; production adapter conformance follows.
+A contract ratified by #43 for lifecycle, acceptance, verification fencing and atomic commands.
+The Python kernel and Worker port have isolated durable command adapters; live-store cutover is
+still pending. `docs/claim-state-machine.md` names the completed checkpoint and remaining work.
 
 ### Gotchas
-- The reference is outside the runtime package and does not prove existing stores conform.
+- The old reference path imports the Python kernel; it is not an independent oracle. Original
+  portable vector expectations check outcomes; cross-language tests check the Worker port.
+- `claim_command_*` snapshots and indexes are isolated from legacy claims. No current route or
+  cron calls them. Do not claim production conformance or partially switch a live store.
+- A group snapshot includes its entire history. Measure row size and write latency before cutover;
+  the first aggregate representation is not a large-history scalability claim.
+- Pyturso DDL cannot run in `BEGIN CONCURRENT`; bootstrap idempotently before command transactions.
+- Python `str.split` and JavaScript `\s` differ on NEL, C0 separators and BOM. Exact recurrence
+  agreement uses the same explicit whitespace set; shared port tests cover it.
 - Actor capabilities, the separate Stamp argument, and typed agreement are trusted adapter inputs,
   not client-selected permissions. Authenticate and authorize the exact group before invoking it.
 - Retirement is terminal; check outcomes qualify live read eligibility. Viewing is not acceptance.
@@ -35,8 +52,8 @@ commands. The amendment PR ratifies decision changes; production adapter conform
   generation; a blocked candidate pass records evidence without acquiring verified authority.
 - Each amended anchor stages activation at complete adapter/store cutover. A contract-only merge
   does not require existing handlers to have already switched semantics.
-- Bounded schedules cover only their stated finite domain; SQL isolation and Python/Worker conformance
-  require adapter tests after ratification.
+- SQL interleavings and rollback tests cover all three local drivers and the D1 stand-in; they do
+  not prove deployed D1 isolation, authentication, shell/model truth, or an all-writer cutover.
 
 <!-- brief:anchor store -->
 ## Store
@@ -49,8 +66,8 @@ paths:
   - "kypp/vocab.py"
 ```
 
-The engine talks to a `ClaimStore` (`put` / `get` / `search` / `find_similar`, plus the
-governance writes it already makes). Three adapters implement it: pyturso (existing MVCC
+The legacy engine talks to a `ClaimStore` (`put` / `get` / `search` / `find_similar`, plus the
+governance writes it already makes). The staged command API is separate (above). Three adapters implement it: pyturso (existing MVCC
 files, vectors + `LIKE`), libsql (FTS5 bm25 fused with exact cosine), and stdlib sqlite3
 FTS5 (the hosted SQL, no vectors). `vocab.py` is the single source for types, scopes,
 statuses and authorities. `code_pointers` indexes a doc:// ref or symbol key together with
@@ -65,15 +82,22 @@ the file path, so search can go from a file to entries and from an entry to file
 - `KYPP_STORE=auto` opens an existing pyturso file as pyturso (sqlite3 cannot read it) and
   creates a new file as libsql. `sqlite` is the hosted-compatible adapter: `find_similar`
   raises, and `consolidate --semantic` keeps exact-subject dedup and says vectors did not run.
-- `_write` retries a conflict, busy, or locked error 5 times with no backoff. On pyturso
-  only `turso.OperationalError` is retried.
+- `_write` retries transient conflicts/busy/locked errors up to 5 attempts. Pyturso 0.8.1 maps
+  `Write-write conflict` at COMMIT to plain `DatabaseError`, so that exact case is retried too;
+  other generic database errors are not. A command retry reruns its SQL revision guard.
+- Filter project/scope/type/status before lexical and pointer LIMITs, not after merging a capped
+  global candidate list. Otherwise an eligible match can disappear behind other projects' hits.
+- Existing sqlite/libsql rows are backfilled into FTS once at bootstrap. New pointer and FTS rows
+  ride the claim transaction; a refused room share creates neither.
+- A full doc:// pointer lookup includes project and document, not just its anchor. Bare-anchor
+  lookups are intentionally broad; they are discovery, not mutation or authorization.
 - `code_pointers` does not store line numbers. A path is a hint. Recall still re-resolves
   a code anchor to `path:line` against the live tree.
 - D1 `recall` must quote word tokens before FTS5 `MATCH`. Binding a raw path throws
   `syntax error near "/"`, so the pointer rank never runs. The raw path, anchor, or
   doc:// ref is the identity match and ranks ahead of bm25.
-- Schema changes are `ADD COLUMN` with a default only: no `NOT NULL`, no version table. Hosts
-  on different kypp versions open the same store file.
+- Existing-table column changes remain additive/defaulted; new staged command tables do not
+  migrate existing rows or make old writers safe. Coordinate all writers at activation.
 - Code refs resolve to `path:line` plus a one-line preview at recall. Never store or return
   file bodies; they go stale and burn context.
 - Vector recall is an exact scan on purpose (pyturso and libsql). libsql can build a DiskANN

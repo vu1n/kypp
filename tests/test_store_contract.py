@@ -76,6 +76,39 @@ class StoreContract:
         self.assertEqual(store.get(cid).status, "rejected")
         self.assertEqual(store.search("drop this from recall", project="p"), [])
 
+    def test_visibility_and_status_filter_before_text_and_pointer_limits(self):
+        store = self.open(self.path)
+        for project, status in [("elsewhere", "accepted"), ("mine", "candidate"), ("mine", "rejected")]:
+            for i in range(30):
+                cid = store.put("fact", f"other {i}", "needle", scope="project", project=project,
+                                accept=status == "accepted", code_refs=[{"path": "target.py"}])
+                if status == "rejected":
+                    store.reject(cid)
+        wanted = store.put("fact", "wanted", "needle is in a longer and lower-scoring sentence", scope="project",
+                           project="mine", accept=True, code_refs=[{"path": "target.py"}])
+        self.assertEqual([c.id for c in store.recall("needle", project="mine", limit=1)], [wanted])
+        self.assertEqual([c.id for c in store.recall("target.py", project="mine", limit=1)], [wanted])
+
+    def test_unicode_words_and_punctuation_are_not_accidental_browse(self):
+        store = self.open(self.path)
+        cid = store.put("fact", "café", "日本語 and café", scope="project", project="p", accept=True)
+        for query in ["café", "日本語"] + (["cafe", "cafe\u0301"] if self.fts else []):
+            self.assertEqual([c.id for c in store.search(query, project="p")], [cid], query)
+        self.assertEqual(store.search("🚀 !!", project="p"), [])
+
+    def test_fts_backfills_existing_rows_once(self):
+        if not self.fts:
+            return
+        store = self.open(self.path)
+        cid = store.put("fact", "existing", "before the FTS adapter", scope="project", project="p", accept=True)
+        # Simulate a row predating the index, without deleting any claim/history.
+        store._write([("DELETE FROM claims_fts WHERE claim_id=?", (cid,))])
+        reopened = self.open(self.path)
+        self.assertEqual([c.id for c in reopened.search("existing", project="p")], [cid])
+        reopened_again = self.open(self.path)
+        n = reopened_again.db.cursor().execute("SELECT COUNT(*) FROM claims_fts WHERE claim_id=?", (cid,)).fetchone()[0]
+        self.assertEqual(n, 1)
+
     def test_pointers_resolve_both_ways_and_rank_search(self):
         store = self.open(self.path)
         cid = store.put(
@@ -109,6 +142,17 @@ class StoreContract:
         self.assertEqual(entries[0].claim_id, "")
         paths = store.paths_for_entry("authority-dominates")
         self.assertEqual([p.path for p in paths], ["speccheck/syntax.py"])
+
+    def test_full_pointer_ref_does_not_alias_another_project_or_document(self):
+        store = self.open(self.path)
+        # Foreign fixture identities, not Context bindings to this repo's decisions.
+        def ref(project, document, revision):
+            return f"doc://{project}/{document}@{revision}#shared"
+        for project, document, path in [("a", "one", "right.py"), ("b", "one", "other-project.py"),
+                                        ("a", "two", "other-doc.py")]:
+            store.link_pointer(ref(project, document, "0001"), path)
+        self.assertEqual([p.path for p in store.paths_for_entry(ref("a", "one", "0002"))], ["right.py"])
+        self.assertEqual(len(store.paths_for_entry("shared")), 3)
 
     def test_semantic_capability(self):
         store = self.open(self.path, embed=_embed)

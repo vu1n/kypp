@@ -38,7 +38,7 @@ from typing import Callable, Protocol
 import turso  # pyturso — the tursodb engine (concurrent writes + native vectors)
 
 from .repository import (  # driver-free seam: capabilities, pointer edges, doc:// grammar
-    POINTER_INSERT, Pointer, StoreCapabilities, edges_for_claim, parse_entry_ref, pointer_params,
+    POINTER_INSERT, Pointer, StoreCapabilities, edges_for_claim, parse_entry_ref, pointer_params, query_tokens,
 )
 from .vocab import AUTHORITIES, OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, SURFACES, TYPES  # single-sourced vocabulary (turso-free leaf)
 
@@ -299,8 +299,12 @@ class MemoryStore:
                     pass
                 retry = ("conflict" in str(e).lower() or "busy" in str(e).lower()
                          or "locked" in str(e).lower())
-                if self.driver == "turso" and not isinstance(e, turso.OperationalError):
-                    retry = False
+                if self.driver == "turso":
+                    # pyturso 0.8.1 maps the MVCC COMMIT conflict to DatabaseError,
+                    # not OperationalError. Retry only that exact generic error;
+                    # constraints, corrupt files and arbitrary Python errors still fail.
+                    retry = ((isinstance(e, turso.OperationalError) and retry)
+                             or (type(e) is turso.DatabaseError and str(e).strip().lower() == "write-write conflict"))
                 if retry and attempt < 4:
                     continue
                 raise
@@ -361,7 +365,7 @@ class MemoryStore:
         return self.claim(type, subject, content, scope, **kwargs)
 
     # --- set_status = the arbiter's write (supersede / accept / reject) -----
-    # Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim or observation.
+    # Context: doc://kypp/append-only-history@0002#never-delete — change status; never DELETE a claim or observation.
     def set_status(self, claim_id: str, status: str) -> None:
         """Transition a claim's lifecycle status. NEVER deletes — superseded/rejected rows stay
         (recall already excludes them) so history is preserved. The arbiter's only write."""
@@ -397,7 +401,7 @@ class MemoryStore:
         it, and since recency breaks ties between equal human claims, a sweep landing between
         `kypp correct`'s insert and its consolidate must not make the old answer look newest. The
         verifier's only write."""
-        # Context: doc://kypp/authority-order@0007#authority-dominates — verify raises agent → verified, never lowers human.
+        # Context: doc://kypp/authority-order@0008#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
             self._write([("UPDATE memory_claims SET "
                           "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'accepted' END, "
@@ -493,7 +497,7 @@ class MemoryStore:
         else:
             # Pointer hits outrank text: a file path or a doc:// anchor is an exact identity, not a bag of words.
             native = self._native_ids(query, where, params, max(limit * 4, 20))
-            pointers = self._pointer_claim_ids(query)
+            pointers = self._pointer_claim_ids(query, where, params, limit)
             ordered: list[str] = []
             seen: set[str] = set()
             for cid in pointers + native:
@@ -542,7 +546,9 @@ class MemoryStore:
         return [r[0] for r in rows]
 
     def _like_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
-        terms = re.findall(r"[A-Za-z0-9_]+", query)
+        terms = query_tokens(query)
+        if not terms:
+            return []
         like = " OR ".join(["(subject LIKE ? OR content LIKE ?)"] * len(terms))
         lp = [f"%{t}%" for t in terms for _ in range(2)]
         cur = self.db.cursor()
@@ -567,7 +573,7 @@ class MemoryStore:
         by_id = {r[idx]: r for r in rows}
         return cur, [by_id[i] for i in ids if i in by_id]
 
-    def _pointer_claim_ids(self, query: str) -> list[str]:
+    def _pointer_claim_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
         """Claims indexed under a path, anchor, or doc:// ref that the query names."""
         clauses: list[str] = []
         binds: list = []
@@ -591,9 +597,10 @@ class MemoryStore:
             binds.extend([text, text, text, text])
         cur = self.db.cursor()
         rows = cur.execute(
-            "SELECT DISTINCT claim_id FROM code_pointers WHERE claim_id != '' AND ("
-            + " OR ".join(clauses) + ")",
-            binds).fetchall()
+            "SELECT id FROM memory_claims WHERE " + " AND ".join(where)
+            + " AND id IN (SELECT claim_id FROM code_pointers WHERE claim_id != '' AND ("
+            + " OR ".join(clauses) + ")) ORDER BY id LIMIT ?",
+            params + binds + [limit]).fetchall()
         return [r[0] for r in rows]
 
     def get(self, claim_id: str) -> Claim | None:
@@ -650,7 +657,7 @@ class MemoryStore:
         return self.similar_pairs(project, max_distance=max_distance)
 
     # --- code ↔ entry pointers ----------------------------------------------
-    # Context: doc://kypp/memory-scope-decay@0005#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
+    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
     def link_pointer(self, entry_ref: str, path: str, *, symbol: str | None = None,
                      claim_id: str | None = None, kind: str = "context") -> str:
         """Index one edge. Idempotent on (kind, entry ref, path, symbol, claim)."""
@@ -675,10 +682,11 @@ class MemoryStore:
     def paths_for_entry(self, entry_ref: str) -> list[Pointer]:
         """Entries → code. A full doc:// ref matches any revision of that anchor; a bare anchor matches too."""
         project, doc_id, _revision, anchor = parse_entry_ref(entry_ref)
+        identity = ("project = ? AND doc_id = ? AND anchor = ?" if project
+                    else "anchor != '' AND anchor = ?")
         return self._pointer_rows(
-            "entry_ref = ? OR claim_id = ? OR (anchor != '' AND anchor = ?)"
-            " OR (project != '' AND doc_id != '' AND anchor != '' AND project = ? AND doc_id = ? AND anchor = ?)",
-            [entry_ref, entry_ref, anchor, project, doc_id, anchor],
+            "entry_ref = ? OR claim_id = ? OR (" + identity + ")",
+            [entry_ref, entry_ref] + ([project, doc_id, anchor] if project else [anchor]),
         )
 
     def _pointer_rows(self, where: str, params: list) -> list[Pointer]:

@@ -17,6 +17,10 @@ uv tool install .           # → `kypp` on PATH (what agents shell out to)
 
 ## For agents
 
+Development status: the [claim state-machine contract](docs/claim-state-machine.md) is ratified.
+Its new command adapters are staged; current CLI/MCP/cron stores still use the documented legacy
+behavior until the coordinated migration and all-writer cutover. Installing new tables is not activation.
+
 You are a coding agent with access to kypp, the team's shared memory. Everything below works over
 two equivalent surfaces — pick whichever you have:
 

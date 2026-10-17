@@ -2,7 +2,6 @@
 // is given (workerd's local SQLite under `wrangler dev`, or a real D1 with `remote: true`), so the
 // same code can be replayed against both storage engines. Not deployed; not part of src/.
 import { D1Store } from "../../src/store.ts";
-import { ftsQuery } from "../../src/memory.ts";
 
 interface Env { DB: D1Database }
 type Seed = { id: string; type: string; subject: string; content: string; scope: string; project: string | null;
@@ -32,7 +31,7 @@ export default {
     if (url.pathname === "/recall") {
       const { q, project, limit, candidates } = await req.json() as { q: string; project: string; limit: number; candidates?: "none" | "origin" };
       const t0 = performance.now();
-      const claims = await new D1Store(env.DB).recall(ftsQuery(q), project, null, { candidates: candidates ?? "none", groups: [], limit });
+      const claims = await new D1Store(env.DB).recall(q, project, null, { candidates: candidates ?? "none", groups: [], limit });
       return json({ ids: claims.map((c) => c.id), ms: performance.now() - t0 });
     }
     return new Response("not found", { status: 404 });

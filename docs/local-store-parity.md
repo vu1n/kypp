@@ -1,14 +1,19 @@
 # Repository interface for the local and hosted stores
 
-Status: implemented. Vu rejected the earlier pick (move local kypp onto sqlite3 and drop vectors, or move both sides onto one engine). The engine now depends on a store interface. Each backend keeps the search it can actually run.
+Status: retrieval adapters implemented; claim-command persistence staged, not activated. Vu rejected
+the earlier pick (move local kypp onto sqlite3 and drop vectors, or move both sides onto one engine).
+Each backend keeps the search it can actually run. See [the ratified state-machine contract and
+cutover checklist](claim-state-machine.md) before changing mutation semantics.
 
-Checked 2026-10-14.
+Measurements below are from 2026-10-14, not claims about today's latest package releases. Adapter
+integration and command conformance were checked on 2026-10-17 with Python 3.12.14, pyturso 0.8.1,
+libsql 0.1.11 and Node 24.19.0; no Turso Cloud, live D1, deployment, or paid model calls were used.
 
 ## What was measured
 
 Python 3.12.3. No call to Turso Cloud or a live D1.
 
-| | pyturso 0.8.3 (latest on PyPI) | libsql 0.1.11 (latest on PyPI) | CPython sqlite3 |
+| | pyturso 0.8.3 (original measurement) | libsql 0.1.11 | CPython sqlite3 |
 |---|---|---|---|
 | SQLite identity | reports 3.50.4 inside the engine | `sqlite_version_info` is 3.42.0 | 3.45.1, FTS5 compiled in |
 | FTS5 `MATCH` / `bm25` | `Virtual tables are not supported in MVCC mode` | works, including `café` matching under `unicode61` | works |
@@ -32,7 +37,13 @@ libsql 0.1.11 is the local backend that can run both halves. sqlite3 FTS5 is the
 
 ## Interface
 
-`kypp.repository.ClaimStore` is what the engine calls: `put`, `get`, `search`, `find_similar`, `link_pointer`, `entries_for_path`, `paths_for_entry`, plus the governance writes (`claim`, `set_status`, `mark_verified`, …). `StoreCapabilities` says `semantic`, `fts`, and `pointers`. Search SQL stays inside the adapter. There is no ORM.
+`kypp.repository.ClaimStore` is the **legacy** integration interface: `put`, `get`, `search`,
+`find_similar`, pointer lookups and existing governance writes. It does not implement the new
+transition contract. `kypp.claim_commands.ClaimCommands` is the staged read/execute boundary,
+implemented by `LocalClaimCommands` and the Worker's `D1ClaimCommands`. It has no generic set-status
+operation. Its tables remain isolated until every reader/writer and verifier completes cutover.
+`StoreCapabilities` says `semantic`, `fts`, and `pointers`. Search SQL stays inside the adapter.
+There is no ORM.
 
 `KYPP_STORE=auto` (the default for `store_from_env`) opens an existing pyturso file with pyturso and creates a new file with libsql. `sqlite` selects the FTS5 adapter.
 
@@ -49,4 +60,9 @@ Brief leaves `doc://<project>/<doc>@<rev>#<anchor>` in a code comment, pointing 
 
 Line numbers are not a column. `memory-scope-decay` says a path is a hint and lines are not stored; recall still resolves a live `path:line` when it renders a claim. Search treats a path, an anchor, or a doc:// ref in the query as an identity hit and ranks those claims ahead of BM25 or cosine.
 
-The Worker migration `0005_code_pointers.sql` is the same table. `D1Store.recall` quotes `[A-Za-z0-9_]+` tokens before `MATCH` — a `/` in a path is FTS5 syntax — and returns those pointer hits ahead of `bm25`. The MCP recall tool passes the raw query so the path is still an identity, not a bag of words.
+Worker migration `0009_code_pointers.sql` follows the room/operator migrations already on main.
+Python and `D1Store.recall` quote Unicode letter/mark/number/underscore tokens before `MATCH` — a `/`
+in a path is FTS5 syntax — and return visible pointer hits ahead of `bm25`. All callers pass raw text,
+not a pre-built FTS expression. Project/scope/type/status filters run before candidate caps. FTS is
+backfilled for existing sqlite/libsql rows. A full doc:// ref keeps project/document identity when
+matching another revision; a bare anchor intentionally discovers all matching entries.

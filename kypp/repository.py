@@ -1,13 +1,17 @@
 """Repository surface the engine calls. Adapters own the SQL.
 
-`put` / `get` / `search` / `find_similar` are the retrieval seam. Governance writes
+`put` / `get` / `search` / `find_similar` are the legacy retrieval seam. Governance writes
 (`claim`, `set_status`, `mark_verified`, …) stay on the same object because the
 engine already performs them and they are not a query language. Search SQL is
-hand-written in each backend. This module has no database driver.
+hand-written in each backend. This module has no database driver. This legacy
+interface is NOT the new state-machine API: that is claim_commands.ClaimCommands,
+which exposes read/execute and no generic set_status. All callers move together
+at the documented store cutover, not by silently changing this interface's semantics.
 """
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Protocol
 
@@ -18,6 +22,12 @@ if TYPE_CHECKING:
 DOC_REF_RE = re.compile(
     r"doc://([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)"
 )
+
+
+def query_tokens(query: str) -> list[str]:
+    """Match the Worker's Unicode letter/mark/number/underscore word runs."""
+    return "".join(c if c == "_" or unicodedata.category(c)[0] in "LMN" else " "
+                   for c in query).split()
 
 POINTER_INSERT = (
     "INSERT OR IGNORE INTO code_pointers"
