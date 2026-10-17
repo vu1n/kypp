@@ -1,5 +1,5 @@
 // store.ts — the D1 side of kypp/store.py: claim, recall, get, usage, live claims, status writes.
-import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope } from "./memory.ts";
+import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope, ftsQuery } from "./memory.ts";
 import type { ProjectInfo } from "./s1.ts";
 
 const MAX_CONTENT = 4000;
@@ -26,6 +26,67 @@ export function cleanCodeRefs(refs: unknown): Record<string, string>[] {
 }
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID().replaceAll("-", "");
+const POINTER_SQL = "INSERT OR IGNORE INTO code_pointers(id,claim_id,entry_ref,project,doc_id,anchor,revision,path,symbol,kind,created_at)";
+const DOC_REF = /doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)/g;
+
+// Context: doc://kypp/memory-scope-decay@0005#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
+function pointerRow(claimId: string, entryRef: string, path: string, symbol: string, kind: string,
+  project = "", docId = "", revision = "", anchor = ""): unknown[] {
+  if (!project && entryRef.startsWith("doc://")) {
+    const m = /doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)/.exec(entryRef);
+    if (m) { project = m[1]; docId = m[2]; revision = m[3]; anchor = m[4]; }
+  } else if (!anchor && (entryRef.startsWith("symbol:") || entryRef.startsWith("path:"))) {
+    docId = "code";
+    anchor = entryRef.slice(entryRef.indexOf(":") + 1);
+  }
+  return [uid(), claimId, entryRef, project, docId, anchor, revision, path.replace(/^\.\//, ""), symbol, kind, now()];
+}
+
+function pointerRows(claimId: string, subject: string, content: string, refs: Record<string, string>[]): unknown[][] {
+  const rows: unknown[][] = [];
+  const paths = refs.filter((r) => r.path).map((r) => [r.path, r.symbol ?? ""] as const);
+  for (const ref of refs) {
+    const path = ref.path ?? "";
+    const symbol = ref.symbol ?? "";
+    if (!path && !symbol) continue;
+    const entry = symbol ? `symbol:${symbol}` : `path:${path}`;
+    rows.push(pointerRow(claimId, entry, path, symbol, "code_ref"));
+  }
+  for (const match of `${subject}\n${content}`.matchAll(DOC_REF)) {
+    const targets = paths.length ? paths : [["", ""] as const];
+    for (const [path, symbol] of targets) {
+      rows.push(pointerRow(claimId, match[0], path, symbol, "context", match[1], match[2], match[3], match[4]));
+    }
+  }
+  return rows;
+}
+
+// A path, a kebab anchor, or a doc:// ref is an identity, not an FTS token. The clauses match
+// kypp/store.py `_pointer_claim_ids`: exact path, anchor, or any revision of the same anchor.
+function pointerMatch(query: string): [string, unknown[]] {
+  const clauses: string[] = [];
+  const binds: unknown[] = [];
+  for (const m of query.matchAll(/doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)/g)) {
+    clauses.push("(entry_ref = ? OR (project = ? AND doc_id = ? AND anchor = ?))");
+    binds.push(m[0], m[1], m[2], m[4]);
+  }
+  for (const tok of query.match(/[^\s]+/g) ?? []) {
+    const bare = tok.replace(/^\.\//, "");
+    if (bare.includes("/") || /\.(py|ts|md|rs|go|sql)$/.test(bare)) {
+      clauses.push("path = ?");
+      binds.push(bare);
+    } else if (/^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(bare)) {
+      clauses.push("anchor = ?");
+      binds.push(bare);
+    }
+  }
+  if (!clauses.length) {
+    const text = query.trim();
+    clauses.push("(path = ? OR anchor = ? OR entry_ref = ? OR claim_id = ?)");
+    binds.push(text, text, text, text);
+  }
+  return [clauses.join(" OR "), binds];
+}
 
 function hydrate(r: Record<string, unknown>): Claim {
   return {
@@ -129,6 +190,9 @@ export class D1Store {
         JSON.stringify(c.metadata ?? {}), ts, ts, ...linked.args),
       this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM memory_claims WHERE id = ?)")
         .bind(id, c.subject, c.content, id),
+      ...pointerRows(id, c.subject, c.content, codeRefs).map((row) => this.db.prepare(
+        POINTER_SQL + " SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM memory_claims WHERE id = ?)",
+      ).bind(...row, id)),
     ]);
     if (!inserted.meta.changes) throw new Error(`this room is no longer linked to ${c.project}, so the lesson stays out of it`);
     return id;
@@ -144,6 +208,7 @@ export class D1Store {
     if (c.content.length > MAX_CONTENT) throw new Error(`content over ${MAX_CONTENT} chars; distill it`);
     const id = uid(), ts = now();
     const confidence = Math.min(1, Math.max(0, Number(c.confidence) || 0));
+    const codeRefs = cleanCodeRefs(c.codeRefs);
     await this.db.batch([
       this.db.prepare(
         "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,verify,created_at,updated_at)"
@@ -152,6 +217,9 @@ export class D1Store {
         c.accept || authority === "human" ? "accepted" : "candidate", authority, confidence, verify, ts, ts),
       this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
       this.logOperator(id, op, c.scope === "project" ? c.project : null, `authority=${authority}${verify ? " verify" : ""}`),
+      ...pointerRows(id, c.subject, c.content, codeRefs).map((row) => this.db.prepare(
+        POINTER_SQL + " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      ).bind(...row)),
     ]);
     return id;
   }
@@ -214,6 +282,7 @@ export class D1Store {
   // The id is last so equal rows come back in the same order on every engine.
   async recall(match: string, project: string | null, user: string | null,
     opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null; room?: RoomScope } = {}): Promise<Claim[]> {
+    match = match.trim();
     const [where, params] = opts.room
       ? roomVisible("c", opts.room, opts.candidates ?? "origin")
       : visible("c", project, opts.groups ?? [], user, opts.candidates ?? "origin", opts.session ?? null);
@@ -226,13 +295,61 @@ export class D1Store {
     const near = groups.length ? `1 + (CASE c.project ${groups.map((_, i) => `WHEN ? THEN ${i}`).join(" ")} END) * 0.01` : "1";
     const order = `(c.status='accepted') DESC, CASE c.scope WHEN 'room' THEN 0 WHEN 'project' THEN 0 WHEN 'group' THEN ${near} WHEN 'user' THEN 2 ELSE 3 END, c.confidence DESC, c.updated_at DESC, c.id`;
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
-    const sql = match
+    // Quote word tokens before MATCH. A path (`kypp/store.py`) is not an FTS expression; `/` is syntax.
+    const fts = match ? ftsQuery(match) : "";
+    const sql = fts
       ? `SELECT c.* FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
         + ` WHERE claims_fts MATCH ? AND ${where}${filter} ORDER BY bm25(claims_fts), ${order} LIMIT ?`
       : `SELECT c.* FROM memory_claims c WHERE ${where}${filter} ORDER BY ${order} LIMIT ?`;
-    const binds = [...(match ? [match] : []), ...params, ...fparams, ...groups, limit];
-    const { results } = await this.db.prepare(sql).bind(...binds).all();
-    return results.map(hydrate);
+    const binds = [...(fts ? [fts] : []), ...params, ...fparams, ...groups, limit];
+    const { results } = match && !fts
+      ? { results: [] as Record<string, unknown>[] }
+      : await this.db.prepare(sql).bind(...binds).all();
+    const text = results.map(hydrate);
+    if (!match) return text;
+    // A path or anchor hit is an identity match. It outranks bm25 and still has to pass visibility.
+    const [pointSql, pointBinds] = pointerMatch(match);
+    const pointed = await this.db.prepare(
+      `SELECT c.* FROM memory_claims c WHERE c.id IN (`
+      + `SELECT claim_id FROM code_pointers WHERE claim_id != '' AND (${pointSql}))`
+      + ` AND ${where}${filter} ORDER BY ${order} LIMIT ?`,
+    ).bind(...pointBinds, ...params, ...fparams, ...groups, limit).all();
+    const seen = new Set<string>();
+    const merged = [];
+    for (const c of [...pointed.results.map(hydrate), ...text]) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      merged.push(c);
+      if (merged.length >= limit) break;
+    }
+    return merged;
+  }
+
+  // Code → entries, and entries → code. Line numbers are not stored.
+  async linkPointer(entryRef: string, path: string, claimId = "", symbol = "", kind = "context"): Promise<string> {
+    const row = pointerRow(claimId, entryRef, path, symbol, kind);
+    await this.db.prepare(
+      "INSERT OR IGNORE INTO code_pointers(id,claim_id,entry_ref,project,doc_id,anchor,revision,path,symbol,kind,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+    ).bind(...(row as unknown[])).run();
+    const found = await this.db.prepare(
+      "SELECT id FROM code_pointers WHERE kind = ? AND entry_ref = ? AND path = ? AND symbol = ? AND claim_id = ?",
+    ).bind(kind, entryRef, path.replace(/^\.\//, ""), symbol, claimId).first();
+    return (found?.id as string) ?? (row[0] as string);
+  }
+
+  async entriesForPath(path: string): Promise<Record<string, unknown>[]> {
+    const { results } = await this.db.prepare(
+      "SELECT * FROM code_pointers WHERE path = ? AND path != '' ORDER BY entry_ref",
+    ).bind(path.replace(/^\.\//, "")).all();
+    return results;
+  }
+
+  async pathsForEntry(entryRef: string): Promise<Record<string, unknown>[]> {
+    const anchor = entryRef.includes("#") ? entryRef.slice(entryRef.indexOf("#") + 1) : entryRef;
+    const { results } = await this.db.prepare(
+      "SELECT * FROM code_pointers WHERE entry_ref = ? OR claim_id = ? OR (anchor != '' AND anchor = ?) ORDER BY path",
+    ).bind(entryRef, entryRef, anchor).all();
+    return results;
   }
 
   // A handle is a claim id or its 8+ char prefix; returns any status (a handle may point into history).

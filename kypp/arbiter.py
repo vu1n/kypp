@@ -16,6 +16,7 @@ import sys
 from collections import defaultdict
 
 from .s1 import HOLD_BELOW, agreement_judge
+from .repository import ClaimStore, SemanticUnavailable
 from .store import Claim, MemoryStore, project_from_env, store_from_env
 from .vocab import AUTHORITY_RANK
 
@@ -88,7 +89,7 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
 
 
 # Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
-def consolidate(store: MemoryStore, *, project: str | None = None, subject: str | None = None,
+def consolidate(store: ClaimStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None,
                 accept_corroboration: int | None = 2, judge=None) -> dict:
     """Phase 1: group live claims by exact (subject, scope, project); keep the strongest, supersede the
@@ -109,12 +110,25 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
     plan = _plan_groups(groups)
     superseded = {cid for p in plan for cid in p["superseded"]}
 
+    semantic_note = None
     if semantic is not None:
         alive = {c.id: c for c in claims if c.id not in superseded}
-        sem_plan = _plan_groups(_semantic_clusters(store.similar_pairs(project, max_distance=semantic), alive),
-                               keep_updates=False)
-        plan += sem_plan
-        superseded |= {cid for p in sem_plan for cid in p["superseded"]}
+        if not store.capabilities.semantic:
+            # Keyword (exact subject) dedup above already ran. Do not pretend vectors did.
+            semantic_note = (
+                "unavailable: this backend has no vector index; keyword (exact subject) dedup still ran"
+            )
+        else:
+            try:
+                pairs = store.find_similar(project, max_distance=semantic)
+            except SemanticUnavailable as exc:
+                semantic_note = str(exc)
+                pairs = []
+            else:
+                semantic_note = "applied"
+            sem_plan = _plan_groups(_semantic_clusters(pairs, alive), keep_updates=False)
+            plan += sem_plan
+            superseded |= {cid for p in sem_plan for cid in p["superseded"]}
 
     # Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
     # Promote the survivor of each exact-subject group once enough independent sessions corroborate it.
@@ -154,10 +168,10 @@ def consolidate(store: MemoryStore, *, project: str | None = None, subject: str 
             store.set_status(cid, "accepted")
 
     return {"groups": len(plan), "superseded": len(superseded), "promoted": len(promoted),
-            "dry_run": dry_run, "plan": plan}
+            "dry_run": dry_run, "semantic": semantic_note, "plan": plan}
 
 
-def resolve_conflicts(store: MemoryStore, subject: str, *, project: str | None = None) -> dict:
+def resolve_conflicts(store: ClaimStore, subject: str, *, project: str | None = None) -> dict:
     """Read-only: a subject's live claims grouped by status, with the recommended survivor. Apply via
     consolidate."""
     members = store.live_claims(project, subject)

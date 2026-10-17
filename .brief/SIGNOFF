@@ -40,3 +40,4 @@ operator-only-verify amend-proposed: orthogonal check evidence and revision/atte
 authority-dominates amend-proposed: transactional authority-constrained replacement and explicit acceptance provenance; MCP correct proposes a candidate
 scope-keys-decay amend-proposed: executable four-state claim contract, agreement-backed recurrence, group revisions and command receipts
 compose-surface amend-proposed: MCP claim and correct consistently propose candidates; operators own explicit acceptance and human assertion
+operator-only-verify conforms: build_mcp is typed as ClaimStore; no MCP tool accepts or runs a verify command

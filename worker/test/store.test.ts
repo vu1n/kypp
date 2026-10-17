@@ -43,6 +43,19 @@ test("a stale plan can't undo a correction that landed after it was read", async
   assert.deepEqual(live.map((c) => [c.id, c.status]), [[fix, "accepted"]]);
 });
 
+test("path pointers resolve from the file and from the entry, and recall ranks them", async () => {
+  const store = new D1Store(memoryD1());
+  const id = await store.claim(base({
+    subject: "verified writer", content: "the check grants verified authority", accept: true,
+    codeRefs: [{ symbol: "mark_verified", path: "kypp/store.py" }],
+  }));
+  const byPath = await store.entriesForPath("kypp/store.py");
+  assert.equal(byPath.some((p) => p.claim_id === id && p.kind === "code_ref"), true);
+  assert.equal((await store.pathsForEntry("symbol:mark_verified"))[0].path, "kypp/store.py");
+  const hits = await store.recall("kypp/store.py", "p", "vu");
+  assert.equal(hits[0]?.id, id);
+});
+
 test("code_refs are validated before storage", async () => {
   assert.deepEqual(cleanCodeRefs([{ path: "a.py", line: 3 }]), [{ path: "a.py" }]);
   for (const bad of [{ path: "a" }, [null], [[1]], [{ path: 3 }], [{}], new Array(11).fill({ path: "x" })]) {

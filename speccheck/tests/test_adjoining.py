@@ -17,6 +17,20 @@ def _bullets(path: Path) -> list[str]:
     return invariant_bullets(body)
 
 
+def _coverage_sites(coverage: str, label: str) -> dict[str, list[int]]:
+    """Path → line numbers named by one coverage label. Line numbers drift; the sites do not."""
+    found: dict[str, list[int]] = {}
+    marker = label + " "
+    for piece in coverage.split(";"):
+        piece = piece.strip()
+        if not piece.startswith(marker):
+            continue
+        loc = piece[len(marker):]
+        path, _, line = loc.rpartition(":")
+        found.setdefault(path, []).append(int(line))
+    return found
+
+
 class AdjoiningTest(unittest.TestCase):
     def test_pins_match_ratified_specs(self):
         self.assertEqual(_bullets(ROOT / ".brief/docs/verify-operator-only/versions/v0002.md"), VERIFY_BULLETS)
@@ -75,13 +89,22 @@ class LiveRepoTest(unittest.TestCase):
         self.assertEqual(writer.spec, "doc://kypp/authority-order@0006#authority-dominates")
         self.assertIn("mark_verified", writer.claim_text)
         self.assertIn("not classified", writer.detail)
-        self.assertIn("dynamic authority SQL kypp/store.py:282", writer.coverage)
-        # The two interpolated ${UNSORTED} updates; located by text so an unrelated edit above them
-        # doesn't break the test.
+        # Dynamic authority SQL stays unresolved. The cited line is the start of the statement;
+        # the interpolation may sit a couple of lines later, so match the statement, not a fixed number.
+        sites = _coverage_sites(writer.coverage, "dynamic authority SQL")
+        store_py = (ROOT / "kypp/store.py").read_text().splitlines()
+        self.assertEqual(len(sites["kypp/store.py"]), 1)
+        claim_sql = "\n".join(store_py[sites["kypp/store.py"][0] - 1:][:4])
+        self.assertIn("INSERT INTO memory_claims", claim_sql)
+        self.assertIn("{emb_sql}", claim_sql)
         store_ts = (ROOT / "worker/src/store.ts").read_text().splitlines()
-        for marker in ("SET file_tried_at = ?", "SET project = ? WHERE id = ? AND ${UNSORTED}"):
-            line = next(i for i, text in enumerate(store_ts, 1) if marker in text)
-            self.assertIn(f"dynamic authority SQL worker/src/store.ts:{line}", writer.coverage)
+        # main added operator and conditional-room INSERTs; assert statements, not line numbers.
+        self.assertEqual(len(sites["worker/src/store.ts"]), 3)
+        for line in sites["worker/src/store.ts"]:
+            stmt = "\n".join(store_ts[line - 1:][:4])
+            self.assertTrue("UPDATE memory_claims" in stmt or "INSERT INTO memory_claims" in stmt, stmt)
+            self.assertTrue("${UNSORTED}" in stmt or "${linked.sql}" in stmt
+                            or 'c.accept || authority === "human"' in stmt, stmt)
         self.assertIsNone(writer.counterexample)
         deleted = next(v for v in report.verdicts if v.rule_id == "no-delete-claims")
         self.assertEqual(deleted.status, "unresolved")

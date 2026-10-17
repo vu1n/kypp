@@ -1,7 +1,7 @@
 // mcp.ts — kypp's agent tools as a stateless streamable-HTTP MCP endpoint (JSON responses, no SSE,
 // no Durable Object). The same contract as kypp/mcp_server.py's briefing / recall / claim / expand /
 // correct; consolidation is the scheduled pass in index.ts, not an agent tool.
-import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, ftsQuery, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
+import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
 import { consolidate } from "./consolidate.ts";
 import { fileClaim } from "./defrag.ts";
 import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, type S1Client, judge } from "./s1.ts";
@@ -195,8 +195,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
         + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours)}` : "");
     }
     case "recall": {
-      const query = String(a.query ?? ""), match = ftsQuery(query);
-      const claims = query.trim() && !match ? [] : await store.recall(match, null, null,
+      const claims = await store.recall(String(a.query ?? ""), null, null,
         { room, candidates: a.include_candidates ? "all" : "origin", types: a.types, limit: a.limit, session: ctx.session });
       await store.recordUsage(ctx.session, claims, "recall", null, a.query || null);
       return renderClaims(claims);
@@ -306,10 +305,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
     }
     case "recall": {
-      const query = String(a.query ?? ""), match = ftsQuery(query);
-      // A query of only symbols or emoji has no word to match; answering it with browse results
-      // would hand back the strongest claims as if they were hits.
-      const claims = query.trim() && !match ? [] : await store.recall(match, project, user,
+      const claims = await store.recall(String(a.query ?? ""), project, user,
         { candidates: a.include_candidates ? "all" : "origin", groups, types: a.types, agent: a.agent, limit: a.limit, session: ctx.session });
       await store.recordUsage(ctx.session, claims, "recall", project, a.query || null);
       return note + renderClaims(claims);
