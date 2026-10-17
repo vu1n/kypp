@@ -9,17 +9,19 @@ import json
 import sqlite3
 from threading import Barrier, Lock
 import unittest
+from unittest.mock import patch
 
 from kypp.backends import LibsqlStore, SqliteFtsStore
 from kypp.claim_commands import Group, LocalClaimCommands, SCHEMA, NORMALIZE_DDL, NORMALIZE_DATA, SAVE, encoded
 from kypp.claim_machine import (
-    Actor, BeginCheck, Command, CompleteCheck, Correct, Propose, Refused, Reject, Stamp, State, transition,
+    Actor, BeginCheck, Command, CompleteCheck, Correct, Propose, Receipt, Refused, Reject, Stamp, State, transition,
 )
 from kypp.store import MemoryStore
 from claim_trace_oracle import vectors
 
 OWNER = Actor("owner", "operator")
 GROUP = Group("port", "project", "p")
+SAME_RECEIPT = Receipt("owner", "same", "e390067f0ecee3e8253bb6eca0b17e8bc5e0ad24076915fe98da5b6f0d641694", 1, "a", None)
 
 
 class CommandContract:
@@ -95,6 +97,174 @@ class CommandContract:
             return write(sqls)
         self.backend._write = intercepted
         self.addCleanup(setattr, self.backend, "_write", write)
+
+    def intercept_receipt_miss(self, hook, after_claims=None):
+        raw = self.backend.db
+        fired = False
+        class Cursor:
+            def __init__(self): self.cursor = raw.cursor(); self.sql = ""
+            def execute(self, sql, args=()):
+                self.sql = sql; self.cursor.execute(sql, args); return self
+            def fetchone(self):
+                nonlocal fired
+                row = self.cursor.fetchone()
+                if not fired and row is None and self.sql.startswith("SELECT group_key,fingerprint,receipt"):
+                    fired = True
+                    hook()
+                return row
+            def fetchall(self):
+                rows = self.cursor.fetchall()
+                if after_claims is not None and self.sql.startswith("SELECT claim FROM"):
+                    after_claims()
+                return rows
+            def __getattr__(self, name): return getattr(self.cursor, name)
+        class Connection:
+            def cursor(self): return Cursor()
+            def __getattr__(self, name): return getattr(raw, name)
+        self.backend.db = Connection()
+        self.addCleanup(setattr, self.backend, "db", raw)
+
+    def assert_command_rows(self, count):
+        for table in ["claim_command_events", "claim_command_receipts"]:
+            self.assertEqual(self.backend.db.cursor().execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0], count)
+        self.assertEqual(self.backend.db.cursor().execute("SELECT COUNT(*) FROM claim_command_ids").fetchone()[0], 1)
+        self.assertEqual(self.backend.db.cursor().execute("SELECT revision FROM claim_command_groups").fetchone()[0], count)
+
+    def test_retry_after_receipt_miss_and_concurrent_commit_returns_original_receipt(self):
+        other = LocalClaimCommands(self.open("main"))
+        command = Command("same", 0, Correct("a", "answer"))
+        self.intercept_receipt_miss(lambda: self.assertEqual(other.execute(GROUP, OWNER, command), SAME_RECEIPT))
+        with patch.object(self.backend, "_write", side_effect=AssertionError("retry must not write")):
+            self.assertEqual(self.commands.execute(GROUP, OWNER, command), SAME_RECEIPT)
+        self.assert_command_rows(1)
+
+    def exercise_load_retry_exhaustion(self, same_command):
+        other = LocalClaimCommands(self.open("main"))
+        command = Command("same", 0, Correct("a", "answer"))
+        first = command if same_command else replace(command, id="unrelated")
+        revisions = []
+        def change_between_headers():
+            self.assertLess(len(revisions), 5, "load exceeded its retry bound")
+            revision = len(revisions) + 1
+            receipt = other.execute(GROUP, OWNER, Command(f"churn-{revision}", revision,
+                                                        Correct(f"churn-{revision}", "new answer")))
+            revisions.append(receipt.revision)
+        self.intercept_receipt_miss(lambda: other.execute(GROUP, OWNER, first), change_between_headers)
+        with patch.object(self.backend, "_write") as write, patch("kypp.claim_commands.transition", wraps=transition) as plan:
+            if same_command:
+                self.assertEqual(self.commands.execute(GROUP, OWNER, command), SAME_RECEIPT)
+            else:
+                with self.assertRaisesRegex(Refused, "stale"):
+                    self.commands.execute(GROUP, OWNER, command)
+            write.assert_not_called()
+            self.assertEqual(plan.call_count, 6)  # Only the other connection's six commits planned.
+        self.assertEqual(revisions, [2, 3, 4, 5, 6])
+        for table in ["claim_command_ids", "claim_command_events", "claim_command_receipts"]:
+            self.assertEqual(self.backend.db.cursor().execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0], 6)
+        self.assertEqual(self.backend.db.cursor().execute("SELECT revision FROM claim_command_groups").fetchone()[0], 6)
+        row = self.backend.db.cursor().execute("SELECT receipt FROM claim_command_receipts WHERE command_id='same'").fetchone()
+        self.assertEqual(json.loads(row[0]) if row else None, asdict(SAME_RECEIPT) if same_command else None)
+
+    def test_load_retry_exhaustion_recovers_concurrent_exact_receipt(self):
+        self.exercise_load_retry_exhaustion(same_command=True)
+
+    def test_load_retry_exhaustion_without_matching_receipt_stays_stale(self):
+        self.exercise_load_retry_exhaustion(same_command=False)
+
+    def test_retry_after_receipt_miss_and_concurrent_retirement_returns_original_receipt(self):
+        other = LocalClaimCommands(self.open("main"))
+        command = Command("same", 0, Correct("a", "answer"))
+        def commit_and_retire():
+            other.execute(GROUP, OWNER, command)
+            other.execute(GROUP, OWNER, Command("retire", 1, Reject("a")))
+        self.intercept_receipt_miss(commit_and_retire)
+        with patch.object(self.backend, "_write", side_effect=AssertionError("retry must not write")):
+            self.assertEqual(self.commands.execute(GROUP, OWNER, command), SAME_RECEIPT)
+        self.assert_command_rows(2)
+        self.assertEqual(self.commands.read(GROUP).get("a").status, "rejected")
+        self.assertIsNone(self.commands.read(GROUP).head)
+
+    def test_changed_payload_after_receipt_miss_reports_conflict_not_stale(self):
+        other = LocalClaimCommands(self.open("main"))
+        command = Command("same", 0, Correct("a", "answer"))
+        self.intercept_receipt_miss(lambda: other.execute(GROUP, OWNER, command))
+        with self.assertRaisesRegex(Refused, "idempotency_conflict"):
+            self.commands.execute(GROUP, OWNER, replace(command, action=Correct("a", "different")))
+        self.assert_command_rows(1)
+        self.assertEqual(self.commands.read(GROUP).get("a").content, "answer")
+
+    def test_unrelated_commit_after_receipt_miss_still_refuses_stale_without_writes(self):
+        other = LocalClaimCommands(self.open("main"))
+        self.intercept_receipt_miss(lambda: other.execute(GROUP, OWNER, Command("first", 0, Correct("a", "answer"))))
+        with self.assertRaisesRegex(Refused, "stale"):
+            self.commands.execute(GROUP, OWNER, Command("late", 0, Correct("b", "stale")))
+        self.assert_command_rows(1)
+        self.assertIsNone(self.backend.db.cursor().execute("SELECT receipt FROM claim_command_receipts WHERE command_id='late'").fetchone())
+
+    def test_changed_revision_after_receipt_miss_reports_conflict_not_id_exists(self):
+        other = LocalClaimCommands(self.open("main"))
+        command = Command("same", 0, Correct("a", "answer"))
+        self.intercept_receipt_miss(lambda: other.execute(GROUP, OWNER, command))
+        with self.assertRaisesRegex(Refused, "idempotency_conflict"):
+            self.commands.execute(GROUP, OWNER, replace(command, expected_revision=1))
+        self.assert_command_rows(1)
+
+    def test_read_storage_failure_is_not_masked_by_a_concurrent_receipt(self):
+        other = LocalClaimCommands(self.open("main"))
+        command = Command("same", 0, Correct("a", "answer"))
+        self.intercept_receipt_miss(lambda: other.execute(GROUP, OWNER, command))
+        def broken_read(*args, **kwargs):
+            self.backend.db.cursor().execute("SELECT * FROM missing_table").fetchone()
+        with patch.object(self.commands, "_read", side_effect=broken_read):
+            with self.assertRaisesRegex(Exception, "missing_table"):
+                self.commands.execute(GROUP, OWNER, command)
+        self.assert_command_rows(1)
+
+    def test_storage_refusal_is_not_masked_by_a_concurrent_receipt(self):
+        other = LocalClaimCommands(self.open("main"))
+        command = Command("same", 0, Correct("a", "answer"))
+        def commit_and_corrupt_projection():
+            other.execute(GROUP, OWNER, command)
+            other.backend._write([("UPDATE claim_command_ids SET claim=NULL WHERE claim_id='a'", ())])
+        self.intercept_receipt_miss(commit_and_corrupt_projection)
+        with self.assertRaisesRegex(Refused, "storage_inconsistent"):
+            self.commands.execute(GROUP, OWNER, command)
+        self.assert_command_rows(1)
+
+    def test_invalid_actor_and_policy_are_refused_before_receipt_lookup(self):
+        command = Command("same", 0, Correct("a", "answer"))
+        self.commands.execute(GROUP, OWNER, command)
+        with patch.object(self.commands, "_replay", side_effect=AssertionError("must validate before replay")):
+            for actor in [Actor("owner", "revoked"), Actor("", "operator")]:
+                with self.assertRaisesRegex(Refused, "forbidden"):
+                    self.commands.execute(GROUP, actor, command)
+            with self.assertRaisesRegex(Refused, "invalid"):
+                self.commands.execute(GROUP, OWNER, command, k=1)
+        self.assert_command_rows(1)
+
+    def test_role_change_cannot_replay_operator_receipt(self):
+        command = Command("same", 0, Correct("a", "answer"))
+        self.commands.execute(GROUP, OWNER, command)
+        with self.assertRaisesRegex(Refused, "idempotency_conflict"):
+            self.commands.execute(GROUP, Actor("owner", "agent"), command)
+        self.assert_command_rows(1)
+
+    def test_caller_must_reauthorize_group_reach_before_replay(self):
+        # Contract fixture for the future transport boundary, not production auth.
+        allowed = {GROUP.key}
+        command = Command("same", 0, Correct("a", "answer"))
+        def authorized_execute(group):
+            if group.key not in allowed:
+                raise Refused("forbidden")
+            return self.commands.execute(group, OWNER, command)
+        self.assertEqual(authorized_execute(GROUP), SAME_RECEIPT)
+        allowed.clear()
+        with patch.object(self.commands, "_replay", side_effect=AssertionError("revoked reach must not read receipts")):
+            with self.assertRaisesRegex(Refused, "forbidden"):
+                authorized_execute(GROUP)
+        # The in-process adapter intentionally trusts its caller's scope decision.
+        self.assertEqual(self.commands.execute(GROUP, OWNER, command), SAME_RECEIPT)
+        self.assert_command_rows(1)
 
     def test_two_connections_recheck_revision_at_the_commit_boundary(self):
         other = LocalClaimCommands(self.open("main"))

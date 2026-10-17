@@ -11,6 +11,11 @@ tables. No CLI, MCP handler, operator route or scheduled job calls them yet; the
 migrate, or project into `memory_claims`, its FTS index or code pointers. Installing their empty
 tables does not activate a live store. Existing production behavior remains the stated legacy behavior.
 
+The follow-up [correctness checkpoint and cutover map](claim-cutover.md) records the
+receipt-miss/planning race, synthetic canonical-group/preservation tests, the unresolved
+intake/File command boundary, and every writer/reader/projection's activation prerequisite.
+It is not a live migration or permission to switch one route independently.
+
 Ratification and activation are separate: merging adopts the target contract and the explicit staged
 activation clauses in each amended anchor. The new runtime transition rules bind a store only after
 its migrations, readers, all writers and verification protocol complete cutover together. The stated
@@ -179,8 +184,8 @@ public HTTP command dialect. `v1.json` is a portable trace format, not that futu
    Old local binaries cannot safely write an upgraded store: coordinate writer shutdown/upgrade or
    isolate a new migrated store path. Additive columns cannot fence code that ignores the protocol.
    Snapshot CAS may bridge a writer transition; it does not make an old unconditional writer safe.
-7. PR #32's cooperation-validator fixes remain independent. Finish them after the contract-first
-   slice; cooperation expiry, reported evidence and idempotency do not grant claim authority.
+7. PR #32's cooperation-validator fixes landed independently after the contract-first slice;
+   cooperation expiry, reported evidence and idempotency do not grant claim authority.
 
 The current stage has no decay/widening/docs-promotion implementation. Event-clock decay can later
 qualify live claims without adding approval states. The standing docs-promotion rule still requires a
@@ -259,13 +264,12 @@ multi-query read races are also covered. These are local checks, not live D1 val
 Use `uv sync --locked --extra speccheck` and `uv run --locked --no-sync ...` for the locked test path;
 CI checks lock freshness as well as the separate installed-wheel smoke.
 
-### Landing sequence with #33
+### Landed adapter checkpoint
 
-#33's head `7753b70` is already an ancestor of this branch; its retrieval changes are included here
-with the integration fixes. The proposed path is to review and eventually land #44 as the combined
-successor after its remaining readiness requirements, then reconcile/close #33 as superseded at the
-maintainer's direction. Do not independently land the old #33 diff afterward. Neither PR is closed
-or merged by this checkpoint. #32's validation fixes remain a separate later slice.
+#44 (combined adapter/retrieval work) and #33 merged on 2026-10-17, followed by #32's
+cooperation fixes and #45's hosted operator correction fix. Their merge commits are
+`dcb3788`, `cca9b53`, `b6d942c` and `cadf806` respectively. The former landing plan
+is complete; live command activation and the cutover gates above are still pending.
 
 After real adapter conformance passes, a small Lean model could prove terminality, privilege
 preservation and no state change on failed revision checks. Its assumptions would include trusted

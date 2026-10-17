@@ -1,0 +1,24 @@
+{
+  "description": "Hand-authored synthetic boundary expectations, not Python-generated output or a production migration format. Original project/origin/user remain in the raw archive.",
+  "groups": [
+    {"legacy": {"subject": "café/日本語", "scope": "global", "project": "repo-a"}, "canonical": ["café/日本語", "global", null, null]},
+    {"legacy": {"subject": "café/日本語", "scope": "global", "project": "repo-b"}, "canonical": ["café/日本語", "global", null, null]},
+    {"legacy": {"subject": "port", "scope": "project", "project": "repo-a"}, "canonical": ["port", "project", "repo-a", null]},
+    {"legacy": {"subject": "port", "scope": "project", "project": "repo-b"}, "canonical": ["port", "project", "repo-b", null]},
+    {"legacy": {"subject": "port", "scope": "group", "project": "repo-a"}, "canonical": ["port", "group", "repo-a", null]},
+    {"legacy": {"subject": "port", "scope": "user", "project": "repo-a", "user": "alice"}, "canonical": ["port", "user", null, "alice"]},
+    {"legacy": {"subject": "port", "scope": "user", "project": "repo-b", "user": "bob"}, "canonical": ["port", "user", null, "bob"]},
+    {"legacy": {"subject": "port", "scope": "room", "project": null, "user": "alice"}, "canonical": ["port", "room", null, "alice"]}
+  ],
+  "unplaced": {"subject": "port", "scope": "project", "project": null, "origin": "unregistered", "session": "session-s"},
+  "unsupported": [
+    {"subject": "port", "scope": "user", "project": null, "user": null},
+    {"subject": "port", "scope": "room", "project": null, "user": null},
+    {"subject": "port", "scope": "group", "project": null}
+  ],
+  "rank": [
+    {"authority": "agent", "status": "accepted", "confidence": 1, "source_ids": ["o1", "o2"], "updated_at": "2026-10-17T00:00:00Z", "expected": [0, 1, 1, 2, "2026-10-17T00:00:00Z"]},
+    {"authority": "verified", "status": "accepted", "confidence": 0.3, "source_ids": ["o1"], "updated_at": "2026-10-16T00:00:00Z", "expected": [1, 1, 0.3, 1, "2026-10-16T00:00:00Z"]},
+    {"authority": "human", "status": "accepted", "confidence": 0, "source_ids": [], "updated_at": "2026-10-15T00:00:00Z", "expected": [2, 1, 0, 0, "2026-10-15T00:00:00Z"]}
+  ]
+}

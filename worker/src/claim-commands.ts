@@ -14,6 +14,7 @@ export function groupKey(group: Group): string {
 
 export interface ClaimCommands {
   read(group: Group): Promise<State>;
+  // Trusted caller authenticates actor and exact group reach before every call, including retries.
   execute(group: Group, actor: Actor, command: Command, stamp?: Stamp, k?: number): Promise<Receipt>;
 }
 
@@ -65,10 +66,33 @@ export class D1ClaimCommands implements ClaimCommands {
   }
 
   async execute(group: Group, actor: Actor, command: Command, stamp?: Stamp, k = 2): Promise<Receipt> {
+    // Match kernel preconditions before the durable receipt fast path.
+    requireThat(["agent", "operator", "maintenance"].includes(actor.role) && actor.principal, "forbidden");
+    requireThat(command.id && k >= 2, "invalid");
     const key = groupKey(group), replay = await this.replay(key, actor, command);
     if (replay) return replay;
-    const before = await this.load(group, false);
-    const [after, receipt] = await transition(before, actor, command, stamp, k);
+    let before: State;
+    try {
+      before = await this.load(group, false);
+    } catch (error) {
+      // Retry exhaustion can race a commit, but storage refusals must propagate.
+      if (error instanceof Refused && error.code === "stale") {
+        const replay = await this.replay(key, actor, command);
+        if (replay) return replay;
+      }
+      throw error;
+    }
+    let after: State, receipt: Receipt;
+    try {
+      [after, receipt] = await transition(before, actor, command, stamp, k);
+    } catch (error) {
+      // A concurrent receipt wins over stale planning or changed-input refusals.
+      if (error instanceof Refused) {
+        const replay = await this.replay(key, actor, command);
+        if (replay) return replay;
+      }
+      throw error;
+    }
     const stmts = [
       this.db.prepare("INSERT INTO claim_command_guard(ok) SELECT 0 WHERE COALESCE((SELECT revision FROM claim_command_groups WHERE group_key = ?), 0) != ?")
         .bind(key, before.revision),
