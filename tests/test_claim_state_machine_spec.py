@@ -1,4 +1,4 @@
-"""Contract-first tests: production adapters do not conform to this proposal yet."""
+"""Pure kernel tests; live writers remain legacy until coordinated cutover."""
 from dataclasses import replace
 from itertools import permutations, product
 import json

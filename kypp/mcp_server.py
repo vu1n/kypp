@@ -22,6 +22,7 @@ import uuid
 from .arbiter import consolidate as _consolidate
 from .s1 import agreement_judge
 from .arbiter import resolve_conflicts as _resolve_conflicts
+from .repository import ClaimStore
 from .store import Claim, MemoryStore, RipgrepResolver, identity_from_env, project_from_env, store_from_env
 from .view import briefing_claims, render_claims
 from .vocab import HUMAN_CORRECTION_CONFIDENCE, ClaimType, Scope
@@ -71,8 +72,8 @@ def _claim_dict(c: Claim) -> dict:
             "low_confidence": c.low_confidence, "stale": c.stale, "agent": c.agent, "user": c.user}
 
 
-# Context: doc://kypp/agent-mcp-surface-compose@0001#compose-surface — target agent surface is compose/claim/expand/correct; the 8 verbs below predate it
-def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
+# Context: doc://kypp/agent-mcp-surface-compose@0003#compose-surface — target agent surface is compose/claim/expand/correct; the 8 verbs below predate it
+def build_mcp(store: ClaimStore, project: str, *, name: str = "kypp",
               http: tuple[str, int] | None = None, consumer: str | None = None,
               user: str | None = None, agent: str | None = None):
     """Register the engine's tools on a FastMCP server bound to `store`/`project`. Imports the MCP SDK
@@ -162,7 +163,7 @@ def build_mcp(store: MemoryStore, project: str, *, name: str = "kypp",
         AGENT claims on the subject, but it carries agent authority: only the operator's
         `kypp correct` writes human authority, so it never outranks a verified or human claim.
         Returns the claim id."""
-        # Context: doc://kypp/authority-order@0007#authority-dominates — MCP never writes authority=human
+        # Context: doc://kypp/authority-order@0008#authority-dominates — MCP never writes authority=human
         cid = store.claim(type, subject, content, scope="project", project=project,
                           confidence=HUMAN_CORRECTION_CONFIDENCE, accept=True,
                           user=user, agent=agent)

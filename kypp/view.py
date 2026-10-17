@@ -10,6 +10,7 @@ per-use, not per-search. Shared by mcp_server and shell so the two surfaces can'
 """
 from __future__ import annotations
 
+from .repository import ClaimStore
 from .store import Claim, MemoryStore
 
 _CLIP = 240  # compact-line content budget; past it the line names the handle to expand
@@ -43,7 +44,7 @@ def render_claims(claims: list[Claim], empty: str = "(no matching memory)") -> s
     return "\n".join(compact_line(c) for c in claims) or empty
 
 
-def briefing_claims(store: MemoryStore, project: str, limit: int = 12,
+def briefing_claims(store: ClaimStore, project: str, limit: int = 12,
                     include_candidates: bool = False) -> list[Claim]:
     """The session-start digest selection: strongest claims, pitfalls/decisions/procedures first.
     Over-fetches 3× then stable-sorts by type priority so a pile of facts can't crowd out the traps

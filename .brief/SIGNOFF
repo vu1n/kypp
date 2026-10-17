@@ -40,3 +40,11 @@ operator-only-verify amend-proposed: orthogonal check evidence and revision/atte
 authority-dominates amend-proposed: transactional authority-constrained replacement and explicit acceptance provenance; MCP correct proposes a candidate
 scope-keys-decay amend-proposed: executable four-state claim contract, agreement-backed recurrence, group revisions and command receipts
 compose-surface amend-proposed: MCP claim and correct consistently propose candidates; operators own explicit acceptance and human assertion
+operator-only-verify conforms: build_mcp is typed as ClaimStore; no MCP tool accepts or runs a verify command
+never-delete conforms: isolated command aggregates retain terminal assertions and audit history; legacy claims remain unchanged until the ratified cutover; no claim or observation deletion added
+operator-only-verify conforms: pure kernels require the trusted operator role for verifier configuration and fenced results; no public route or MCP verifier capability is added; legacy verification remains staged
+authority-dominates conforms: Python and Worker command kernels enforce tier-constrained atomic replacement and keep blocked candidate passes at agent authority; no new route mints human or verified authority
+scope-keys-decay conforms: command persistence is isolated until complete cutover; existing room/pin/origin checks survive integration; eligibility is applied before text and pointer caps
+compose-surface conforms: recall passes raw text to the store without adding tools or authority parameters; command adapters are not wired to MCP and legacy correct remains explicitly permitted before activation
+scope-keys-decay conforms: normalized command metadata, changed claim projections, append-only event rows and the existing durable receipt ledger commit under the same group CAS; the pure kernel and live-store activation boundary are unchanged
+never-delete conforms: staged snapshot conversion retains every claim/event and original receipt; normalization introduces no truncation, expiry or deletion of claim/history rows

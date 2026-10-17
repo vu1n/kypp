@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "proposed-reference-vectors-not-production-conformance",
+  "status": "ratified-reference-vectors-not-live-store-conformance",
   "cases": [
     {
       "name": "agent proposal needs acceptance and operator acceptance does not mint human",

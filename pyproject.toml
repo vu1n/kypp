@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Swarm memory engine for coding agents — observe / distill / recall / consolidate over a shared store."
 requires-python = ">=3.10"
 dependencies = [
-    "pyturso>=0.8.1",  # embedded tursodb: concurrent writes + native vector search
+    "pyturso>=0.8.3",  # existing MVCC files: concurrent writes + vector_distance_cos. No FTS5 in MVCC mode.
+    "libsql>=0.1.11",  # local quality store: FTS5 bm25 + exact cosine in one file. Latest release as of 2026-10-14.
     "mcp>=1.30,<2",  # FastMCP-based server; migrate to SDK v2 separately.
 ]
 

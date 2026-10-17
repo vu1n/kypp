@@ -37,6 +37,9 @@ from typing import Callable, Protocol
 
 import turso  # pyturso — the tursodb engine (concurrent writes + native vectors)
 
+from .repository import (  # driver-free seam: capabilities, pointer edges, doc:// grammar
+    POINTER_INSERT, Pointer, StoreCapabilities, edges_for_claim, parse_entry_ref, pointer_params, query_tokens,
+)
 from .vocab import AUTHORITIES, OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, SURFACES, TYPES  # single-sourced vocabulary (turso-free leaf)
 
 SCHEMA = """
@@ -70,6 +73,28 @@ CREATE TABLE IF NOT EXISTS claim_usages (
 );
 CREATE INDEX IF NOT EXISTS usages_consumer_idx ON claim_usages(consumer);
 CREATE INDEX IF NOT EXISTS usages_claim_idx ON claim_usages(claim_id);
+-- Code ↔ entry edges. entry_ref is the doc:// pin or a symbol:/path: key. path is a hint, not
+-- part of the entry's name. Line numbers are not a column: they drift, and recall re-resolves them.
+CREATE TABLE IF NOT EXISTS code_pointers (
+  id TEXT PRIMARY KEY,
+  claim_id TEXT NOT NULL DEFAULT '',
+  entry_ref TEXT NOT NULL,
+  project TEXT NOT NULL DEFAULT '',
+  doc_id TEXT NOT NULL DEFAULT '',
+  anchor TEXT NOT NULL DEFAULT '',
+  revision TEXT NOT NULL DEFAULT '',
+  path TEXT NOT NULL DEFAULT '',
+  symbol TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS code_pointers_edge
+  ON code_pointers(kind, entry_ref, path, symbol, claim_id);
+CREATE INDEX IF NOT EXISTS code_pointers_path_idx ON code_pointers(path);
+CREATE INDEX IF NOT EXISTS code_pointers_anchor_idx ON code_pointers(anchor);
+CREATE INDEX IF NOT EXISTS code_pointers_entry_idx ON code_pointers(entry_ref);
+CREATE INDEX IF NOT EXISTS code_pointers_claim_idx ON code_pointers(claim_id);
+CREATE INDEX IF NOT EXISTS code_pointers_doc_idx ON code_pointers(project, doc_id, anchor);
 """
 
 # Additive column migrations for dbs created before a column existed. turso supports ALTER TABLE ADD
@@ -200,48 +225,88 @@ class RipgrepResolver:
 
 
 class MemoryStore:
-    """tursodb-backed store behind a thin seam. Writes use MVCC + BEGIN CONCURRENT (with retry on the
-    write-write conflict tursodb signals) so many capsules write concurrently. `embed` is injected
-    (BYO embeddings); absent → recall is LIKE-only."""
+    """Claim store the engine talks to. This class is the tursodb adapter (MVCC + vectors + LIKE).
+
+    SQLite FTS5 and libsql adapters subclass it and override `_open`, `_native_ids`, and, when
+    they have no vectors, `similar_pairs`. Shared governance SQL stays here so `mark_verified`
+    remains `kypp.store.MemoryStore.mark_verified`. `embed` is injected; absent, recall is keyword."""
+
+    driver = "turso"
 
     def __init__(self, path: str = "swarm-memory.db", embed: Callable[[str], list[float]] | None = None,
                  resolver: CodeResolver | None = None):
         self.embed = embed
         self.resolver = resolver
-        self.db = turso.connect(path)
-        cur = self.db.cursor()
+        self.db = self._open(path)
+        self._bootstrap()
+
+    def _open(self, path: str):
+        db = turso.connect(path)
+        cur = db.cursor()
         # pyturso executes lazily — fetch to force the PRAGMA to actually run, then confirm MVCC
         # is on (BEGIN CONCURRENT errors without it).
         mode = cur.execute("PRAGMA journal_mode = 'mvcc'").fetchone()
         _require(bool(mode) and mode[0] == "mvcc", f"MVCC not enabled (got {mode})")
+        return db
+
+    def _extra_ddl(self) -> list[str]:
+        return []
+
+    def _exec_ddl(self, cur, stmt: str) -> None:
+        result = cur.execute(stmt)
+        if result is not None and hasattr(result, "fetchall"):
+            result.fetchall()
+
+    def _bootstrap(self) -> None:
+        cur = self.db.cursor()
         for stmt in filter(str.strip, SCHEMA.split(";")):
-            cur.execute(stmt).fetchall()  # force DDL (lazy execute)
+            self._exec_ddl(cur, stmt)
         for stmt in _MIGRATIONS:
             try:
-                cur.execute(stmt).fetchall()  # idempotent: re-add raises "duplicate column"
-            except turso.DatabaseError as e:
+                self._exec_ddl(cur, stmt)  # idempotent: re-add raises "duplicate column"
+            except Exception as e:
                 if "duplicate column" not in str(e).lower():
                     raise
+        for stmt in self._extra_ddl():
+            self._exec_ddl(cur, stmt)
         self.db.commit()
 
+    @property
+    def capabilities(self) -> StoreCapabilities:
+        return StoreCapabilities(
+            semantic=True, fts=False, pointers=True, keyword="like", name=self.driver,
+        )
+
+    def _begin_sql(self) -> str:
+        return "BEGIN CONCURRENT" if self.driver == "turso" else "BEGIN IMMEDIATE"
+
     def _write(self, sqls: list[tuple[str, tuple]]):
-        """Run writes in a BEGIN CONCURRENT txn, retrying the conflict tursodb raises on overlap."""
+        """Run writes in one transaction. Turso uses BEGIN CONCURRENT and retries an MVCC conflict."""
         for attempt in range(5):
             cur = self.db.cursor()
             try:
-                cur.execute("BEGIN CONCURRENT")
+                if self.driver != "turso" and getattr(self.db, "in_transaction", False):
+                    self.db.commit()
+                cur.execute(self._begin_sql())
                 for sql, params in sqls:
                     cur.execute(sql, params)
                 cur.execute("COMMIT")
                 return
-            except turso.OperationalError as e:
+            except Exception as e:
                 try:
                     cur.execute("ROLLBACK")
                 except Exception:
                     pass
-                if "conflict" in str(e).lower() or "busy" in str(e).lower():
-                    if attempt < 4:
-                        continue  # non-overlapping retry; tursodb's MVCC conflict path
+                retry = ("conflict" in str(e).lower() or "busy" in str(e).lower()
+                         or "locked" in str(e).lower())
+                if self.driver == "turso":
+                    # pyturso 0.8.1 maps the MVCC COMMIT conflict to DatabaseError,
+                    # not OperationalError. Retry only that exact generic error;
+                    # constraints, corrupt files and arbitrary Python errors still fail.
+                    retry = ((isinstance(e, turso.OperationalError) and retry)
+                             or (type(e) is turso.DatabaseError and str(e).strip().lower() == "write-write conflict"))
+                if retry and attempt < 4:
+                    continue
                 raise
 
     # --- observe = capture --------------------------------------------------
@@ -275,19 +340,32 @@ class MemoryStore:
         _require(authority in AUTHORITIES, f"bad authority {authority!r}")
         status = "accepted" if (accept or authority != "agent") else "candidate"
         cid, now = _uid(), _now()
-        vec = self._vec(f"{subject}\n{content}") if self.embed else None
+        vec = self._vec(f"{subject}\n{content}") if (self.embed and self.capabilities.semantic) else None
         # vector32() must wrap a literal; embed it inline (values are our own floats, not user input).
         emb_sql = f"vector32('{vec}')" if vec else "NULL"
-        self._write([(
+        writes: list[tuple[str, tuple]] = [(
             f"INSERT INTO memory_claims(id,type,subject,content,scope,project,agent,user,status,authority,"
             f"confidence,source_ids,code_refs,verify,embedding,created_at,updated_at)"
             f" VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,{emb_sql},?,?)",
             (cid, type, subject, content, scope, project, agent, user, status, authority, confidence,
-             json.dumps(source_ids or []), json.dumps(code_refs or []), verify, now, now))])
+             json.dumps(source_ids or []), json.dumps(code_refs or []), verify, now, now))]
+        writes.extend(self._claim_side_writes(cid, subject, content, code_refs or [], now))
+        self._write(writes)
         return cid
 
+    def _claim_side_writes(self, cid: str, subject: str, content: str, code_refs: list[dict],
+                           now: str) -> list[tuple[str, tuple]]:
+        return [
+            (POINTER_INSERT, pointer_params(edge, now=now, new_id=_uid()))
+            for edge in edges_for_claim(cid, subject, content, code_refs)
+        ]
+
+    def put(self, type: str, subject: str, content: str, scope: str, **kwargs) -> str:
+        """`claim` under the repository name. Observations stay on `observe` (append-only raw signal)."""
+        return self.claim(type, subject, content, scope, **kwargs)
+
     # --- set_status = the arbiter's write (supersede / accept / reject) -----
-    # Context: doc://kypp/append-only-history@0001#never-delete — change status; never DELETE a claim or observation.
+    # Context: doc://kypp/append-only-history@0002#never-delete — change status; never DELETE a claim or observation.
     def set_status(self, claim_id: str, status: str) -> None:
         """Transition a claim's lifecycle status. NEVER deletes — superseded/rejected rows stay
         (recall already excludes them) so history is preserved. The arbiter's only write."""
@@ -323,7 +401,7 @@ class MemoryStore:
         it, and since recency breaks ties between equal human claims, a sweep landing between
         `kypp correct`'s insert and its consolidate must not make the old answer look newest. The
         verifier's only write."""
-        # Context: doc://kypp/authority-order@0007#authority-dominates — verify raises agent → verified, never lowers human.
+        # Context: doc://kypp/authority-order@0008#authority-dominates — verify raises agent → verified, never lowers human.
         if passed:
             self._write([("UPDATE memory_claims SET "
                           "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'accepted' END, "
@@ -413,36 +491,117 @@ class MemoryStore:
             where.append("scope = ?"); params.append(scope)
         if types:
             where.append("type IN (%s)" % ",".join("?" * len(types))); params.extend(types)
-        cur = self.db.cursor()
-        # browse mode skips the embedder: distance-to-an-empty-string is noise, not ranking.
-        qv = self._vec(query) if (self.embed and query.strip()) else None
-        if qv:
-            # Why: a linear scan holds to ~1e4-1e5 claims (eval: .brief/docs/turboquant-deferred.md); next step is in-DB DiskANN.
-            # semantic recall: cosine distance to the query embedding (linear scan — fine at bootstrap).
-            # Claims with NO embedding (written before an embedder was wired) still return — the CASE
-            # gives them NULL distance, sorted last — so attaching an embedder never makes prior claims
-            # unrecallable. The CASE is load-bearing: vector_distance_cos(NULL, …) THROWS, not NULL.
-            order = (f"CASE WHEN embedding IS NULL THEN NULL "
-                     f"ELSE vector_distance_cos(embedding, vector32('{qv}')) END")
-            rows = cur.execute(
-                f"SELECT *, ({order}) AS _d FROM memory_claims WHERE " + " AND ".join(where)
-                # relevance dominates; among ties prefer accepted, then PROJECT over global (local truth
-                # overrides the general tier — (scope='global') is 0 for project-scoped, 1 for global), then confidence.
-                + " ORDER BY _d IS NULL, _d, (status='accepted') DESC, (scope='global') ASC, confidence DESC LIMIT ?",
-                params + [limit]).fetchall()
+        if not query.strip():
+            # browse mode skips the embedder: distance-to-an-empty-string is noise, not ranking.
+            cur, rows = self._browse(where, params, limit)
         else:
-            # keyword recall (LIKE) — no embedder wired (or the query produced no embedding).
-            terms = re.findall(r"[A-Za-z0-9_]+", query)
-            like = " OR ".join(["(subject LIKE ? OR content LIKE ?)"] * len(terms))
-            lp = [f"%{t}%" for t in terms for _ in range(2)]  # one pair per term: subject, content
-            rows = cur.execute(
-                "SELECT * FROM memory_claims WHERE " + " AND ".join(where)
-                + (f" AND ({like})" if terms else "")
-                # accepted first, then PROJECT over global (local overrides the general tier), then confidence/recency.
-                + " ORDER BY (status='accepted') DESC, (scope='global') ASC, confidence DESC, updated_at DESC LIMIT ?",
-                params + lp + [limit]).fetchall()
+            # Pointer hits outrank text: a file path or a doc:// anchor is an exact identity, not a bag of words.
+            native = self._native_ids(query, where, params, max(limit * 4, 20))
+            pointers = self._pointer_claim_ids(query, where, params, limit)
+            ordered: list[str] = []
+            seen: set[str] = set()
+            for cid in pointers + native:
+                if cid not in seen:
+                    seen.add(cid)
+                    ordered.append(cid)
+                if len(ordered) >= max(limit * 4, limit):
+                    break
+            cur, rows = self._in_id_order(ordered, where, params)
+            rows = rows[:limit]
         claims = self._hydrate(cur, rows)
         return self.ground(claims) if ground else claims
+
+    def search(self, query: str, **kwargs) -> list[Claim]:
+        return self.recall(query, **kwargs)
+
+    def _browse(self, where: list[str], params: list, limit: int):
+        cur = self.db.cursor()
+        rows = cur.execute(
+            "SELECT * FROM memory_claims WHERE " + " AND ".join(where)
+            + " ORDER BY (status='accepted') DESC, (scope='global') ASC, confidence DESC, updated_at DESC LIMIT ?",
+            params + [limit]).fetchall()
+        return cur, rows
+
+    def _native_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
+        """Backend ranking before pointer boost. Turso: cosine when an embedder is wired, else LIKE."""
+        if self.embed and query.strip() and self.capabilities.semantic:
+            # Why: a linear scan holds to ~1e4-1e5 claims (eval: .brief/docs/turboquant-deferred.md); next step is in-DB DiskANN.
+            return self._vector_ids(query, where, params, limit)
+        return self._like_ids(query, where, params, limit)
+
+    def _vector_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
+        qv = self._vec(query)
+        if not qv:
+            return self._like_ids(query, where, params, limit)
+        # Claims with NO embedding still return — NULL distance sorts last — so attaching an embedder
+        # never makes prior claims unrecallable. The CASE is load-bearing: vector_distance_cos(NULL, …) THROWS.
+        order = (f"CASE WHEN embedding IS NULL THEN NULL "
+                 f"ELSE vector_distance_cos(embedding, vector32('{qv}')) END")
+        cur = self.db.cursor()
+        rows = cur.execute(
+            f"SELECT id FROM memory_claims WHERE " + " AND ".join(where)
+            + f" ORDER BY ({order}) IS NULL, ({order}), (status='accepted') DESC,"
+            + " (scope='global') ASC, confidence DESC LIMIT ?",
+            params + [limit]).fetchall()
+        return [r[0] for r in rows]
+
+    def _like_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
+        terms = query_tokens(query)
+        if not terms:
+            return []
+        like = " OR ".join(["(subject LIKE ? OR content LIKE ?)"] * len(terms))
+        lp = [f"%{t}%" for t in terms for _ in range(2)]
+        cur = self.db.cursor()
+        rows = cur.execute(
+            "SELECT id FROM memory_claims WHERE " + " AND ".join(where)
+            + (f" AND ({like})" if terms else "")
+            + " ORDER BY (status='accepted') DESC, (scope='global') ASC, confidence DESC, updated_at DESC LIMIT ?",
+            params + lp + [limit]).fetchall()
+        return [r[0] for r in rows]
+
+    def _in_id_order(self, ids: list[str], where: list[str], params: list):
+        cur = self.db.cursor()
+        if not ids:
+            cur.execute("SELECT * FROM memory_claims WHERE 0")
+            return cur, []
+        placeholders = ",".join("?" * len(ids))
+        rows = cur.execute(
+            "SELECT * FROM memory_claims WHERE " + " AND ".join(where) + f" AND id IN ({placeholders})",
+            params + ids).fetchall()
+        cols = [d[0] for d in cur.description]
+        idx = cols.index("id")
+        by_id = {r[idx]: r for r in rows}
+        return cur, [by_id[i] for i in ids if i in by_id]
+
+    def _pointer_claim_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
+        """Claims indexed under a path, anchor, or doc:// ref that the query names."""
+        clauses: list[str] = []
+        binds: list = []
+        for match in re.finditer(
+            r"doc://([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)",
+            query,
+        ):
+            clauses.append("(entry_ref = ? OR (project = ? AND doc_id = ? AND anchor = ?))")
+            binds.extend([match.group(0), match.group(1), match.group(2), match.group(4)])
+        for tok in re.findall(r"[^\s]+", query):
+            bare = tok.removeprefix("./")
+            if "/" in bare or bare.endswith((".py", ".ts", ".md", ".rs", ".go", ".sql")):
+                clauses.append("path = ?")
+                binds.append(bare)
+            elif re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", bare):
+                clauses.append("anchor = ?")
+                binds.append(bare)
+        if not clauses:
+            text = query.strip()
+            clauses.append("(path = ? OR anchor = ? OR entry_ref = ? OR claim_id = ?)")
+            binds.extend([text, text, text, text])
+        cur = self.db.cursor()
+        rows = cur.execute(
+            "SELECT id FROM memory_claims WHERE " + " AND ".join(where)
+            + " AND id IN (SELECT claim_id FROM code_pointers WHERE claim_id != '' AND ("
+            + " OR ".join(clauses) + ")) ORDER BY id LIMIT ?",
+            params + binds + [limit]).fetchall()
+        return [r[0] for r in rows]
 
     def get(self, claim_id: str) -> Claim | None:
         """Dereference a claim id or unique prefix — recall/briefing hand out 8-char HANDLES; this is
@@ -493,6 +652,59 @@ class MemoryStore:
             " ORDER BY vector_distance_cos(a.embedding, b.embedding)",
             params + [max_distance]).fetchall()
         return [(r[0], r[1]) for r in rows]
+
+    def find_similar(self, project: str | None = None, *, max_distance: float = 0.15) -> list[tuple[str, str]]:
+        return self.similar_pairs(project, max_distance=max_distance)
+
+    # --- code ↔ entry pointers ----------------------------------------------
+    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
+    def link_pointer(self, entry_ref: str, path: str, *, symbol: str | None = None,
+                     claim_id: str | None = None, kind: str = "context") -> str:
+        """Index one edge. Idempotent on (kind, entry ref, path, symbol, claim)."""
+        path = (path or "").removeprefix("./")
+        symbol = symbol or ""
+        claim_id = claim_id or ""
+        cur = self.db.cursor()
+        existing = cur.execute(
+            "SELECT id FROM code_pointers WHERE kind = ? AND entry_ref = ? AND path = ? AND symbol = ? AND claim_id = ?",
+            (kind, entry_ref, path, symbol, claim_id)).fetchone()
+        if existing:
+            return existing[0]
+        pid = _uid()
+        edge = {"entry_ref": entry_ref, "path": path, "symbol": symbol, "claim_id": claim_id, "kind": kind}
+        self._write([(POINTER_INSERT, pointer_params(edge, now=_now(), new_id=pid))])
+        return pid
+
+    def entries_for_path(self, path: str) -> list[Pointer]:
+        """Code → entries. Exact path match after stripping a leading `./`."""
+        return self._pointer_rows("path = ? AND path != ''", [(path or "").removeprefix("./")])
+
+    def paths_for_entry(self, entry_ref: str) -> list[Pointer]:
+        """Entries → code. A full doc:// ref matches any revision of that anchor; a bare anchor matches too."""
+        project, doc_id, _revision, anchor = parse_entry_ref(entry_ref)
+        identity = ("project = ? AND doc_id = ? AND anchor = ?" if project
+                    else "anchor != '' AND anchor = ?")
+        return self._pointer_rows(
+            "entry_ref = ? OR claim_id = ? OR (" + identity + ")",
+            [entry_ref, entry_ref] + ([project, doc_id, anchor] if project else [anchor]),
+        )
+
+    def _pointer_rows(self, where: str, params: list) -> list[Pointer]:
+        cur = self.db.cursor()
+        rows = cur.execute(
+            "SELECT * FROM code_pointers WHERE " + where + " ORDER BY path, entry_ref, symbol",
+            params).fetchall()
+        cols = [d[0] for d in cur.description]
+        out = []
+        for row in rows:
+            record = dict(zip(cols, row))
+            out.append(Pointer(
+                id=record["id"], entry_ref=record["entry_ref"], project=record["project"] or "",
+                doc_id=record["doc_id"] or "", anchor=record["anchor"] or "",
+                revision=record["revision"] or "", path=record["path"] or "",
+                symbol=record["symbol"] or "", claim_id=record["claim_id"] or "", kind=record["kind"],
+            ))
+        return out
 
     # --- helpers ------------------------------------------------------------
     def _hydrate(self, cur, rows) -> list[Claim]:
@@ -584,7 +796,10 @@ def store_from_env(embed: Callable[[str], list[float]] | None = None) -> MemoryS
     if embed is None and os.environ.get("KYPP_EMBED_MODEL"):
         host = os.environ.get("KYPP_OLLAMA_HOST", OLLAMA_DEFAULT_HOST)
         embed = ollama_embed(os.environ["KYPP_EMBED_MODEL"], host)
-    return MemoryStore(db, embed=embed, resolver=RipgrepResolver(root=os.environ.get("KYPP_REPO_ROOT", ".")))
+    # Imported here: backends subclass MemoryStore, so a module-level import would cycle.
+    from .backends import open_store
+    return open_store(db, embed=embed, resolver=RipgrepResolver(root=os.environ.get("KYPP_REPO_ROOT", ".")),
+                      backend=os.environ.get("KYPP_STORE"))
 
 
 def project_from_env() -> str:
