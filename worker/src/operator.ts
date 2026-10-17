@@ -1,9 +1,8 @@
 // operator.ts — POST /v1/operator: the operator's `kypp` CLI against the hosted store (KYPP_URL).
 // One bearer secret, KYPP_OPERATOR_TOKEN, apart from OAuth grants, KYPP_API_TOKENS and the S1 tokens.
-// Context: doc://kypp/authority-order@0007#authority-dominates — kypp correct/verify write human and verified only here; unset token = 404, never on /mcp, every write in defrag_log.
+// Context: doc://kypp/authority-order@0008#authority-dominates — kypp correct/verify write human and verified only here; unset token = 404, never on /mcp, every write in defrag_log.
 import { type Caller, type ToolCtx, callTool } from "./mcp.ts";
 import { DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, type Scope, resolveOrigin } from "./memory.ts";
-import { consolidate } from "./consolidate.ts";
 import type { S1Client } from "./s1.ts";
 import { sameSecret } from "./secret.ts";
 import { D1Store } from "./store.ts";
@@ -60,21 +59,13 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       const where = scope === "project" ? await project() : null;
       if (scope === "project" && !where) throw new Error(`unknown project ${JSON.stringify(a.project)}; register it before writing project memory`);
       const subject = str(a.subject);
-      const id = await store.operatorClaim({
+      const { id, superseded } = await store.operatorClaim({
         type: a.type ?? "fact", subject, content: str(a.content), scope, project: where,
         confidence: a.confidence ?? (human ? HUMAN_CORRECTION_CONFIDENCE : 0.7), sourceIds: [], codeRefs: [],
         accept: !!a.accept, agent: caller.agent, user: OPERATOR_USER,
-      }, human ? "human" : "agent", str(a.verify) || null, a.op);
+      }, human ? "correct" : "remember", str(a.verify) || null);
       if (!human) return { id, status: (await store.get(id, OPERATOR_USER))!.status };
-      // As kypp correct: the new human claim supersedes the subject's other live claims.
-      const filter = { scope, project: where, subject, ...(scope === "user" ? { user: OPERATOR_USER } : {}) };
-      const live = async () => new Set((await store.liveClaims(filter)).map((c) => c.id));
-      const before = await live();
-      await consolidate(store, opts.policy ?? DEFAULT_POLICY, opts.s1 ?? null, filter);
-      const after = await live();
-      const superseded = [...before].filter((c) => c !== id && !after.has(c));
-      await store.logSuperseded(superseded, id);
-      return { id, superseded: superseded.length };
+      return { id, superseded };
     }
     case "reject": {
       const c = await store.get(str(a.handle), OPERATOR_USER);

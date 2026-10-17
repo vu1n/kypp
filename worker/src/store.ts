@@ -199,29 +199,46 @@ export class D1Store {
   }
 
   // Context: doc://kypp/authority-order@0008#authority-dominates — only POST /v1/operator calls this; it is the hosted writer of human authority and of verify commands.
-  // An operator write (kypp correct/remember over KYPP_URL) plus its defrag_log row, in one batch.
-  async operatorClaim(c: ClaimInput, authority: "agent" | "human", verify: string | null, op: string): Promise<string> {
+  // Correction explicitly replaces this group's live rows, including its audit, in the insert batch.
+  // It is not a consolidation rank contest: tied clocks or lower confidence cannot discard it.
+  async operatorClaim(c: ClaimInput, op: "remember" | "correct", verify: string | null): Promise<{ id: string; superseded: number }> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope) || c.scope === "group" || c.scope === "room") throw new Error(`bad scope ${c.scope}`);
     if (c.scope === "project" && !c.project) throw new Error("a project-scoped operator claim needs a known project");
     if (!c.subject.trim() || !c.content.trim()) throw new Error("subject and content are required");
     if (c.content.length > MAX_CONTENT) throw new Error(`content over ${MAX_CONTENT} chars; distill it`);
     const id = uid(), ts = now();
+    const authority = op === "correct" ? "human" : "agent";
+    const project = c.scope === "project" ? c.project : null;
     const confidence = Math.min(1, Math.max(0, Number(c.confidence) || 0));
     const codeRefs = cleanCodeRefs(c.codeRefs);
-    await this.db.batch([
+    const statements = [
       this.db.prepare(
         "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,verify,created_at,updated_at)"
         + " VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,'[]',?,'{}',?,?,?)",
-      ).bind(id, c.type, c.subject, c.content, c.scope, c.scope === "project" ? c.project : null, c.project, c.agent, c.user,
+      ).bind(id, c.type, c.subject, c.content, c.scope, project, c.project, c.agent, c.user,
         c.accept || authority === "human" ? "accepted" : "candidate", authority, confidence, JSON.stringify(codeRefs), verify, ts, ts),
       this.db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(id, c.subject, c.content),
-      this.logOperator(id, op, c.scope === "project" ? c.project : null, `authority=${authority}${verify ? " verify" : ""}`),
+      this.logOperator(id, op, project, `authority=${authority}${verify ? " verify" : ""}`),
       ...pointerRows(id, c.subject, c.content, codeRefs).map((row) => this.db.prepare(
         POINTER_SQL + " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
       ).bind(...row)),
-    ]);
-    return id;
+    ];
+    if (op === "correct") {
+      const prior = "status IN ('candidate','accepted') AND subject = ? AND scope = ? AND project IS ?"
+        + " AND (scope != 'user' OR user IS ?) AND id != ?";
+      const key = [c.subject, c.scope, project, c.user, id];
+      statements.push(
+        this.db.prepare(
+          "INSERT INTO defrag_log(id, claim_id, action, from_project, to_project, score, reason, created_at)"
+          + " SELECT lower(hex(randomblob(16))), id, 'operator:supersede', NULL, NULL, NULL, ?, ?"
+          + ` FROM memory_claims WHERE ${prior}`,
+        ).bind(`by ${id}`, ts, ...key),
+        this.db.prepare(`UPDATE memory_claims SET status='superseded', updated_at=? WHERE ${prior}`).bind(ts, ...key),
+      );
+    }
+    const results = await this.db.batch(statements);
+    return { id, superseded: op === "correct" ? results[results.length - 1].meta.changes : 0 };
   }
 
   // Every claim the operator's `kypp verify` re-checks in this project: any status, so a rejected
@@ -261,12 +278,6 @@ export class D1Store {
       ).bind(now(), reason, reason, id),
       this.logOperator(id, "reject", null, reason),
     ]);
-  }
-
-  // The claims an operator correction superseded (through the consolidation pass), one log row each,
-  // so a status change a human write caused is traced like the write itself.
-  async logSuperseded(ids: string[], by: string): Promise<void> {
-    if (ids.length) await this.db.batch(ids.map((id) => this.logOperator(id, "supersede", null, `by ${by}`)));
   }
 
   // One defrag_log row for an operator write, so every human/verified change can be traced.
@@ -539,6 +550,14 @@ export class D1Store {
           + " FROM memory_claims WHERE status IN ('candidate','accepted') AND subject = ? AND scope = ? AND project IS ?"
           + " AND (scope NOT IN ('user','room') OR user IS ?)) != ?",
         ).bind(subject, scope, project, user, p.version),
+        // Count/max-time can repeat after a same-millisecond correction plus a new proposal.
+        // Refuse the entire old plan if any target was retired or moved out of its group.
+        this.db.prepare(
+          "INSERT INTO consolidation_guard(ok) SELECT 0 WHERE EXISTS (SELECT 1 FROM json_each(?) target"
+          + " WHERE NOT EXISTS (SELECT 1 FROM memory_claims c WHERE c.id = target.value"
+          + " AND c.status IN ('candidate','accepted') AND c.subject = ? AND c.scope = ? AND c.project IS ?"
+          + " AND (c.scope NOT IN ('user','room') OR c.user IS ?)))",
+        ).bind(JSON.stringify([...p.supersede, ...p.promote]), subject, scope, project, user),
         ...p.supersede.map((id) => this.db.prepare("UPDATE memory_claims SET status='superseded', updated_at=? WHERE id=?").bind(ts, id)),
         ...p.promote.map((id) => this.db.prepare("UPDATE memory_claims SET status='accepted', updated_at=? WHERE id=?").bind(ts, id)),
       ];

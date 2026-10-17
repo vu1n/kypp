@@ -98,10 +98,15 @@ class LiveRepoTest(unittest.TestCase):
         self.assertIn("INSERT INTO memory_claims", claim_sql)
         self.assertIn("{emb_sql}", claim_sql)
         store_ts = (ROOT / "worker/src/store.ts").read_text().splitlines()
-        # main added operator and conditional-room INSERTs; assert statements, not line numbers.
+        # Coverage lists only the first six gaps. The correction audit's opaque SELECT now
+        # occupies a slot too; it is unresolved SQL, not evidence of an authority write.
         self.assertEqual(len(sites["worker/src/store.ts"]), 3)
         for line in sites["worker/src/store.ts"]:
             stmt = "\n".join(store_ts[line - 1:][:4])
+            if "INSERT INTO defrag_log" in stmt:
+                self.assertIn("'operator:supersede'", stmt)
+                self.assertIn("FROM memory_claims WHERE ${prior}", stmt)
+                continue
             self.assertTrue("UPDATE memory_claims" in stmt or "INSERT INTO memory_claims" in stmt, stmt)
             self.assertTrue("${UNSORTED}" in stmt or "${linked.sql}" in stmt
                             or 'c.accept || authority === "human"' in stmt, stmt)

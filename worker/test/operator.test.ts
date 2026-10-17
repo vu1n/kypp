@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { timingSafeEqual } from "node:crypto";
 import { test } from "node:test";
 import { handleOperator } from "../src/operator.ts";
+import { planConsolidation } from "../src/memory.ts";
+import { D1Store } from "../src/store.ts";
 import { memoryD1 } from "./d1.ts";
 
 const SECRET = "operator-secret-0123456789";
@@ -72,12 +74,135 @@ test("a passing check keeps a human claim human; a failing one rejects it", asyn
   assert.equal((await row(id)).status, "rejected");
 });
 
-test("a superseded human claim is not re-checked: a newer correction replaced it", async () => {
-  const { call } = await setup();
+test("a superseded human claim is not re-checked: a same-millisecond correction replaced it", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-18T00:00:00Z") });
+  const { call, row } = await setup();
   const old = (await call({ op: "correct", subject: "s", content: "old answer", project: "p", verify: "true" })).body!.id;
-  await call({ op: "correct", subject: "s", content: "new answer", project: "p" });
+  const fixed = await call({ op: "correct", subject: "s", content: "new answer", project: "p" });
+  assert.equal(fixed.status, 200);
+  assert.equal(fixed.body!.superseded, 1);
+  assert.equal((await row(old)).status, "superseded");
+  assert.equal((await row(fixed.body!.id)).status, "accepted");
   const listed = (await call({ op: "verifiable", project: "p" })).body!.claims.map((c: any) => c.id);
   assert.ok(!listed.includes(old), "superseded human claim listed for verify");
+});
+
+for (const reverse of [false, true]) {
+  test(`correction replaces the exact group regardless of rank or read order (reverse=${reverse})`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-18T00:00:00Z") });
+    const { db, call, row, logged } = await setup();
+    await db.prepare(`PRAGMA reverse_unordered_selects=${reverse ? "ON" : "OFF"}`).run();
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind("q", "", "2026-10-18T00:00:00Z").run();
+    const old = (await call({ op: "correct", subject: "s", content: "old", project: "p", confidence: 1 })).body!.id;
+    const pending = (await call({ op: "remember", subject: "s", content: "pending", project: "p" })).body!.id;
+    const untouched = [];
+    for (const args of [{ subject: "other", project: "p" }, { subject: "s", project: "q" }, { subject: "s", scope: "global" }, { subject: "s", scope: "user" }]) {
+      untouched.push((await call({ op: "remember", content: "unrelated", ...args })).body!.id);
+    }
+    const rejected = (await call({ op: "remember", subject: "s", content: "rejected", project: "p" })).body!.id;
+    await call({ op: "reject", handle: rejected });
+    const fixed = await call({ op: "correct", subject: "s", content: "replacement", project: "p", confidence: 0 });
+    assert.equal(fixed.status, 200);
+    assert.equal(fixed.body!.superseded, 2);
+    assert.equal((await row(fixed.body!.id)).status, "accepted");
+    assert.equal((await row(fixed.body!.id)).authority, "human");
+    for (const id of [old, pending]) {
+      assert.equal((await row(id)).status, "superseded");
+      assert.equal((await logged(id)).filter((action) => action === "operator:supersede").length, 1);
+      assert.equal((await db.prepare("SELECT reason FROM defrag_log WHERE claim_id=? AND action='operator:supersede'").bind(id).first())!.reason, `by ${fixed.body!.id}`);
+    }
+    for (const id of untouched) assert.equal((await row(id)).status, "candidate");
+    assert.equal((await row(rejected)).status, "rejected");
+    assert.deepEqual(await logged(rejected), ["operator:remember", "operator:reject"]);
+  });
+}
+
+test("user corrections leave another owner's private claims alone", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-18T00:00:00Z") });
+  const { db, call, row } = await setup();
+  const other = (await call({ op: "remember", subject: "s", content: "private", scope: "user" })).body!.id;
+  await db.prepare("UPDATE memory_claims SET user='other' WHERE id=?").bind(other).run();
+  const own = (await call({ op: "remember", subject: "s", content: "mine", scope: "user" })).body!.id;
+  const fixed = await call({ op: "correct", subject: "s", content: "new", scope: "user" });
+  assert.equal(fixed.body!.superseded, 1);
+  assert.equal((await row(own)).status, "superseded");
+  assert.equal((await row(other)).status, "candidate");
+});
+
+test("global correction replaces global claims across writers without touching private scope", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-18T00:00:00Z") });
+  const { db, call, row } = await setup();
+  const old = (await call({ op: "correct", subject: "s", content: "old", scope: "global" })).body!.id;
+  await db.prepare("UPDATE memory_claims SET user='other' WHERE id=?").bind(old).run();
+  const privateId = (await call({ op: "remember", subject: "s", content: "private", scope: "user" })).body!.id;
+  const fixed = await call({ op: "correct", subject: "s", content: "new", scope: "global" });
+  assert.equal(fixed.body!.superseded, 1);
+  assert.equal((await row(fixed.body!.id)).status, "accepted");
+  assert.equal((await row(old)).status, "superseded");
+  assert.equal((await row(privateId)).status, "candidate");
+});
+
+for (const failure of ["supersede-audit", "status-update"]) {
+  test(`correction rolls back its claim, FTS, pointers and audit on ${failure} failure`, async () => {
+    const { db, call, row, logged } = await setup();
+    const old = (await call({ op: "correct", subject: "s", content: "old", project: "p" })).body!.id;
+    const trigger = failure === "supersede-audit"
+      ? "BEFORE INSERT ON defrag_log WHEN NEW.action='operator:supersede'"
+      : "BEFORE UPDATE ON memory_claims WHEN NEW.status='superseded'";
+    await db.prepare(`CREATE TRIGGER fail_correction ${trigger} BEGIN SELECT RAISE(ABORT,'injected correction failure'); END`).run();
+    const ref = ["doc:", "", "fixture", "contract@0001#rule"].join("/");
+    const fixed = await call({ op: "correct", subject: "s", content: `replacement ${ref}`, project: "p" });
+    assert.equal(fixed.status, 400);
+    assert.match(fixed.body!.error, /injected correction failure/);
+    assert.equal((await row(old)).status, "accepted");
+    assert.deepEqual(await logged(old), ["operator:correct"]);
+    for (const table of ["memory_claims", "claims_fts", "defrag_log", "code_pointers"]) {
+      const expected = table === "code_pointers" ? 0 : 1;
+      assert.equal((await db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first())!.n, expected, table);
+    }
+  });
+}
+
+test("overlapping corrections follow transaction order even when timestamps run backwards", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-18T00:00:00Z") });
+  const { db, call, row } = await setup();
+  const batch = db.batch.bind(db);
+  let inner: Record<string, any> | null = null;
+  let entered = false;
+  db.batch = async (statements) => {
+    if (!entered) {
+      entered = true;
+      t.mock.timers.setTime(Date.now() + 1000);
+      inner = (await call({ op: "correct", subject: "s", content: "committed first", project: "p" })).body!;
+    }
+    return batch(statements);
+  };
+  const outer = await call({ op: "correct", subject: "s", content: "committed last", project: "p" });
+  assert.equal(outer.status, 200);
+  assert.equal(outer.body!.superseded, 1);
+  assert.equal((await row(outer.body!.id)).status, "accepted");
+  assert.equal((await row(inner!.id)).status, "superseded");
+  assert.ok((await row(outer.body!.id)).created_at < (await row(inner!.id)).created_at);
+});
+
+test("a same-count same-timestamp stale plan cannot revive claims retired by a correction", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-18T00:00:00Z") });
+  const { db, call, row } = await setup();
+  const store = new D1Store(db);
+  const before = [];
+  for (const session of ["A", "B"]) {
+    const id = (await call({ op: "remember", subject: "s", content: "old", project: "p" })).body!.id;
+    await db.prepare("UPDATE memory_claims SET source_ids=? WHERE id=?").bind(JSON.stringify([session]), id).run();
+    before.push(id);
+  }
+  const stale = planConsolidation(await store.liveClaims());
+  assert.equal(stale[0].promote.length, 1);
+  const fixed = (await call({ op: "correct", subject: "s", content: "human", project: "p" })).body!.id;
+  const pending = (await call({ op: "remember", subject: "s", content: "new proposal", project: "p" })).body!.id;
+  assert.deepEqual(await store.apply(stale), { applied: 0, stale: 1 });
+  assert.equal((await row(fixed)).status, "accepted");
+  assert.equal((await row(pending)).status, "candidate");
+  for (const id of before) assert.equal((await row(id)).status, "superseded");
 });
 
 test("project writes need a registered project; unknown ops write nothing", async () => {

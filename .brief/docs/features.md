@@ -184,6 +184,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   authority, `verify` commands and verified results, behind `KYPP_OPERATOR_TOKEN`. Keep
   `D1Store.operatorClaim`, `markVerified` and `operatorReject` off every MCP path, and log each in
   `defrag_log`. `markVerified` mirrors `MemoryStore.mark_verified`: change one, change both.
+- Hosted operator `correct` is an explicit replacement in the existing `memory_claims` store,
+  not a rank contest. Insert, FTS/pointers, exact-group supersession and audit share one D1 batch;
+  the returned superseded count comes from that transaction. Equal clocks, query order and lower
+  confidence must not discard the new correction. This does not activate the staged adapters.
 - `D1Store.recall` quotes Unicode word tokens before FTS5 `MATCH`. Binding a raw path throws
   `syntax error near "/"`, and the pointer rank never runs. MCP passes the raw query;
   recall itself turns it into tokens and matches the path, anchor, or doc:// ref on
@@ -244,7 +248,9 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   Change placement only through `store.file()`, which also writes `defrag_log`.
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;
   a group that changed since is skipped (CHECK on `consolidation_guard` rolls its batch back).
-  Any new writer of claim status must go through `apply()` or bump `updated_at`.
+  Count/time can repeat after correction plus a new proposal in one millisecond: every target must
+  also still be live in the original group. This is not full revision fencing; all-writer command
+  cutover is still required. New status writers must preserve these guards.
 - Promotion counts sessions that recur at least `KYPP_RECUR_GAP_MINUTES` apart. That is
   repetition, not independent evidence; signed session ids only stop invented ones.
 - The S1 agreement check (`consolidate.ts`) can only hold a promotion back, never cause one.
@@ -258,8 +264,8 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   new code never runs against an unmigrated schema. Migrations go by binding (`DB`), not name.
 - `/oauth/register` is open by design (MCP clients self-register), so `REGISTER_LIMIT` throttles it
   per IP in `index.ts` before the OAuth provider writes the client to KV.
-- The cron pass is the only writer that changes existing rows. Keep status edits there (and in
-  `correct`, which consolidates one subject) so concurrent sessions only ever insert.
+- Keep status edits on existing maintenance/correction/operator paths; ordinary agent claims
+  only insert. Hosted operator correction has its own atomic batch, not a later consolidation pass.
 
 <!-- brief:anchor capture -->
 ## Capture and sweep
