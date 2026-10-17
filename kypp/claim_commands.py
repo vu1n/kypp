@@ -113,7 +113,8 @@ def decode_event(data: dict) -> Event:
 class LocalClaimCommands:
     """Use an existing backend connection/transaction runner, in isolated tables.
 
-    The caller authenticates Actor and group reach and supplies canonical Stamp.
+    The caller authenticates Actor and group reach before every call (including
+    retries), and supplies canonical Stamp.
     No route exposes this yet. A revision sandwich gives multi-query reads one
     consistent group version. Mutation planning never loads receipt/event history.
     An MVCC retry MUST recheck GUARD inside the retried transaction.
@@ -183,11 +184,26 @@ class LocalClaimCommands:
 
     def execute(self, group: Group, actor: Actor, command: Command, *,
                 stamp: Stamp | None = None, k: int = 2) -> Receipt:
+        # Match kernel preconditions before the durable receipt fast path.
+        require(actor.role in {"agent", "operator", "maintenance"} and bool(actor.principal), "forbidden")
+        require(bool(command.id) and k >= 2, "invalid")
         key = group.key
         if receipt := self._replay(key, actor, command):
             return receipt
-        before = self._read(group, history=False)
-        after, receipt = transition(before, actor, command, stamp=stamp, k=k)
+        try:
+            before = self._read(group, history=False)
+        except Refused as error:
+            # Retry exhaustion can race a commit, but storage refusals must propagate.
+            if error.code == "stale" and (replay := self._replay(key, actor, command)):
+                return replay
+            raise
+        try:
+            after, receipt = transition(before, actor, command, stamp=stamp, k=k)
+        except Refused:
+            # A concurrent receipt wins over stale planning or changed-input refusals.
+            if replay := self._replay(key, actor, command):
+                return replay
+            raise
         metadata = encoded({"storage_version": 2, "head": after.head, "head_revision": after.head_revision})
         writes = [(GUARD, (key, before.revision)), (SAVE, (key, after.revision, metadata))]
         prior = {c.id: c for c in before.claims}

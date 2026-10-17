@@ -18,6 +18,8 @@ change, because `brief check` blocks any glob that matches nothing.
 paths:
   - "specs/claim_state_machine/model.py"
   - "specs/claim_state_machine/v1.json"
+  - "specs/claim_state_machine/cutover.py"
+  - "specs/claim_state_machine/cutover-v1.json"
   - "kypp/claim_machine.py"
   - "kypp/claim_commands.py"
   - "worker/src/claim-machine.ts"
@@ -26,10 +28,13 @@ paths:
   - "worker/migrations/0011_normalized_claim_commands.sql"
   - "tests/test_claim_state_machine_spec.py"
   - "tests/test_claim_commands.py"
+  - "tests/test_claim_cutover_spec.py"
   - "tests/claim_trace_oracle.py"
   - "worker/test/claim-commands.test.ts"
+  - "worker/test/claim-cutover.test.ts"
   - "worker/test/d1.ts"
   - "docs/claim-state-machine.md"
+  - "docs/claim-cutover.md"
 ```
 
 A contract ratified by #43 for lifecycle, acceptance, verification fencing and atomic commands.
@@ -46,6 +51,14 @@ still pending. `docs/claim-state-machine.md` names the completed checkpoint and 
   is the sole durable retry authority. Mutation planning must not load event/receipt history.
 - Normalized reads span queries: compare group revisions/metadata before and after to avoid mixed
   versions. Commit-time CAS remains mandatory even after a consistent read.
+- A duplicate can commit between receipt miss and state load, not just at the write guard.
+  Planning-stale recovery must consult the original receipt too; never re-plan at a newer revision.
+- Canonicalize legacy global keys before migration head selection: local global rows can still
+  carry their original project. Preserve that raw field and pointer document namespaces separately.
+- Synthetic cutover inventory is not a migration. Unsorted project-null claims have no staged
+  Group/File command yet; do not map them into one shared null group or silently discard them.
+- Authorize current group reach before calling read/execute, including exact retries. An Actor
+  fingerprint records trusted role input; it does not authenticate the caller or prove current reach.
 - Migration 0011 upgrades only prior experimental command snapshots, retaining all claims/events
   and original receipts. Stop old experimental writers first; it does not migrate live memory_claims.
 - Size-limit and rollback checks use local SQLite/D1 stand-ins, not the deployed D1 service. Large
