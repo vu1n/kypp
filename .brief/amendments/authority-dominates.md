@@ -11,6 +11,10 @@ Record acceptance reason separately. MCP corrections become candidates; explicit
 raise authority. Revisions, fenced checks and atomic correction replace unrestricted status writes.
 The exact text is in the decision diff.
 
+The target replacement/transaction/MCP rules bind at complete store-adapter cutover. Until then the
+decision explicitly retains legacy ranking and accepted-agent MCP corrections. Privilege boundaries
+and authority ordering bind throughout, so merging the contract does not make unchanged main violate it.
+
 ## Why
 
 The old ranking and timestamp exceptions obscure proposal, publication, endorsement and evidence.

@@ -12,6 +12,12 @@ related_code:
 ---
 
 <!-- brief:anchor operator-only-verify -->
+**Activation:** operator-only shell and the MCP boundary bind throughout rollout. The target check
+evidence, eligibility and token rules below bind at the store's complete command-adapter cutover in
+`docs/claim-state-machine.md`. Before cutover, the legacy CLI still maps timeout/spawn failure to a
+failed boolean, and verification changes lifecycle through the existing mark-verified operation.
+Merge ratifies this staged contract without asserting that those adapters already implement it.
+
 ## Only an operator attaches or runs verify commands
 
 A claim's `verify` field is arbitrary shell that `kypp verify` executes. Only a human operator attaches one (`kypp remember --verify`, `kypp correct --verify`), and only an operator runs `kypp verify`.

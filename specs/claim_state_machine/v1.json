@@ -22,8 +22,8 @@
     {
       "name": "conflict does not destroy candidates",
       "steps": [
-        {"actor":"agent","action":"propose","payload":{"claim_id":"a","content":"port 1","source":"s1"},"head":null,"claims":{"a":["candidate","agent",null]}},
-        {"actor":"agent","action":"propose","payload":{"claim_id":"b","content":"port 2","source":"s2"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s1"},"payload":{"claim_id":"a","content":"port 1"},"head":null,"claims":{"a":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s2"},"payload":{"claim_id":"b","content":"port 2"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}},
         {"actor":"maintenance","action":"accept","payload":{"claim_id":"a","reason":"recurrence","support":["a","b"],"agreement":"conflicts"},"error":"agreement_required","head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}}
       ]
     },
@@ -47,7 +47,10 @@
         {"actor":"operator","action":"propose","payload":{"claim_id":"b","content":"new","verifier":"check b"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}},
         {"actor":"operator","action":"begin_check","command_id":"check-b","payload":{"claim_id":"b"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}},
         {"actor":"operator","action":"complete_check","payload":{"token_from":"check-b","outcome":"passed"},"head":"b","claims":{"a":["candidate","agent",null],"b":["accepted","verified","verification"]}},
-        {"actor":"operator","action":"complete_check","payload":{"token_from":"check-a","outcome":"passed"},"head":"b","claims":{"a":["candidate","verified",null],"b":["accepted","verified","verification"]},"usable":{"a":false,"b":true}}
+        {"actor":"operator","action":"complete_check","payload":{"token_from":"check-a","outcome":"passed"},"head":"b","claims":{"a":["candidate","agent",null],"b":["accepted","verified","verification"]},"usable":{"a":false,"b":true}},
+        {"actor":"operator","action":"accept","payload":{"claim_id":"a"},"error":"lower_authority","head":"b","claims":{"a":["candidate","agent",null],"b":["accepted","verified","verification"]}},
+        {"actor":"operator","action":"begin_check","command_id":"check-a-fresh","payload":{"claim_id":"a"},"head":"b","claims":{"a":["candidate","agent",null],"b":["accepted","verified","verification"]}},
+        {"actor":"operator","action":"complete_check","payload":{"token_from":"check-a-fresh","outcome":"passed"},"head":"a","claims":{"a":["accepted","verified","verification"],"b":["superseded","verified","verification"]},"usable":{"a":true,"b":false}}
       ]
     },
     {
@@ -62,9 +65,39 @@
     {
       "name": "another principal relaying one source is not recurrence",
       "steps": [
-        {"actor":"agent","action":"propose","payload":{"claim_id":"a","content":"lesson","source":"original"},"head":null,"claims":{"a":["candidate","agent",null]}},
-        {"actor":"relay","action":"propose","payload":{"claim_id":"b","content":"lesson","source":"original"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"original"},"payload":{"claim_id":"a","content":"lesson"},"head":null,"claims":{"a":["candidate","agent",null]}},
+        {"actor":"relay","action":"propose","trusted_stamp":{"source":"original"},"payload":{"claim_id":"b","content":"lesson"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}},
         {"actor":"maintenance","action":"accept","payload":{"claim_id":"a","reason":"recurrence","support":["a","b"],"agreement":"exact"},"error":"insufficient_recurrence","head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}}
+      ]
+    },
+    {
+      "name": "maintenance cannot retire an operator-admitted answer",
+      "steps": [
+        {"actor":"agent","action":"propose","trusted_stamp":{},"payload":{"claim_id":"a","content":"lesson"},"head":null,"claims":{"a":["candidate","agent",null]}},
+        {"actor":"operator","action":"accept","payload":{"claim_id":"a"},"head":"a","claims":{"a":["accepted","agent","explicit"]}},
+        {"actor":"maintenance","action":"reject","payload":{"claim_id":"a","reason":"late S1 opinion"},"error":"forbidden","head":"a","claims":{"a":["accepted","agent","explicit"]},"usable":{"a":true}}
+      ]
+    },
+    {
+      "name": "new recurrence observation can reuse older pending support",
+      "steps": [
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s1"},"payload":{"claim_id":"x","content":"port 1"},"head":null,"claims":{"x":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s2"},"payload":{"claim_id":"y","content":"port 1"},"head":null,"claims":{"x":["candidate","agent",null],"y":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s3"},"payload":{"claim_id":"z","content":"port 2"},"head":null,"claims":{"x":["candidate","agent",null],"y":["candidate","agent",null],"z":["candidate","agent",null]}},
+        {"actor":"maintenance","action":"accept","payload":{"claim_id":"x","reason":"recurrence","support":["x","y"],"agreement":"exact"},"head":"x","claims":{"x":["accepted","agent","recurrence"],"y":["superseded","agent",null],"z":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s4"},"payload":{"claim_id":"w","content":"port 2"},"head":"x","claims":{"x":["accepted","agent","recurrence"],"y":["superseded","agent",null],"z":["candidate","agent",null],"w":["candidate","agent",null]}},
+        {"actor":"maintenance","action":"accept","payload":{"claim_id":"z","reason":"recurrence","support":["z","w"],"agreement":"exact"},"head":"z","claims":{"x":["superseded","agent","recurrence"],"y":["superseded","agent",null],"z":["accepted","agent","recurrence"],"w":["superseded","agent",null]}}
+      ]
+    },
+    {
+      "name": "relaying old evidence cannot refresh the source generation",
+      "steps": [
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s1"},"payload":{"claim_id":"a","content":"old guess"},"head":null,"claims":{"a":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{"source":"s2"},"payload":{"claim_id":"b","content":"old guess"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null]}},
+        {"actor":"agent","action":"propose","trusted_stamp":{},"payload":{"claim_id":"head","content":"current answer"},"head":null,"claims":{"a":["candidate","agent",null],"b":["candidate","agent",null],"head":["candidate","agent",null]}},
+        {"actor":"operator","action":"accept","payload":{"claim_id":"head"},"head":"head","claims":{"a":["candidate","agent",null],"b":["candidate","agent",null],"head":["accepted","agent","explicit"]}},
+        {"actor":"relay","action":"propose","trusted_stamp":{"source":"s2"},"payload":{"claim_id":"relay","content":"old guess"},"head":"head","claims":{"a":["candidate","agent",null],"b":["candidate","agent",null],"head":["accepted","agent","explicit"],"relay":["candidate","agent",null]}},
+        {"actor":"maintenance","action":"accept","payload":{"claim_id":"a","reason":"recurrence","support":["a","b","relay"],"agreement":"exact"},"error":"fresh_support_required","head":"head","claims":{"a":["candidate","agent",null],"b":["candidate","agent",null],"head":["accepted","agent","explicit"],"relay":["candidate","agent",null]}}
       ]
     }
   ]

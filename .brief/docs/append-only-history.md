@@ -10,6 +10,12 @@ related_code:
 ---
 
 <!-- brief:anchor never-delete -->
+**Activation:** retention and historical access bind throughout rollout. The target terminality and
+orthogonal-check rules below bind a store when its command adapters and all writers complete the
+cutover in `docs/claim-state-machine.md`. Until then, legacy verification may reject on failure and
+accept/revive on a pass, including superseded nonhuman claims, but not superseded human claims.
+Merge ratifies this target and staged activation; it does not change existing runtime behavior.
+
 ## Change a claim's status; never delete a row
 
 Claims leave recall by terminal retirement (`superseded`, `rejected`) or a temporarily unconfirmed

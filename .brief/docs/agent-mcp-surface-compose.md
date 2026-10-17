@@ -14,6 +14,12 @@ related_code:
 ---
 
 <!-- brief:anchor compose-surface -->
+**Activation:** the candidate-only claim/correct rules below bind a store's MCP adapters at complete
+command cutover in `docs/claim-state-machine.md`. Before then, ordinary MCP claims remain candidates
+and legacy MCP correct still accepts at agent authority. Bounded retrieval and the prohibition on
+agent-minted human/verified authority bind throughout. Merge ratifies the target; it does not require
+the separate future compose verb trim or cooperation tooling to be implemented at the same time.
+
 ## Trim the agent MCP surface to compose, claim, expand, correct
 
 **Status:** proposed 2026-06-21. The interface decision (verb trim) and the *bounded* contract stand on

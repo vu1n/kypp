@@ -5,6 +5,14 @@ Status: proposed; merging the amendment PR ratifies the decision changes. The re
 CLI, MCP handler or scheduled job implements this contract yet. Tests exercise the proposal, not
 production conformance. No schema migration or deployment is part of this first slice.
 
+Ratification and activation are separate: merging adopts the target contract and the explicit staged
+activation clauses in each amended anchor. The new runtime transition rules bind a store only after
+its migrations, readers, all writers and verification protocol complete cutover together. The stated
+legacy behavior remains permitted before that boundary; retention, authorization and operator-only
+capabilities bind throughout. A partially upgraded shared store is not an activated adapter. The
+follow-up adapter PR must identify the cutover and demonstrate conformance, rather than merely set a
+feature flag on one route. This prevents a contract-only merge from declaring unchanged main in violation.
+
 ## Domain and transitions
 
 One arbitration group is `(subject, scope, project, owner)`, with owner present for user/room scope.
@@ -22,9 +30,9 @@ placement transaction, including both groups' revisions.
 |---|---|
 | Propose | Authenticated writer; create a candidate at agent authority, stamped with origin, source, exposure and current-answer identity. Only an operator may attach a verifier. |
 | Accept explicitly | Operator; candidate becomes accepted with reason `explicit`, authority unchanged. It can replace the current answer only at equal or higher authority. |
-| Accept by recurrence | Maintenance; at least K (minimum/default 2) distinct claims and source sessions, no echoes, same current-answer generation, and agreement. Accept the survivor; supersede only its agreement-backed duplicates and the replaceable current answer. |
+| Accept by recurrence | Maintenance; at least K (minimum/default 2) distinct claims and original sources, no echoes, agreement, and at least one observation from the current-answer generation. Older live candidates remain usable as additional support. Accept the survivor; supersede only its agreement-backed duplicates and the replaceable current answer. |
 | Correct | Operator; create a human assertion and atomically accept it, supersede every prior live assertion in the exact group, and write successor links/events. Confidence cannot defeat the correction. |
-| Reject | Operator, or late maintenance rejection of an agent claim; retire it permanently. Rejecting the head clears it without reviving history. |
+| Reject | Operator, or late maintenance rejection of an unaccepted agent candidate; retire it permanently. Maintenance cannot withdraw an accepted answer, including operator admission at agent authority. Operator rejection of the head clears it without reviving history. |
 | Begin check | Operator; live claim with a configured verifier. Issue a claim-revision/configuration/attempt token. |
 | Complete check | Operator; matching current token and live claim. A pass records evidence and can accept a candidate at verified authority; human stays human. A failed/inconclusive check records evidence but does not change lifecycle. |
 
@@ -40,6 +48,8 @@ confirmed. Among eligible replacements at one authority, explicit commit order r
 source-count and timestamp tie-breaking. An unaccepted candidate never wins solely by a larger number.
 
 The operator's `remember --accept` maps to explicit admission; `correct` asserts a human replacement.
+Explicit agent-level admission prevents later classifier rejection, not agreement-backed replacement
+by new agent-level recurrence under the normal authority rules.
 MCP `correct` becomes a candidate replacement proposal, like `claim`, and reports that outcome plainly.
 No MCP call accepts, attaches shell, or mints human/verified authority. Existing tool names may remain
 compatibility aliases. Authentication and project/room reach are checked before any command runs.
@@ -59,10 +69,16 @@ timeout or spawn failure makes the assertion unconfirmed; diagnostics distinguis
 inconclusive execution. A later pass restores a live answer's eligibility. Neither event revives a
 rejected/superseded assertion. Checks never refresh assertion recency or human endorsement.
 
-A token binds claim ID, claim revision, verifier digest and server-issued attempt. Starting a newer
-attempt fences every older one, even if an older worker is still running. Completing an attempt
+A token binds claim ID, claim revision, verifier digest, server-issued attempt and head generation at
+check issuance. A new operator check can deliberately reassess an older pending assertion against the
+current head. Starting a newer attempt fences every older one, even if an older worker is still
+running. Completing an attempt
 consumes it. Group CAS and attempt fencing are checked at the mutation boundary, not in a terminal or
-client callback. The model does not prove the shell command's truth or that a worker stopped.
+client callback. A passing candidate check that is blocked by a newer/stronger head records evidence
+but leaves authority at agent and acceptance unset. It cannot later bypass that head through explicit
+acceptance. A deliberately issued fresh check can accept it at verified authority if its own head
+generation is still current. Passing checks on already accepted claims retain the normal authority
+upgrade/recovery rules. The model does not prove shell truth or that a worker stopped.
 
 Recurrence counts canonical original-source identities, not repeated HTTP deliveries, relay
 principals or an observation UUID generated afresh on each replay. Server-issued session keys are
@@ -78,12 +94,21 @@ Rejection of support before acceptance invalidates the plan. Already-admitted hi
 not a theorem of continued truth: a later contradiction requires an explicit rejection/correction or
 an applicable check outcome on the current assertion.
 
+Pending alternatives survive a head change and can participate in a newly planned admission when
+at least one non-echo supporting observation was stamped against the current head generation. For
+example, old port-2 candidate z can agree with new port-2 observation w after port 1 was admitted.
+Old candidates alone cannot oscillate answers; freshness requires a new observation, not mutation
+of old provenance. Relaying a canonical source already recorded in this group retains its earliest
+observation generation and any echo marker, even under a new principal or command ID. The full current group revision
+still fences every admission plan.
+
 ## Transaction and command contract
 
 Each group has a monotonic revision, current-answer pointer and last-head-change generation. Proposals
-remember that generation; automatic check acceptance and recurrence cannot replace a different
-generation, including a head that changed from absent to present and back to absent. A late valid
-candidate check can record evidence while leaving the assertion pending. All decision-relevant writes bump the group
+remember their observation generation; check tokens remember the generation at check issuance.
+Automatic check admission requires that issued generation, while recurrence requires at least one
+current-generation observation. Both handle absent-to-present-to-absent head changes. A late valid
+candidate check records evidence without authority/admission. All decision-relevant writes bump the group
 revision in the same transaction. Each mutable claim projection has its own revision. Every command
 carries `command_id`, authenticated actor and `expected_revision`. Database adapters commit claim
 changes, group revision/head, audit events, dependent FTS/pointer writes and command receipt together.
@@ -96,8 +121,12 @@ no partial claim, audit or receipt. Transport adapters translate the model's typ
 structured errors; success returns full IDs, committed revision and check token when applicable.
 
 The adapters own authentication, route capabilities, canonical source/exposure stamps and group
-selection. The reference `Actor` and `agreement=agrees` represent those trusted inputs, not fields an
-untrusted caller may supply. Its in-memory commit is a specification, not an implementation of SQL
+selection. `Propose` contains no `source` or `echo` fields. The adapter supplies a separate `Stamp`
+through `transition(..., stamp=Stamp(source=..., echo=...))`; portable traces put it in top-level
+`trusted_stamp`, outside the action payload. The reference `Actor`, `Stamp` and maintenance-only
+`agreement=agrees` represent trusted inputs, not client-selected capabilities or provenance. A retry
+returns its original receipt/stamp even if a new exposure/session exists; it cannot gain a second
+source. Its in-memory commit is a specification, not an implementation of SQL
 isolation. Candidate-window queries must apply visibility/eligibility before their LIMIT.
 
 Full IDs address mutations. Human-name discovery may return IDs, but an ambiguous target changes
@@ -109,7 +138,7 @@ public HTTP command dialect. `v1.json` is a portable trace format, not that futu
 
 1. Merge this proposed contract, reference model, portable vectors, tests and decision amendments.
    The amendments are ratified by merge; CI owns revision publication. This PR changes no production
-   behavior, and does not claim its model is an active runtime decision before merge.
+   behavior. The target runtime rules bind only at the adapter/store cutover described above.
 2. Adapt PR #33's repository boundary to commands. Implement the same traces and richer shared
    conformance tests against the Worker and every local backend; keep its search/pointer improvements.
    Fix pre-limit visibility filtering and preserve current room, pin and operator handling on rebase.
@@ -118,6 +147,10 @@ public HTTP command dialect. `v1.json` is a portable trace format, not that futu
    acceptance reasons stay `legacy_unknown`; do not manufacture a passing check or independent source.
    Existing checked rows become unconfirmed until rechecked. Existing rejected/superseded rows stay
    retired; old data cannot reliably distinguish manual rejection from a failed verifier.
+   Schedule a full operator verify sweep as part of cutover and report its outcomes before relying
+   on settled recall. This includes human corrections with configured verifiers. Timeouts/failures
+   leave those groups without a usable answer; neither migration nor operator correction with a new
+   verifier silently falls back to older knowledge. Show the unconfirmed group explicitly.
 4. Resolve multiple accepted rows deterministically from the old authority/rank order, with an ID
    tie-break and an auditable migration event. Retain every row/handle. Validate a copied database
    before cutover; the source remains recoverable. No destructive in-place conversion.

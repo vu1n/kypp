@@ -10,6 +10,9 @@ checks make assertions unconfirmed without rejecting them. Checked assertions ne
 pass for settled reads, even at human authority. Bind completion to claim revision, configuration
 and current issued attempt. The decision diff contains the exact proposed invariants.
 
+The new result/protocol rules bind only after complete store-adapter cutover. Operator-only shell
+binds throughout; legacy boolean/lifecycle handling stays permitted until that boundary.
+
 ## Why
 
 The boolean conflates inability to execute with falsity and intentional rejection. Old callbacks can
@@ -24,4 +27,6 @@ The executable reference is unconnected to these runtime paths.
 
 Legacy checked rows need rechecking; a newly configured check gates reads until its first pass.
 Old ID/boolean callbacks need an upgrade-required response. This PR executes no shell and no agent
-can attach a verifier. Automatic admission additionally fences the proposal's current-answer generation.
+can attach a verifier. Automatic admission fences the generation at check issuance. A blocked
+candidate pass records evidence without privileged authority; a fresh check can reassess it. Cutover
+must include a full operator verify sweep and report still-unconfirmed groups.

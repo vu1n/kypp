@@ -7,7 +7,7 @@ import unittest
 
 from specs.claim_state_machine.model import (
     Accept, Actor, BeginCheck, Command, CompleteCheck, Correct, Propose, Reject,
-    Refused, State, transition,
+    Refused, Stamp, State, transition,
 )
 
 
@@ -21,18 +21,19 @@ class ContractTests(unittest.TestCase):
         self.state = State()
         self.serial = 0
 
-    def run_action(self, action, actor=OPERATOR, expected=None, command_id=None):
+    def run_action(self, action, actor=OPERATOR, expected=None, command_id=None, stamp=None):
         self.serial += 1
         command = Command(command_id or f"cmd-{self.serial}",
                           self.state.revision if expected is None else expected, action)
-        self.state, receipt = transition(self.state, actor, command)
+        trusted = (stamp or Stamp()) if isinstance(action, Propose) else None
+        self.state, receipt = transition(self.state, actor, command, stamp=trusted)
         self.invariants(self.state)
         return receipt
 
-    def refuses(self, code, action, actor=OPERATOR, expected=None):
+    def refuses(self, code, action, actor=OPERATOR, expected=None, stamp=None):
         before = self.state
         with self.assertRaises(Refused) as caught:
-            self.run_action(action, actor, expected)
+            self.run_action(action, actor, expected, stamp=stamp)
         self.assertEqual(caught.exception.code, code)
         self.assertIs(self.state, before)
 
@@ -73,10 +74,11 @@ class ContractTests(unittest.TestCase):
                     if "support" in payload:
                         payload["support"] = tuple(payload["support"])
                     action = actions[step["action"]](**payload)
+                    stamp = Stamp(**step.get("trusted_stamp", {})) if isinstance(action, Propose) else None
                     if "error" in step:
-                        self.refuses(step["error"], action, actors[step["actor"]])
+                        self.refuses(step["error"], action, actors[step["actor"]], stamp=stamp)
                     else:
-                        receipt = self.run_action(action, actors[step["actor"]], command_id=step.get("command_id"))
+                        receipt = self.run_action(action, actors[step["actor"]], command_id=step.get("command_id"), stamp=stamp)
                         if receipt.token is not None:
                             tokens[step["command_id"]] = receipt.token
                     self.assertEqual(self.state.head, step["head"])
@@ -95,6 +97,26 @@ class ContractTests(unittest.TestCase):
         self.run_action(Propose("a", "lesson"), AGENT)
         self.run_action(Accept("a"))
         self.assertEqual((self.state.get("a").authority, self.state.get("a").acceptance), ("agent", "explicit"))
+
+    def test_maintenance_rejection_cannot_withdraw_operator_admission(self):
+        self.run_action(Propose("a", "lesson"), AGENT)
+        self.run_action(Accept("a"))
+        self.refuses("forbidden", Reject("a", "late S1 opinion"), MAINTENANCE)
+        self.assertEqual(self.state.head, "a")
+        self.assertTrue(self.state.get("a").usable)
+
+    def test_late_maintenance_gate_only_rejects_unaccepted_candidates(self):
+        self.run_action(Propose("a", "candidate"), AGENT)
+        self.run_action(Reject("a", "control text"), MAINTENANCE)
+        self.assertEqual(self.state.get("a").status, "rejected")
+
+    def test_client_payload_cannot_set_source_or_echo(self):
+        for field, value in (("source", "fake-session"), ("echo", False)):
+            with self.subTest(field=field), self.assertRaises(TypeError):
+                Propose(**{"claim_id": "a", "content": "lesson", field: value})
+        with self.assertRaises(Refused) as caught:
+            transition(self.state, AGENT, Command("no-stamp", 0, Propose("a", "lesson")))
+        self.assertEqual(caught.exception.code, "missing_stamp")
 
     def test_proposals_and_agent_corrections_cannot_self_accept(self):
         self.run_action(Propose("a", "lesson"), AGENT)
@@ -120,7 +142,7 @@ class ContractTests(unittest.TestCase):
         token = self.run_action(BeginCheck("a")).token
         self.run_action(CompleteCheck(token, "passed"))
         claim = self.state.get("a")
-        self.assertEqual((claim.status, claim.authority, claim.check), ("candidate", "verified", "passed"))
+        self.assertEqual((claim.status, claim.authority, claim.check), ("candidate", "agent", "passed"))
         self.assertEqual(self.state.head, "h")
 
     def test_reading_is_not_acceptance_or_a_review_decision(self):
@@ -194,6 +216,12 @@ class ContractTests(unittest.TestCase):
         self.run_action(CompleteCheck(old, "passed"))
         self.assertEqual(self.state.head, "b")
         self.assertEqual((self.state.get("a").status, self.state.get("a").check), ("candidate", "passed"))
+        self.assertEqual(self.state.get("a").authority, "agent")
+        self.refuses("lower_authority", Accept("a"))
+        # A deliberate fresh check, issued against the current head, can admit it.
+        fresh = self.run_action(BeginCheck("a")).token
+        self.run_action(CompleteCheck(fresh, "passed"))
+        self.assertEqual((self.state.head, self.state.get("a").authority), ("a", "verified"))
 
     def test_no_head_to_no_head_does_not_reuse_old_candidate_generation(self):
         self.run_action(Propose("a", "old", verifier="check"))
@@ -209,37 +237,44 @@ class ContractTests(unittest.TestCase):
         self.run_action(Propose("a", "lesson", verifier="check"))
         token = self.run_action(BeginCheck("a")).token
         self.refuses("stale_attempt", CompleteCheck(replace(token, verifier_digest="other"), "passed"))
+        self.refuses("stale_attempt", CompleteCheck(replace(token, head_revision=99), "passed"))
 
     def test_conflicting_or_unknown_agreement_keeps_candidates(self):
-        self.run_action(Propose("a", "port 1", source="s1"), AGENT)
-        self.run_action(Propose("b", "port 2", source="s2"), AGENT)
+        self.run_action(Propose("a", "port 1"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", "port 2"), AGENT, stamp=Stamp("s2"))
         for agreement in ("exact", "conflicts", "unknown"):
             self.refuses("agreement_required", Accept("a", "recurrence", ("a", "b"), agreement), MAINTENANCE)
         self.assertEqual([c.status for c in self.state.claims], ["candidate", "candidate"])
 
     def test_echo_and_duplicate_source_do_not_count(self):
-        self.run_action(Propose("a", "lesson", source="s1"), AGENT)
-        self.run_action(Propose("b", "lesson", source="s1"), AGENT)
+        self.run_action(Propose("a", "lesson"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", "lesson"), AGENT, stamp=Stamp("s1"))
         self.refuses("insufficient_recurrence", Accept("a", "recurrence", ("a", "b"), "exact"), MAINTENANCE)
-        self.run_action(Propose("c", "lesson", source="s2", echo=True), AGENT)
+        self.run_action(Propose("c", "lesson"), AGENT, stamp=Stamp("s2", echo=True))
         self.refuses("invalid_support", Accept("a", "recurrence", ("a", "c"), "exact"), MAINTENANCE)
 
     def test_relay_by_another_principal_does_not_create_another_source(self):
-        self.run_action(Propose("a", "lesson", source="original-observation"), AGENT)
-        self.run_action(Propose("b", "lesson", source="original-observation"), Actor("relay", "agent"))
+        self.run_action(Propose("a", "lesson"), AGENT, stamp=Stamp("original-observation"))
+        self.run_action(Propose("b", "lesson"), Actor("relay", "agent"), stamp=Stamp("original-observation"))
         self.refuses("insufficient_recurrence", Accept("a", "recurrence", ("a", "b"), "exact"), MAINTENANCE)
 
+    def test_relay_cannot_remove_an_original_echo_marker(self):
+        self.run_action(Propose("a", "lesson"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("echo", "lesson"), AGENT, stamp=Stamp("s2", echo=True))
+        self.run_action(Propose("relay", "lesson"), Actor("relay", "agent"), stamp=Stamp("s2"))
+        self.refuses("invalid_support", Accept("a", "recurrence", ("a", "relay"), "exact"), MAINTENANCE)
+
     def test_recurrence_keeps_evidence_after_superseding_duplicate(self):
-        self.run_action(Propose("a", "lesson", source="s1"), AGENT)
-        self.run_action(Propose("b", " lesson ", source="s2"), AGENT)
+        self.run_action(Propose("a", "lesson"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", " lesson "), AGENT, stamp=Stamp("s2"))
         self.run_action(Accept("a", "recurrence", ("a", "b"), "exact"), MAINTENANCE)
         self.assertEqual(self.state.get("a").authority, "agent")
         self.assertEqual(self.state.get("b").status, "superseded")
         self.assertEqual([e.source for e in self.state.events[-1].evidence], ["s1", "s2"])
 
     def test_retired_support_invalidates_plan(self):
-        self.run_action(Propose("a", "lesson", source="s1"), AGENT)
-        self.run_action(Propose("b", "lesson", source="s2"), AGENT)
+        self.run_action(Propose("a", "lesson"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", "lesson"), AGENT, stamp=Stamp("s2"))
         version = self.state.revision
         self.run_action(Reject("b"))
         action = Accept("a", "recurrence", ("a", "b"), "exact")
@@ -248,27 +283,50 @@ class ContractTests(unittest.TestCase):
 
     def test_lower_authority_cannot_replace_unconfirmed_human_head(self):
         self.run_action(Correct("h", "human", verifier="check"))
-        self.run_action(Propose("a", "guess", source="s1"), AGENT)
-        self.run_action(Propose("b", "guess", source="s2"), AGENT)
+        self.run_action(Propose("a", "guess"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", "guess"), AGENT, stamp=Stamp("s2"))
         self.refuses("lower_authority", Accept("a", "recurrence", ("a", "b"), "exact"), MAINTENANCE)
         self.assertEqual(self.state.head, "h")
         self.assertFalse(self.state.get("h").usable)
 
     def test_old_pending_candidates_cannot_replace_new_head(self):
-        self.run_action(Propose("a", "old guess", source="s1"), AGENT)
-        self.run_action(Propose("b", "old guess", source="s2"), AGENT)
+        self.run_action(Propose("a", "old guess"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", "old guess"), AGENT, stamp=Stamp("s2"))
         self.run_action(Propose("new", "current answer"), AGENT)
         self.run_action(Accept("new"))
-        self.refuses("invalid_support", Accept("a", "recurrence", ("a", "b"), "exact"), MAINTENANCE)
+        self.refuses("fresh_support_required", Accept("a", "recurrence", ("a", "b"), "exact"), MAINTENANCE)
+
+    def test_new_observation_can_reuse_older_pending_agreement(self):
+        self.run_action(Propose("x", "port 1"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("y", "port 1"), AGENT, stamp=Stamp("s2"))
+        self.run_action(Propose("z", "port 2"), AGENT, stamp=Stamp("s3"))
+        self.run_action(Accept("x", "recurrence", ("x", "y"), "exact"), MAINTENANCE)
+        self.run_action(Propose("w", "port 2"), AGENT, stamp=Stamp("s4"))
+        self.run_action(Accept("z", "recurrence", ("z", "w"), "exact"), MAINTENANCE)
+        self.assertEqual(self.state.head, "z")
+        self.assertEqual(self.state.get("x").successor, "z")
+        self.assertEqual([e.source for e in self.state.events[-1].evidence], ["s3", "s4"])
+
+    def test_relaying_old_sources_cannot_refresh_their_generation(self):
+        self.run_action(Propose("a", "old guess"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", "old guess"), AGENT, stamp=Stamp("s2"))
+        self.run_action(Propose("head", "current answer"), AGENT)
+        self.run_action(Accept("head"))
+        self.run_action(Propose("relay", "old guess"), Actor("relay", "agent"), stamp=Stamp("s2"))
+        self.refuses("fresh_support_required", Accept("a", "recurrence", ("a", "relay"), "exact"), MAINTENANCE)
 
     def test_idempotent_receipt_survives_later_mutations(self):
-        command = Command("request", 0, Propose("a", "lesson", source="s1"))
-        self.state, original = transition(self.state, AGENT, command)
+        command = Command("request", 0, Propose("a", "lesson"))
+        self.state, original = transition(self.state, AGENT, command, stamp=Stamp("s1"))
         self.run_action(Correct("h", "human"))
         before = self.state
         self.state, replay = transition(self.state, AGENT, command)
         self.assertIs(self.state, before)
         self.assertEqual(original, replay)
+        unchanged, replay = transition(self.state, AGENT, command, stamp=Stamp("new-session", echo=True))
+        self.assertIs(unchanged, before)
+        self.assertEqual(unchanged.get("a").source, "s1")
+        self.assertFalse(unchanged.get("a").echo)
         unchanged, replay = transition(self.state, AGENT, command, k=3)
         self.assertIs(unchanged, before)
         self.assertEqual(original, replay)
@@ -277,11 +335,11 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "idempotency_conflict")
 
     def test_same_count_replacement_cannot_reuse_old_group_version(self):
-        self.run_action(Propose("a", "lesson", source="s1"), AGENT)
-        self.run_action(Propose("b", "lesson", source="s2"), AGENT)
+        self.run_action(Propose("a", "lesson"), AGENT, stamp=Stamp("s1"))
+        self.run_action(Propose("b", "lesson"), AGENT, stamp=Stamp("s2"))
         version = self.state.revision
         self.run_action(Reject("a"))
-        self.run_action(Propose("c", "lesson", source="s3"), AGENT)
+        self.run_action(Propose("c", "lesson"), AGENT, stamp=Stamp("s3"))
         self.refuses("stale", Accept("a", "recurrence", ("a", "b"), "exact"), MAINTENANCE, version)
 
     def test_all_short_check_result_interleavings(self):
@@ -311,7 +369,8 @@ class ContractTests(unittest.TestCase):
             for index, action in enumerate(schedule):
                 before = state
                 try:
-                    state, _ = transition(state, OPERATOR, Command(f"c{index}", state.revision, action))
+                    state, _ = transition(state, OPERATOR, Command(f"c{index}", state.revision, action),
+                                          stamp=Stamp() if isinstance(action, Propose) else None)
                 except Refused:
                     self.assertIs(state, before)
                 self.invariants(state)

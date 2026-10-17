@@ -22,6 +22,13 @@ related_code:
 ---
 
 <!-- brief:anchor scope-keys-decay -->
+**Activation of the executable claim contract:** the new §6 lifecycle/admission/command rules bind
+a store when all its readers and writers complete adapter cutover in `docs/claim-state-machine.md`.
+Until then, existing candidate/accepted/superseded/rejected handling, recurrence/deduplication and
+verification status writes retain their legacy behavior. The existing scope, origin, pin and room
+authorization constraints bind throughout. Merge ratifies the target without claiming code on main
+already implements it; partial activation within one shared store is not permitted.
+
 ## Hold what docs can't, key claims by feature, forget on event clocks
 
 **Status:** proposed 2026-10-04. It builds on the `compose` decision
@@ -116,8 +123,10 @@ agreement leaves alternatives pending, without destructive deduplication. Recurr
 not independent trust. Source/exposure stamps preserve the exact served claim revision/status.
 
 Decision-relevant changes increment a transactional group revision. Plans require that revision;
-automatic acceptance also requires the proposal's current-answer generation, including absent-head
-changes. Relaying one original source through another principal does not create more recurrence.
+recurrence may reuse older live candidates, but requires at least one non-echo supporting observation
+from the current-answer generation. This avoids stranding alternatives and prevents old observations
+alone from oscillating the head. Relaying one source through another principal adds no recurrence.
+Source and echo stamps are trusted adapter context, not fields on the client proposal action.
 check completions require their claim/configuration/attempt token. Commands use full immutable IDs
 and idempotent receipts. Correction, successor links and audit records commit together. All writers
 must share this command boundary; unconditional status setters are not a public adapter contract.

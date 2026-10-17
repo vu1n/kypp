@@ -7,9 +7,14 @@
 
 Define the initial four-state claim contract with terminal retirement and orthogonal check evidence.
 Each group has one accepted head plus pending candidates. Recurrence requires distinct original
-sources, no echoes, established agreement and the same head generation. Unknown/conflicted judgment
+sources, no echoes, established agreement and at least one observation from the current head generation.
+Older live candidates can support a new admission; they are not permanently stranded. Unknown/conflicted judgment
 preserves alternatives. Require atomic versioned commands and receipts. Exact text replaces §6;
 event-clock decay remains future work.
+
+These target lifecycle/admission/command rules bind only after complete store-adapter cutover.
+Existing scope, origin, pin and room boundaries bind throughout; the decision names the interim legacy
+handling rather than retroactively requiring unimplemented behavior from current main.
 
 ## Why
 

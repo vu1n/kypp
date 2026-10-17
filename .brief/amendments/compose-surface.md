@@ -9,6 +9,9 @@ Remove MCP acceptance-flag/type exceptions. MCP correct proposes an agent candid
 correction is the human assertion capability. Keep bounded retrieval and the independent cooperation
 surface. Exact proposed signature, descriptions and migration are in the decision diff.
 
+Candidate-only correction binds at store-adapter cutover. Legacy MCP correct remains accepted at
+agent authority until then; privilege and bounded-retrieval constraints bind throughout rollout.
+
 ## Why
 
 The old record describes claim exceptions absent from today's handlers, while MCP correction still

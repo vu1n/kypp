@@ -10,6 +10,9 @@ A mistaken retirement requires a fresh linked assertion. Check evidence qualifie
 eligibility separately, so scheduled recovery does not revive retired rows. The exact proposed text
 is in the accompanying decision diff.
 
+Activation is staged: terminality and orthogonal checks bind only after complete store-adapter
+cutover. Retention binds throughout; the decision explicitly permits legacy verification before then.
+
 ## Why
 
 Current verification revives manually rejected and superseded nonhuman claims. Its human-only

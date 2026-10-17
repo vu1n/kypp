@@ -33,11 +33,19 @@ class Actor:
 
 
 @dataclass(frozen=True)
+class Stamp:
+    """Authenticated adapter provenance, separate from the untrusted action."""
+    source: str | None = None
+    echo: bool = False
+
+
+@dataclass(frozen=True)
 class Token:
     claim_id: str
     claim_revision: int
     attempt: int
     verifier_digest: str
+    head_revision: int
 
 
 @dataclass(frozen=True)
@@ -64,6 +72,7 @@ class Claim:
     successor: str | None = None
     verifier: str | None = None
     attempt: int = 0
+    pending_check: Token | None = None
     check: str | None = None  # passed | failed | inconclusive; None = not checked
 
     @property
@@ -76,8 +85,6 @@ class Claim:
 class Propose:
     claim_id: str
     content: str
-    source: str | None = None
-    echo: bool = False
     previous: str | None = None
     verifier: str | None = None
 
@@ -200,7 +207,8 @@ def accept(state: State, claim: Claim, reason: str, support: tuple[str, ...] = (
     return replace(amend(state, accepted, *retired), head=claim.id, head_revision=state.revision + 1)
 
 
-def transition(state: State, actor: Actor, command: Command, *, k: int = 2) -> tuple[State, Receipt]:
+def transition(state: State, actor: Actor, command: Command, *, stamp: Stamp | None = None,
+               k: int = 2) -> tuple[State, Receipt]:
     """Reference atomic commit. An adapter must supply equivalent database atomicity.
 
     The exact action type participates in the retry fingerprint. Receipts survive
@@ -222,8 +230,13 @@ def transition(state: State, actor: Actor, command: Command, *, k: int = 2) -> t
     if isinstance(action, Propose):
         require(actor.role in {"agent", "operator"}, "forbidden")
         require(action.verifier is None or (actor.role == "operator" and bool(action.verifier.strip())), "forbidden")
-        claim = Claim(action.claim_id, action.content, actor.principal, source=action.source,
-                      echo=action.echo, based_on=state.head_revision, previous=action.previous, verifier=action.verifier)
+        require(isinstance(stamp, Stamp), "missing_stamp")
+        # Relaying the same original observation cannot make it fresh again.
+        generation = min((c.based_on for c in state.claims if stamp.source is not None
+                          and c.source == stamp.source), default=state.head_revision)
+        echo = stamp.echo or any(c.echo for c in state.claims if stamp.source is not None and c.source == stamp.source)
+        claim = Claim(action.claim_id, action.content, actor.principal, source=stamp.source,
+                      echo=echo, based_on=generation, previous=action.previous, verifier=action.verifier)
         next_state = insert(state, claim)
     elif isinstance(action, Correct):
         require(actor.role == "operator", "forbidden")
@@ -243,7 +256,10 @@ def transition(state: State, actor: Actor, command: Command, *, k: int = 2) -> t
             require(len(set(action.support)) == len(action.support) and claim.id in action.support, "invalid_support")
             members = tuple(state.get(cid) for cid in action.support)
             require(all(c.status == "candidate" and c.authority == "agent" and not c.echo
-                        and c.source and c.based_on == state.head_revision for c in members), "invalid_support")
+                        and c.source for c in members), "invalid_support")
+            # A newly observed agreement can reuse older unretired support. Old
+            # alternatives alone cannot automatically oscillate the current answer.
+            require(any(c.based_on == state.head_revision for c in members), "fresh_support_required")
             require(len({c.source for c in members}) >= k, "insufficient_recurrence")
             require(action.agreement in {"exact", "agrees"}, "agreement_required")
             if action.agreement == "exact":
@@ -255,7 +271,8 @@ def transition(state: State, actor: Actor, command: Command, *, k: int = 2) -> t
         next_state = accept(state, claim, action.reason, action.support)
     elif isinstance(action, Reject):
         claim = state.get(action.claim_id)
-        require(actor.role == "operator" or (actor.role == "maintenance" and claim.authority == "agent"), "forbidden")
+        require(actor.role == "operator" or (actor.role == "maintenance" and claim.status == "candidate"
+                                             and claim.authority == "agent"), "forbidden")
         live(claim)
         next_state = amend(state, replace(claim, status="rejected", revision=claim.revision + 1))
         if state.head == claim.id:
@@ -266,24 +283,26 @@ def transition(state: State, actor: Actor, command: Command, *, k: int = 2) -> t
         live(claim)
         require(claim.verifier is not None, "no_verifier")
         checked = replace(claim, revision=claim.revision + 1, attempt=claim.attempt + 1)
-        token = Token(claim.id, checked.revision, checked.attempt, digest(claim.verifier))
-        next_state = amend(state, checked)
+        token = Token(claim.id, checked.revision, checked.attempt, digest(claim.verifier), state.head_revision)
+        next_state = amend(state, replace(checked, pending_check=token))
     elif isinstance(action, CompleteCheck):
         require(actor.role == "operator", "forbidden")
         claim = state.get(action.token.claim_id)
         live(claim)
         require(claim.verifier is not None, "no_verifier")
-        require(action.token == Token(claim.id, claim.revision, claim.attempt, digest(claim.verifier))
-                and claim.attempt > 0, "stale_attempt")
+        require(action.token == claim.pending_check and action.token.claim_revision == claim.revision
+                and action.token.verifier_digest == digest(claim.verifier), "stale_attempt")
         require(action.outcome in {"passed", "failed", "inconclusive"}, "invalid")
-        checked = replace(claim, check=action.outcome, revision=claim.revision + 1)
-        if action.outcome == "passed":
-            checked = replace(checked, authority="human" if claim.authority == "human" else "verified")
-        replaceable = claim.based_on == state.head_revision and (
-            state.head is None or AUTHORITY[checked.authority] >= AUTHORITY[state.get(state.head).authority])
+        checked = replace(claim, check=action.outcome, revision=claim.revision + 1, pending_check=None)
+        passed_authority = "human" if claim.authority == "human" else "verified"
+        replaceable = action.token.head_revision == state.head_revision and (
+            state.head is None or AUTHORITY[passed_authority] >= AUTHORITY[state.get(state.head).authority])
         if action.outcome == "passed" and checked.status == "candidate" and replaceable:
-            next_state = accept(state, checked, "verification")
+            next_state = accept(state, replace(checked, authority=passed_authority), "verification")
         else:
+            # A candidate's stale/blocked pass records evidence, not authority.
+            if action.outcome == "passed" and checked.status == "accepted":
+                checked = replace(checked, authority=passed_authority)
             next_state = amend(state, checked)
     else:
         raise Refused("invalid")

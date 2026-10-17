@@ -11,6 +11,12 @@ related_code:
 ---
 
 <!-- brief:anchor authority-dominates -->
+**Activation:** authority ordering and privileged-route boundaries bind throughout rollout. The new
+replacement, candidate-correction and transactional rules below bind a store at complete adapter
+cutover in `docs/claim-state-machine.md`. Until then, legacy arbitration ranks authority, accepted
+status, confidence, evidence and recency, and MCP correct writes accepted agent claims. Merge
+ratifies the target contract; the following adapter slice activates it for production stores.
+
 ## Rank survivors by authority first
 
 Within one arbitration group `(subject, scope, project, owner when applicable)`, an accepted answer

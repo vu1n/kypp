@@ -27,9 +27,14 @@ commands. The amendment PR ratifies decision changes; production adapter conform
 
 ### Gotchas
 - The reference is outside the runtime package and does not prove existing stores conform.
-- Actor capabilities, canonical source/exposure stamps and typed agreement are trusted adapter inputs,
+- Actor capabilities, the separate Stamp argument, and typed agreement are trusted adapter inputs,
   not client-selected permissions. Authenticate and authorize the exact group before invoking it.
 - Retirement is terminal; check outcomes qualify live read eligibility. Viewing is not acceptance.
+- Maintenance can reject unaccepted agent candidates, never accepted answers. Recurrence can reuse
+  older alternatives alongside a current-generation observation. Check tokens fence their issuance
+  generation; a blocked candidate pass records evidence without acquiring verified authority.
+- Each amended anchor stages activation at complete adapter/store cutover. A contract-only merge
+  does not require existing handlers to have already switched semantics.
 - Bounded schedules cover only their stated finite domain; SQL isolation and Python/Worker conformance
   require adapter tests after ratification.
 
