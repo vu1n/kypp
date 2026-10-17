@@ -103,14 +103,28 @@ finally writes `claim_usages.score`. Cost scales with churn and activity, not wi
 
 ### 6. Lifecycle
 
-`candidate → accepted → suspect → dormant → archived`, alongside the existing `superseded` and
-`rejected`.
+The initial executable lifecycle is `candidate | accepted | superseded | rejected`.
+`superseded` and `rejected` are terminal at every authority. Reassertion creates a new linked
+candidate without copying acceptance or privileged authority. Failed or inconclusive configured
+checks qualify a live assertion's read eligibility, not its lifecycle; a later pass can restore
+eligibility while the assertion remains live. Intentional retirement cannot be undone by a check.
 
-- **Dormant** drops out of recall and briefing, but `expand` still works.
-- **Archived** is cold.
-- **Nothing is hard-deleted** on a timer.
+Each arbitration group has one accepted current answer plus pending candidates. Acceptance records
+its reason and evidence; authority restricts replacement. Exact normalized content or an affirmative
+agreement judgment plus distinct canonical original-source, non-echo recurrence permits automatic acceptance. Unknown/conflicted
+agreement leaves alternatives pending, without destructive deduplication. Recurrence admits memory,
+not independent trust. Source/exposure stamps preserve the exact served claim revision/status.
 
-Human-corrected and verified claims decay more slowly.
+Decision-relevant changes increment a transactional group revision. Plans require that revision;
+automatic acceptance also requires the proposal's current-answer generation, including absent-head
+changes. Relaying one original source through another principal does not create more recurrence.
+check completions require their claim/configuration/attempt token. Commands use full immutable IDs
+and idempotent receipts. Correction, successor links and audit records commit together. All writers
+must share this command boundary; unconditional status setters are not a public adapter contract.
+
+The event clocks and judge above remain the intended decay extension. Suspect/dormant/archive
+eligibility is future work, not additional initial execution or review states. Nothing is hard-deleted
+on a timer; human-corrected and verified assertions retain the slower-decay intent.
 
 ### 7. Feature renames are kypp's problem, not Brief's
 

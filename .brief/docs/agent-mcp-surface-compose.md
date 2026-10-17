@@ -54,7 +54,7 @@ Trim the agent MCP surface to **4 orthogonal verbs**, anchored on a new `compose
 
 ```python
 compose(task="", limit=12, scope=None, types=None, verbose=False) -> str | list[dict]
-claim(subject, content, type="fact", accept=False, confidence=0.7,
+claim(subject, content, type="fact", confidence=0.7,
       scope="project", source_ids=None, code_refs=None) -> str
 expand(handle) -> dict
 correct(subject, content, type="fact") -> str
@@ -65,7 +65,7 @@ correct(subject, content, type="fact") -> str
 | `compose` | the right, **bounded**, grounded context for a task | `briefing` + `recall` |
 | `claim`   | save one durable lesson | `claim` + `decide` + `remember_procedure` |
 | `expand`  | dereference a handle → full claim | `expand` |
-| `correct` | record a human-given fix (accepted, agent authority; see human-authority-operator-only) | `correct` |
+| `correct` | propose a human-reported fix as a candidate at agent authority; operator correction is a separate capability | `correct` |
 
 Moved off the agent surface: `observe` → wire/distill pipeline; `decide`/`remember_procedure` →
 `claim`'s `type`/`accept`; `consolidate`/`resolve_conflicts` → CLI/cron.
@@ -93,20 +93,19 @@ Two semantics are load-bearing:
 
 ## `claim` — absorbing the record sugar
 
-`claim` lands a CANDIDATE (invisible to `compose` until ≥2 sessions corroborate — the swarm-truth gate)
-unless `accept=true` or `type="decision"` (which auto-accepts in the store). So
-`decide(s,c)` ≡ `claim(s,c,type="decision")` and `remember_procedure(s,c)` ≡
-`claim(s,c,type="procedure",accept=True)`. The `accept` flag plus a one-line description carry what two
-extra verbs did. `observe` leaves the agent surface entirely: agents claim *distilled* lessons; raw
-observations are the capture pipeline's job.
+Every MCP claim, including a decision or reported correction, lands a candidate. No MCP acceptance
+flag or type self-accepts. Automatic admission requires non-echo recurrence and established agreement;
+explicit acceptance and human correction are operator commands. Pending candidates may still appear
+as labelled unconfirmed contributions where the scope decision permits. `observe` leaves the agent
+surface entirely: agents claim *distilled* lessons; raw observations are the capture pipeline's job.
 
 ## The protocol an agent then reads (1:1 with the verbs)
 
 ```
 1. Before non-trivial work → compose("<what you're about to touch>"). Empty task = the session digest.
-2. Learn something durable → claim(subject, content). accept=true / type=decision for settled truths.
+2. Learn something durable → claim(subject, content). It is a candidate until accepted.
 3. Acting on a handle → expand(handle) for the full claim + live code pointer.
-4. A human says a memory is wrong → correct(subject, content). It beats agent claims; only `kypp correct` writes human authority.
+4. A human says a memory is wrong → correct(subject, content). Propose the fix; only operator `kypp correct` asserts human authority.
 ```
 
 vs the current 4-step protocol, which must disambiguate `briefing`-vs-`recall` and
@@ -114,12 +113,11 @@ vs the current 4-step protocol, which must disambiguate `briefing`-vs-`recall` a
 
 ## Migration
 
-Presentation-layer only — no data-model change. `compose` = `recall` + `briefing` composed (both exist);
-`claim(accept=…)` already exists. Keep every current verb as a **CLI** command (humans and scripts
-tolerate a rich surface). Optionally leave `recall` / `briefing` / `decide` / `remember_procedure` as
-deprecated MCP aliases for one release. The only thing to *build* is `compose`'s bounded, task-conditioned
-selection — which the `kypp-recall` arm in the pillbox eval is already hand-rolling against the embedded
-claim store.
+The claim-state-machine migration changes acceptance semantics independently of the future compose
+verb trim. Existing MCP names can remain compatibility aliases, with descriptions/results that clearly
+report candidate corrections. The operator CLI retains explicit acceptance and human correction.
+Versioned domain commands replace unrestricted status writes; the bounded compose implementation
+remains separate retrieval work.
 
 ## Hosted cooperation surface
 
