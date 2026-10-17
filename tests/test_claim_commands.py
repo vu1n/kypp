@@ -1,15 +1,17 @@
 """Real local SQL transactions, not only pure-state tests. No live services."""
-from dataclasses import replace
+from dataclasses import asdict, replace
 from itertools import permutations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
 import re
+import json
+import sqlite3
 from threading import Barrier, Lock
 import unittest
 
 from kypp.backends import LibsqlStore, SqliteFtsStore
-from kypp.claim_commands import Group, LocalClaimCommands, SCHEMA
+from kypp.claim_commands import Group, LocalClaimCommands, SCHEMA, NORMALIZE_DDL, NORMALIZE_DATA, SAVE, encoded
 from kypp.claim_machine import (
     Actor, BeginCheck, Command, CompleteCheck, Correct, Propose, Refused, Reject, Stamp, State, transition,
 )
@@ -104,6 +106,35 @@ class CommandContract:
         self.assertEqual((state.head, state.revision, len(state.receipts)), ("first", 1, 1))
         self.assertEqual([c.id for c in state.claims], ["first"])
 
+    def test_read_retries_when_another_connection_commits_between_queries(self):
+        self.commands.execute(GROUP, OWNER, Command("first", 0, Correct("a", "first")))
+        other = LocalClaimCommands(self.open("main"))
+        raw = self.backend.db
+        fired = False
+        class Cursor:
+            def __init__(self): self.cursor = raw.cursor(); self.sql = ""
+            def execute(self, sql, args=()):
+                self.sql = sql; self.cursor.execute(sql, args); return self
+            def fetchall(self):
+                nonlocal fired
+                rows = self.cursor.fetchall()
+                if not fired and self.sql.startswith("SELECT claim FROM"):
+                    fired = True
+                    other.execute(GROUP, OWNER, Command("second", 1, Correct("b", "second")))
+                return rows
+            def __getattr__(self, name): return getattr(self.cursor, name)
+        class Connection:
+            def cursor(self): return Cursor()
+            def __getattr__(self, name): return getattr(raw, name)
+        self.backend.db = Connection()
+        try:
+            state = self.commands.read(GROUP)
+        finally:
+            self.backend.db = raw
+        self.assertTrue(fired)
+        self.assertEqual(state, other.read(GROUP))
+        self.assertEqual((state.head, state.revision), ("b", 2))
+
     def test_simultaneous_duplicate_returns_one_receipt_and_event(self):
         other = LocalClaimCommands(self.open("main"))
         command = Command("same", 0, Correct("a", "answer"))
@@ -164,6 +195,116 @@ class CommandContract:
             self.assertEqual(self.backend.db.cursor().execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0], 0)
         self.commands.execute(GROUP, OWNER, Command("create", 0, Correct("a", "answer")))
 
+    def test_event_and_receipt_failure_roll_back_existing_projection_and_head(self):
+        self.commands.execute(GROUP, OWNER, Command("create", 0, Correct("a", "first")))
+        before = self.commands.read(GROUP)
+        write = self.backend._write
+        for table in ["claim_command_events", "claim_command_receipts"]:
+            def fail(sqls):
+                changed = [("INSERT INTO missing_table VALUES(1)", ()) if sql.startswith(f"INSERT INTO {table}(") else (sql, args)
+                           for sql, args in sqls]
+                return write(changed)
+            self.backend._write = fail
+            try:
+                with self.assertRaises(Exception):
+                    self.commands.execute(GROUP, OWNER, Command("fix", 1, Correct("b", "replacement")))
+            finally:
+                self.backend._write = write
+            self.assertEqual(self.commands.read(GROUP), before)
+            self.assertEqual(self.backend.db.cursor().execute("SELECT COUNT(*) FROM claim_command_ids WHERE claim_id='b'").fetchone()[0], 0)
+        self.commands.execute(GROUP, OWNER, Command("fix", 1, Correct("b", "replacement")))
+
+    def test_thousands_of_checks_keep_rows_small_and_old_receipts_replayable(self):
+        if isinstance(self.backend.db, sqlite3.Connection):
+            self.backend.db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 2_000_000)
+        create = Command("create", 0, Propose("a", "answer", verifier="true"))
+        original = self.commands.execute(GROUP, OWNER, create, stamp=Stamp("original"))
+        first_check = None
+        revision = 1
+        for i in range(2000):
+            command = Command(f"begin-{i}", revision, BeginCheck("a"))
+            token = self.commands.execute(GROUP, OWNER, command)
+            if i == 0:
+                first_check = (command, token)
+            revision += 1
+            self.commands.execute(GROUP, OWNER, Command(f"complete-{i}", revision, CompleteCheck(token.token, "passed")))
+            revision += 1
+        state = self.commands.read(GROUP)
+        self.assertEqual((state.revision, len(state.events), len(state.receipts)), (4001, 4001, 4001))
+        self.assertGreater(len(encoded(asdict(state)).encode()), 2_000_000)
+        row = self.backend.db.cursor().execute("SELECT state FROM claim_command_groups WHERE group_key=?", (GROUP.key,)).fetchone()
+        self.assertLess(len(row[0].encode()), 200)
+        self.assertNotIn("receipts", json.loads(row[0]))
+        self.assertNotIn("events", json.loads(row[0]))
+        reopened = LocalClaimCommands(self.open("main"))
+        self.assertEqual(reopened.execute(GROUP, OWNER, create, stamp=Stamp("different")), original)
+        self.assertEqual(reopened.execute(GROUP, OWNER, first_check[0]), first_check[1])
+        with self.assertRaisesRegex(Refused, "idempotency_conflict"):
+            reopened.execute(Group("elsewhere", "project", "p"), OWNER, create, stamp=Stamp())
+        with self.assertRaisesRegex(Refused, "idempotency_conflict"):
+            reopened.execute(GROUP, OWNER, replace(create, action=Propose("a", "changed")), stamp=Stamp())
+        self.assertEqual(reopened.read(GROUP), state)
+
+    def test_many_large_claims_do_not_become_one_oversized_row(self):
+        if isinstance(self.backend.db, sqlite3.Connection):
+            self.backend.db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 2_000_000)
+        for i in range(500):
+            self.commands.execute(GROUP, OWNER, Command(f"c-{i}", i, Propose(f"a-{i}", "x" * 4000)), stamp=Stamp(f"s-{i}"))
+        state = self.commands.read(GROUP)
+        self.assertEqual(len(state.claims), 500)
+        self.assertGreater(sum(len(c.content.encode()) for c in state.claims), 1_999_999)
+        rows = self.backend.db.cursor().execute("SELECT claim FROM claim_command_ids WHERE group_key=? ORDER BY ordinal", (GROUP.key,)).fetchall()
+        self.assertLess(max(len(row[0].encode()) for row in rows), 5000)
+        # Correction touches all 500 projections, in the same guarded transaction.
+        self.commands.execute(GROUP, OWNER, Command("fix", 500, Correct("human", "right")))
+        corrected = self.commands.read(GROUP)
+        self.assertEqual(corrected.head, "human")
+        self.assertEqual(len(corrected.claims), 501)
+        self.assertTrue(all(c.status == "superseded" for c in corrected.claims[:-1]))
+
+    def old_snapshot(self, name="scheduled check recovery"):
+        case = next(case for case in vectors() if name in case["name"])
+        state = case["steps"][-1]["state"]
+        sqls = [(SAVE, (GROUP.key, state.revision, encoded(asdict(state))))]
+        sqls += [("INSERT INTO claim_command_ids(claim_id,group_key) VALUES(?,?)", (c.id, GROUP.key)) for c in state.claims]
+        sqls += [("INSERT INTO claim_command_receipts(principal,command_id,group_key,fingerprint,receipt) VALUES(?,?,?,?,?)",
+                  (r.principal, r.command_id, GROUP.key, r.fingerprint, encoded(asdict(r)))) for r in state.receipts]
+        self.backend._write(sqls)
+        return case, state
+
+    def test_previous_staged_snapshot_normalizes_without_losing_history_or_replay(self):
+        case, state = self.old_snapshot()
+        for _ in range(2):  # reopen is idempotent, not a second append of old events
+            reopened = LocalClaimCommands(self.open("main"))
+            self.assertEqual(reopened.read(GROUP), state)
+            for step in case["steps"]:
+                self.assertEqual(reopened.execute(GROUP, step["actor"], step["command"], stamp=step["stamp"]), step["receipt"])
+        result = reopened.execute(GROUP, OWNER, Command("new-check", state.revision, BeginCheck("a")))
+        self.assertEqual(result.token.attempt, 4)
+
+    def test_snapshot_conversion_preserves_recurrence_evidence_and_retired_sources(self):
+        _, state = self.old_snapshot("new recurrence observation")
+        reopened = LocalClaimCommands(self.open("main"))
+        self.assertEqual(reopened.read(GROUP), state)
+        self.assertTrue(state.events[-1].evidence)
+        self.assertTrue(any(c.status == "superseded" and c.source for c in state.claims))
+
+    def test_snapshot_conversion_failure_preserves_old_data_for_retry(self):
+        _, state = self.old_snapshot()
+        write = self.backend._write
+        def fail(sqls):
+            return write([sqls[0], ("INSERT INTO missing_table VALUES(1)", ()), *sqls[1:]])
+        self.backend._write = fail
+        try:
+            with self.assertRaises(Exception):
+                LocalClaimCommands(self.backend)
+        finally:
+            self.backend._write = write
+        raw = self.backend.db.cursor().execute("SELECT state FROM claim_command_groups WHERE group_key=?", (GROUP.key,)).fetchone()[0]
+        self.assertEqual(raw, encoded(asdict(state)))
+        self.assertEqual(self.backend.db.cursor().execute("SELECT COUNT(*) FROM claim_command_events").fetchone()[0], 0)
+        self.assertEqual(LocalClaimCommands(self.backend).read(GROUP), state)
+
     def test_six_completion_correction_interleavings_match_kernel(self):
         for n, order in enumerate(permutations(["a", "b", "fix"])):
             commands = LocalClaimCommands(self.open(f"order-{n}"))
@@ -216,3 +357,5 @@ class SchemaParity(unittest.TestCase):
         def normalized(sql):
             return re.sub(r"\s+", "", "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--")))
         self.assertEqual(normalized(SCHEMA), normalized(migration))
+        upgrade = (Path(__file__).resolve().parents[1] / "worker/migrations/0011_normalized_claim_commands.sql").read_text()
+        self.assertEqual(normalized(NORMALIZE_DDL + NORMALIZE_DATA), normalized(upgrade))

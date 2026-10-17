@@ -180,19 +180,40 @@ reference covers claim-to-claim supersession only, not a completed docs-promotio
 
 ### Adapter checkpoint: what it establishes, and what it does not
 
-The first durable representation is deliberately an aggregate snapshot per exact group, plus global
-claim-ID and `(principal, command_id)` receipt indexes. A single SQL read loads a consistent group.
-A checked SQL guard fences the planned revision inside the transaction; the snapshot contains the
-claims, head, source generations, tokens, acceptance evidence and event history, so they commit
-together. A duplicate racing the commit returns the original receipt. A failed guard or later SQL
-statement rolls back the snapshot and indexes. A command ID cannot be retargeted to another group.
-Pyturso retries rerun the SQL guard, not an unconditional saved update. Schema bootstrap uses its
-ordinary DDL path: `BEGIN CONCURRENT` cannot create tables.
+The original draft stored all claims, events and receipts in one group JSON value. Review of #44
+demonstrated that ordinary repeated checks eventually exceed
+[D1's 2,000,000-byte string/row limit](https://developers.cloudflare.com/d1/platform/limits/).
+The revised storage is normalized without changing the pure kernel or ratified domain semantics:
 
-This establishes the domain persistence boundary, **not production conformance**. The snapshots grow
-with group history; size and latency budgets remain unmeasured. Large histories may need normalized
-storage without changing the command contract. No auth or source-stamping middleware is proved by
-accepting an in-process `Actor` or `Stamp`. No external shell/model side effect is run in a transaction.
+- `claim_command_groups` holds the group revision and a small `state` value containing only
+  `storage_version`, `head` and `head_revision`. The column name is retained, not its old snapshot shape.
+- `claim_command_ids` is the global ID index **and** the per-claim projection table (`ordinal`, `claim`).
+  Only changed projections are written. Retired claims, immutable content, source generations, tokens
+  and successor links remain present; they are not pruned to make a group fit.
+- `claim_command_events` appends each event under `(group_key, revision)`, retaining acceptance evidence,
+  reasons and check tokens/outcomes. Events are never rewritten into the group metadata.
+- The existing `claim_command_receipts` table is the sole durable receipt authority. An old exact retry
+  still returns its original receipt; there is no expiry or bounded-history idempotency policy.
+
+The SQL guard, group metadata, changed projections, event and receipt commit in one transaction. A
+duplicate racing the commit returns the original receipt. Failed guards or later SQL statements roll
+everything back. A command ID cannot be retargeted to another group. Pyturso retries rerun the guard.
+Mutation planning loads claim projections, **not** the accumulated event/receipt history. Multi-query
+reads compare the group revision/metadata before and after collecting rows, retrying a changed view.
+The historical `read` view reconstructs full kernel state from separate rows for inspection/conformance.
+
+Migration `0011_normalized_claim_commands.sql` and the matching local bootstrap losslessly convert
+the earlier **experimental command snapshots only**. Events and claims are copied before replacing
+the snapshot with metadata in the same transaction; receipt rows and fingerprints remain unchanged.
+A failed conversion can retry without losing history. Stop old experimental writers before upgrading
+their staged database. This is not a migration of legacy `memory_claims` or a live-store cutover.
+DDL uses the ordinary bootstrap path: pyturso `BEGIN CONCURRENT` cannot create tables.
+
+This establishes the domain persistence boundary, **not production conformance**. A single oversized
+assertion/evidence value can still exceed a backend limit; future transports need appropriate input
+bounds. Large-group claim scans, full historical reads, transaction/query budgets and deployed latency
+still need validation. No auth or source-stamping middleware is proved by accepting an in-process
+`Actor` or `Stamp`. No external shell/model side effect is run in a transaction.
 
 Before activation, steps 3–6 still require a copied-database migration/validation report, a search and
 pointer projection committed with each command, all writers/readers routed through that boundary,
@@ -218,6 +239,24 @@ It invokes the stdlib-only `tests/claim_trace_oracle.py` to compare full Python/
 receipts, including six interleavings and Unicode whitespace agreement. The ten original vectors
 retain independent lifecycle expectations; Python-derived results check the port, not the truth of
 the kernel. The Python alias is not a second independent model. The harness is not a live D1 service.
+
+Size regressions run 4,001 commands, replay the original create/check receipts after reopening, and
+check 500 claims of 4,000 characters plus an atomic correction. SQLite enforces a native 2,000,000-byte
+length limit; the D1 stand-in checks UTF-8 bound values and command-table row payloads. Separate tests
+prove the harness rejects oversized writes. Event/receipt failures, staged-format conversion and
+multi-query read races are also covered. These are local checks, not live D1 validation.
+
+`uv.lock` now includes the declared libsql dependency, pyturso minimum, MCP bound and speccheck extras.
+Use `uv sync --locked --extra speccheck` and `uv run --locked --no-sync ...` for the locked test path;
+CI checks lock freshness as well as the separate installed-wheel smoke.
+
+### Landing sequence with #33
+
+#33's head `7753b70` is already an ancestor of this branch; its retrieval changes are included here
+with the integration fixes. The proposed path is to review and eventually land #44 as the combined
+successor after its remaining readiness requirements, then reconcile/close #33 as superseded at the
+maintainer's direction. Do not independently land the old #33 diff afterward. Neither PR is closed
+or merged by this checkpoint. #32's validation fixes remain a separate later slice.
 
 After real adapter conformance passes, a small Lean model could prove terminality, privilege
 preservation and no state change on failed revision checks. Its assumptions would include trusted

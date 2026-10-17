@@ -1,9 +1,8 @@
 """Staged durable command boundary, NOT connected to legacy claims or public routes.
 
-One group is an aggregate. Its immutable assertion history, events and receipts are
-stored as one snapshot so they cannot half-commit. A global retry index fences
-command IDs across groups; a claim ID index prevents reuse across groups. This is
-intentionally a small first adapter, not a migration or a search projection.
+Group metadata, claim projections, append-only events and durable retry receipts
+commit in one transaction. No persisted row contains the group's entire history.
+This remains an isolated adapter, not the live-store migration or search projection.
 """
 from __future__ import annotations
 
@@ -39,6 +38,35 @@ GUARD = ("INSERT INTO claim_command_guard(ok) SELECT 0 WHERE "
 SAVE = ("INSERT INTO claim_command_groups(group_key,revision,state) VALUES(?,?,?) "
         "ON CONFLICT(group_key) DO UPDATE SET revision=excluded.revision,state=excluded.state")
 
+# Additive upgrade of the earlier, unactivated experimental tables. Keep the
+# existing global ID/receipt keys, and convert old snapshots without losing data.
+NORMALIZE_DDL = """
+ALTER TABLE claim_command_ids ADD COLUMN ordinal INTEGER DEFAULT 0;
+ALTER TABLE claim_command_ids ADD COLUMN claim TEXT;
+CREATE INDEX IF NOT EXISTS claim_command_ids_group ON claim_command_ids(group_key,ordinal);
+CREATE INDEX IF NOT EXISTS claim_command_receipts_group ON claim_command_receipts(group_key);
+CREATE TABLE IF NOT EXISTS claim_command_events (
+  group_key TEXT NOT NULL, revision INTEGER NOT NULL, event TEXT NOT NULL,
+  PRIMARY KEY(group_key,revision)
+);
+"""
+NORMALIZE_DATA = """
+INSERT INTO claim_command_ids(claim_id,group_key,ordinal,claim)
+SELECT json_extract(c.value,'$.id'),g.group_key,CAST(c.key AS INTEGER),c.value
+FROM claim_command_groups g,json_each(g.state,'$.claims') c
+WHERE json_type(g.state,'$.claims')='array'
+ON CONFLICT(claim_id) DO UPDATE SET
+  group_key=CASE WHEN claim_command_ids.group_key=excluded.group_key THEN excluded.group_key ELSE NULL END,
+  ordinal=excluded.ordinal,claim=excluded.claim;
+INSERT INTO claim_command_events(group_key,revision,event)
+SELECT g.group_key,json_extract(e.value,'$.revision'),e.value
+FROM claim_command_groups g,json_each(g.state,'$.events') e
+WHERE json_type(g.state,'$.claims')='array';
+UPDATE claim_command_groups
+SET state=json_object('storage_version',2,'head',json_extract(state,'$.head'),'head_revision',json_extract(state,'$.head_revision'))
+WHERE json_type(state,'$.claims')='array';
+"""
+
 
 def encoded(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -73,22 +101,21 @@ def decode_receipt(data: dict) -> Receipt:
     return Receipt(**{**data, "token": Token(**data["token"]) if data["token"] else None})
 
 
-def decode_state(text: str) -> State:
-    data = json.loads(text)
-    claims = tuple(Claim(**{**c, "pending_check": Token(**c["pending_check"]) if c["pending_check"] else None})
-                   for c in data.pop("claims"))
-    events = tuple(Event(**{**e, "evidence": tuple(Evidence(**v) for v in e["evidence"]),
-                            "check_token": Token(**e["check_token"]) if e["check_token"] else None})
-                   for e in data.pop("events"))
-    receipts = tuple(decode_receipt(r) for r in data.pop("receipts"))
-    return State(**data, claims=claims, events=events, receipts=receipts)
+def decode_claim(data: dict) -> Claim:
+    return Claim(**{**data, "pending_check": Token(**data["pending_check"]) if data["pending_check"] else None})
+
+
+def decode_event(data: dict) -> Event:
+    return Event(**{**data, "evidence": tuple(Evidence(**v) for v in data["evidence"]),
+                    "check_token": Token(**data["check_token"]) if data["check_token"] else None})
 
 
 class LocalClaimCommands:
     """Use an existing backend connection/transaction runner, in isolated tables.
 
     The caller authenticates Actor and group reach and supplies canonical Stamp.
-    No route exposes this yet. Reads are a single SQL statement (one snapshot).
+    No route exposes this yet. A revision sandwich gives multi-query reads one
+    consistent group version. Mutation planning never loads receipt/event history.
     An MVCC retry MUST recheck GUARD inside the retried transaction.
     """
 
@@ -100,13 +127,49 @@ class LocalClaimCommands:
         for sql in SCHEMA.split(";"):
             if sql.strip():
                 backend._exec_ddl(cursor, sql)
+        for sql in NORMALIZE_DDL.split(";"):
+            if sql.strip():
+                try:
+                    backend._exec_ddl(cursor, sql)
+                except Exception as error:
+                    if "duplicate column" not in str(error).lower():
+                        raise
         backend.db.commit()
+        backend._write([(sql, ()) for sql in NORMALIZE_DATA.split(";") if sql.strip()])
 
     def read(self, group: Group) -> State:
-        row = self.backend.db.cursor().execute(
-            "SELECT state FROM claim_command_groups WHERE group_key = ?", (group.key,),
-        ).fetchone()
-        return decode_state(row[0]) if row else State()
+        """Full historical view for inspection/conformance; not the mutation read path."""
+        return self._read(group, history=True)
+
+    def _read(self, group: Group, *, history: bool) -> State:
+        key = group.key
+        def header():
+            return self.backend.db.cursor().execute(
+                "SELECT revision,state FROM claim_command_groups WHERE group_key = ?", (key,),
+            ).fetchone()
+        for _ in range(5):
+            before = header()
+            data = json.loads(before[1]) if before else {"storage_version": 2, "head": None, "head_revision": 0}
+            require(data.get("storage_version") == 2, "storage_upgrade_required")
+            rows = self.backend.db.cursor().execute(
+                "SELECT claim FROM claim_command_ids WHERE group_key = ? ORDER BY ordinal", (key,),
+            ).fetchall()
+            require(all(row[0] is not None for row in rows), "storage_inconsistent")
+            claims = tuple(decode_claim(json.loads(row[0])) for row in rows)
+            events, receipts = (), ()
+            if history:
+                rows = self.backend.db.cursor().execute(
+                    "SELECT event FROM claim_command_events WHERE group_key = ? ORDER BY revision", (key,),
+                ).fetchall()
+                events = tuple(decode_event(json.loads(row[0])) for row in rows)
+                rows = self.backend.db.cursor().execute(
+                    "SELECT receipt FROM claim_command_receipts WHERE group_key = ?", (key,),
+                ).fetchall()
+                receipts = tuple(sorted((decode_receipt(json.loads(row[0])) for row in rows), key=lambda r: r.revision))
+            if header() == before:
+                return State(revision=before[0] if before else 0, head=data["head"],
+                             head_revision=data["head_revision"], claims=claims, events=events, receipts=receipts)
+        raise Refused("stale")
 
     def _replay(self, key: str, actor: Actor, command: Command) -> Receipt | None:
         row = self.backend.db.cursor().execute(
@@ -123,12 +186,20 @@ class LocalClaimCommands:
         key = group.key
         if receipt := self._replay(key, actor, command):
             return receipt
-        before = self.read(group)
+        before = self._read(group, history=False)
         after, receipt = transition(before, actor, command, stamp=stamp, k=k)
-        writes = [(GUARD, (key, before.revision)), (SAVE, (key, after.revision, encoded(asdict(after))))]
-        prior_ids = {c.id for c in before.claims}
-        writes.extend(("INSERT INTO claim_command_ids(claim_id,group_key) VALUES(?,?)", (c.id, key))
-                      for c in after.claims if c.id not in prior_ids)
+        metadata = encoded({"storage_version": 2, "head": after.head, "head_revision": after.head_revision})
+        writes = [(GUARD, (key, before.revision)), (SAVE, (key, after.revision, metadata))]
+        prior = {c.id: c for c in before.claims}
+        for claim in after.claims:
+            if claim.id not in prior:
+                writes.append(("INSERT INTO claim_command_ids(claim_id,group_key,ordinal,claim) VALUES(?,?,?,?)",
+                               (claim.id, key, after.revision, encoded(asdict(claim)))))
+            elif claim != prior[claim.id]:
+                writes.append(("UPDATE claim_command_ids SET claim=? WHERE claim_id=? AND group_key=?",
+                               (encoded(asdict(claim)), claim.id, key)))
+        writes.append(("INSERT INTO claim_command_events(group_key,revision,event) VALUES(?,?,?)",
+                       (key, after.revision, encoded(asdict(after.events[-1])))))
         writes.append(("INSERT INTO claim_command_receipts(principal,command_id,group_key,fingerprint,receipt) VALUES(?,?,?,?,?)",
                        (actor.principal, command.id, key, receipt.fingerprint, encoded(asdict(receipt)))))
         try:

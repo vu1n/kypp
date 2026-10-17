@@ -23,10 +23,12 @@ paths:
   - "worker/src/claim-machine.ts"
   - "worker/src/claim-commands.ts"
   - "worker/migrations/0010_claim_commands.sql"
+  - "worker/migrations/0011_normalized_claim_commands.sql"
   - "tests/test_claim_state_machine_spec.py"
   - "tests/test_claim_commands.py"
   - "tests/claim_trace_oracle.py"
   - "worker/test/claim-commands.test.ts"
+  - "worker/test/d1.ts"
   - "docs/claim-state-machine.md"
 ```
 
@@ -37,10 +39,17 @@ still pending. `docs/claim-state-machine.md` names the completed checkpoint and 
 ### Gotchas
 - The old reference path imports the Python kernel; it is not an independent oracle. Original
   portable vector expectations check outcomes; cross-language tests check the Worker port.
-- `claim_command_*` snapshots and indexes are isolated from legacy claims. No current route or
+- `claim_command_*` projections and ledgers are isolated from legacy claims. No current route or
   cron calls them. Do not claim production conformance or partially switch a live store.
-- A group snapshot includes its entire history. Measure row size and write latency before cutover;
-  the first aggregate representation is not a large-history scalability claim.
+- Never persist the whole group's history in one value: D1 caps a string/row at 2,000,000 bytes.
+  Group metadata stays small; claims and events are separate rows, and the existing receipt table
+  is the sole durable retry authority. Mutation planning must not load event/receipt history.
+- Normalized reads span queries: compare group revisions/metadata before and after to avoid mixed
+  versions. Commit-time CAS remains mandatory even after a consistent read.
+- Migration 0011 upgrades only prior experimental command snapshots, retaining all claims/events
+  and original receipts. Stop old experimental writers first; it does not migrate live memory_claims.
+- Size-limit and rollback checks use local SQLite/D1 stand-ins, not the deployed D1 service. Large
+  claim groups, individual payload bounds, query budgets and deployment latency still need validation.
 - Pyturso DDL cannot run in `BEGIN CONCURRENT`; bootstrap idempotently before command transactions.
 - Python `str.split` and JavaScript `\s` differ on NEL, C0 separators and BOM. Exact recurrence
   agreement uses the same explicit whitespace set; shared port tests cover it.
@@ -367,6 +376,7 @@ paths:
   - "kypp/cli.py"
   - "kypp/__init__.py"
   - "pyproject.toml"
+  - "uv.lock"
 ```
 
 `kypp <command>` dispatches to each module's `main()`. Imports are lazy, so `serve` never

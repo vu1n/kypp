@@ -23,8 +23,36 @@ export class D1ClaimCommands implements ClaimCommands {
   constructor(db: D1Database) { this.db = db; }
 
   async read(group: Group): Promise<State> {
-    const row = await this.db.prepare("SELECT state FROM claim_command_groups WHERE group_key = ?").bind(groupKey(group)).first<{ state: string }>();
-    return row ? JSON.parse(row.state) : emptyState();
+    // Historical inspection/conformance only. execute() never loads event/receipt history.
+    return this.load(group, true);
+  }
+
+  private async load(group: Group, history: boolean): Promise<State> {
+    const key = groupKey(group);
+    const header = () => this.db.prepare("SELECT revision,state FROM claim_command_groups WHERE group_key = ?")
+      .bind(key).first<{ revision: number; state: string }>();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const before = await header();
+      const metadata = before ? JSON.parse(before.state) : { storage_version: 2, head: null, head_revision: 0 };
+      requireThat(metadata.storage_version === 2, "storage_upgrade_required");
+      const rows = await this.db.prepare("SELECT claim FROM claim_command_ids WHERE group_key = ? ORDER BY ordinal")
+        .bind(key).all<{ claim: string | null }>();
+      requireThat(rows.results.every((row) => row.claim !== null), "storage_inconsistent");
+      const state: State = { ...emptyState(), revision: before?.revision ?? 0,
+        head: metadata.head, head_revision: metadata.head_revision,
+        claims: rows.results.map((row) => JSON.parse(row.claim!)) };
+      if (history) {
+        const events = await this.db.prepare("SELECT event FROM claim_command_events WHERE group_key = ? ORDER BY revision")
+          .bind(key).all<{ event: string }>();
+        const receipts = await this.db.prepare("SELECT receipt FROM claim_command_receipts WHERE group_key = ?")
+          .bind(key).all<{ receipt: string }>();
+        state.events = events.results.map((row) => JSON.parse(row.event));
+        state.receipts = receipts.results.map((row) => JSON.parse(row.receipt) as Receipt).sort((a, b) => a.revision - b.revision);
+      }
+      const after = await header();
+      if (before === null ? after === null : after?.revision === before.revision && after.state === before.state) return state;
+    }
+    throw new Refused("stale");
   }
 
   private async replay(key: string, actor: Actor, command: Command): Promise<Receipt | null> {
@@ -39,18 +67,29 @@ export class D1ClaimCommands implements ClaimCommands {
   async execute(group: Group, actor: Actor, command: Command, stamp?: Stamp, k = 2): Promise<Receipt> {
     const key = groupKey(group), replay = await this.replay(key, actor, command);
     if (replay) return replay;
-    const before = await this.read(group);
+    const before = await this.load(group, false);
     const [after, receipt] = await transition(before, actor, command, stamp, k);
     const stmts = [
       this.db.prepare("INSERT INTO claim_command_guard(ok) SELECT 0 WHERE COALESCE((SELECT revision FROM claim_command_groups WHERE group_key = ?), 0) != ?")
         .bind(key, before.revision),
       this.db.prepare("INSERT INTO claim_command_groups(group_key,revision,state) VALUES(?,?,?) ON CONFLICT(group_key) DO UPDATE SET revision=excluded.revision,state=excluded.state")
-        .bind(key, after.revision, encoded(after)),
-      ...after.claims.filter((c) => !before.claims.some((old) => old.id === c.id)).map((c) =>
-        this.db.prepare("INSERT INTO claim_command_ids(claim_id,group_key) VALUES(?,?)").bind(c.id, key)),
+        .bind(key, after.revision, encoded({ storage_version: 2, head: after.head, head_revision: after.head_revision })),
+    ];
+    const prior = new Map(before.claims.map((c) => [c.id, c]));
+    for (const claim of after.claims) {
+      const old = prior.get(claim.id);
+      if (!old) stmts.push(this.db.prepare("INSERT INTO claim_command_ids(claim_id,group_key,ordinal,claim) VALUES(?,?,?,?)")
+        .bind(claim.id, key, after.revision, encoded(claim)));
+      // The kernel increments the claim revision for every mutable projection change.
+      else if (claim.revision !== old.revision) stmts.push(this.db.prepare("UPDATE claim_command_ids SET claim=? WHERE claim_id=? AND group_key=?")
+        .bind(encoded(claim), claim.id, key));
+    }
+    stmts.push(
+      this.db.prepare("INSERT INTO claim_command_events(group_key,revision,event) VALUES(?,?,?)")
+        .bind(key, after.revision, encoded(after.events[after.events.length - 1])),
       this.db.prepare("INSERT INTO claim_command_receipts(principal,command_id,group_key,fingerprint,receipt) VALUES(?,?,?,?,?)")
         .bind(actor.principal, command.id, key, receipt.fingerprint, encoded(receipt)),
-    ];
+    );
     try { await this.db.batch(stmts); }
     catch (error) {
       const replay = await this.replay(key, actor, command);
