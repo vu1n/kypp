@@ -155,6 +155,13 @@ npm run deploy                               # applies migrations, then deploys;
   `verify` still runs each check on your machine. `wrangler dev` plus `KYPP_URL=http://127.0.0.1:8787`
   is the offline fallback, with the same route and token.
 
+Hosted operator `correct` replaces the exact subject/scope/project group (and owner for user
+scope) in one D1 batch: insert the human claim, FTS/pointers, supersede prior live rows, and
+record the audit. Transaction order determines the replacement; equal timestamps, reversed
+read order or lower confidence do not discard it. Failed writes roll back the whole batch.
+This is a legacy-store fix, not activation of the staged claim-command adapters. MCP correction
+and the existing verification protocol are unchanged; there is no new idempotent retry receipt.
+
 ## Develop
 
 ```sh

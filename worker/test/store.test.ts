@@ -70,7 +70,7 @@ test("full doc pointer identity does not alias another project's or document's a
 
 test("operator claim pointers, code refs and audit are stored together", async () => {
   const db = memoryD1(), store = new D1Store(db), refs = [{ path: "a.py", symbol: "f" }];
-  const id = await store.operatorClaim(base({ codeRefs: refs }), "human", null, "correct");
+  const { id } = await store.operatorClaim(base({ codeRefs: refs }), "correct", null);
   assert.deepEqual((await store.get(id, "vu"))!.code_refs, refs);
   assert.equal((await store.entriesForPath("a.py"))[0].claim_id, id);
   assert.equal((await db.prepare("SELECT action FROM defrag_log WHERE claim_id=?").bind(id).first())!.action, "operator:correct");

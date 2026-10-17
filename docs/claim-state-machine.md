@@ -19,6 +19,15 @@ capabilities bind throughout. A partially upgraded shared store is not an activa
 follow-up adapter PR must identify the cutover and demonstrate conformance, rather than merely set a
 feature flag on one route. This prevents a contract-only merge from declaring unchanged main in violation.
 
+The legacy hosted operator's `correct` path has a narrow atomic-replacement hotfix: its new human
+claim, FTS/pointers, supersessions and `defrag_log` entries commit in one D1 batch. It does not use
+generic rank arbitration, which could discard a correction on equal timestamps or lower confidence.
+Late consolidation plans must still target live rows in their original group, including when the
+legacy count/max-timestamp guard collides. Fixed-clock, reversed-read, overlapping-request and
+injected rollback tests cover this path. This does not activate `claim_command_*`, change local or
+MCP correction, provide command receipts or check tokens, or close the all-writer cutover work below.
+Legacy nonhuman verification revival remains permitted by the staged activation contract.
+
 ## Domain and transitions
 
 One arbitration group is `(subject, scope, project, owner)`, with owner present for user/room scope.
