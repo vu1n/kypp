@@ -13,3 +13,4 @@ never-delete ratified-by: vu1n amendment=fc55afad1a7c comment=4302441223 (https:
 scope-keys-decay ratified-by: vu1n amendment=f969c0cfd671 comment=4302441873 (https://github.com/vu1n/kypp/pull/43#discussion_r4302441873)
 operator-only-verify ratified-by: vu1n amendment=c33bf8bc8745 comment=4302441996 (https://github.com/vu1n/kypp/pull/43#discussion_r4302441996)
 compose-surface ratified-by: vu1n amendment=d45860792d9b comment=4302441612 (https://github.com/vu1n/kypp/pull/43#discussion_r4302441612)
+authority-dominates ratified-by: vu1n amendment=e050ceab8733 comment=4302440986 (https://github.com/vu1n/kypp/pull/43#discussion_r4302440986)
