@@ -22,6 +22,13 @@ related_code:
 ---
 
 <!-- brief:anchor scope-keys-decay -->
+**Activation of the executable claim contract:** the new §6 lifecycle/admission/command rules bind
+a store when all its readers and writers complete adapter cutover in `docs/claim-state-machine.md`.
+Until then, existing candidate/accepted/superseded/rejected handling, recurrence/deduplication and
+verification status writes retain their legacy behavior. The existing scope, origin, pin and room
+authorization constraints bind throughout. Merge ratifies the target without claiming code on main
+already implements it; partial activation within one shared store is not permitted.
+
 ## Hold what docs can't, key claims by feature, forget on event clocks
 
 **Status:** proposed 2026-10-04. It builds on the `compose` decision
@@ -103,14 +110,30 @@ finally writes `claim_usages.score`. Cost scales with churn and activity, not wi
 
 ### 6. Lifecycle
 
-`candidate → accepted → suspect → dormant → archived`, alongside the existing `superseded` and
-`rejected`.
+The initial executable lifecycle is `candidate | accepted | superseded | rejected`.
+`superseded` and `rejected` are terminal at every authority. Reassertion creates a new linked
+candidate without copying acceptance or privileged authority. Failed or inconclusive configured
+checks qualify a live assertion's read eligibility, not its lifecycle; a later pass can restore
+eligibility while the assertion remains live. Intentional retirement cannot be undone by a check.
 
-- **Dormant** drops out of recall and briefing, but `expand` still works.
-- **Archived** is cold.
-- **Nothing is hard-deleted** on a timer.
+Each arbitration group has one accepted current answer plus pending candidates. Acceptance records
+its reason and evidence; authority restricts replacement. Exact normalized content or an affirmative
+agreement judgment plus distinct canonical original-source, non-echo recurrence permits automatic acceptance. Unknown/conflicted
+agreement leaves alternatives pending, without destructive deduplication. Recurrence admits memory,
+not independent trust. Source/exposure stamps preserve the exact served claim revision/status.
 
-Human-corrected and verified claims decay more slowly.
+Decision-relevant changes increment a transactional group revision. Plans require that revision;
+recurrence may reuse older live candidates, but requires at least one non-echo supporting observation
+from the current-answer generation. This avoids stranding alternatives and prevents old observations
+alone from oscillating the head. Relaying one source through another principal adds no recurrence.
+Source and echo stamps are trusted adapter context, not fields on the client proposal action.
+check completions require their claim/configuration/attempt token. Commands use full immutable IDs
+and idempotent receipts. Correction, successor links and audit records commit together. All writers
+must share this command boundary; unconditional status setters are not a public adapter contract.
+
+The event clocks and judge above remain the intended decay extension. Suspect/dormant/archive
+eligibility is future work, not additional initial execution or review states. Nothing is hard-deleted
+on a timer; human-corrected and verified assertions retain the slower-decay intent.
 
 ### 7. Feature renames are kypp's problem, not Brief's
 

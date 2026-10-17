@@ -1,0 +1,16 @@
+compose-surface escalated: amendment=acab6c79ff1d
+never-delete escalated: amendment=63dc01fe780b
+authority-dominates escalated: amendment=bcebd9089737
+scope-keys-decay escalated: amendment=0c5aca136f8e
+operator-only-verify escalated: amendment=320b79d696c8
+compose-surface escalated: amendment=d45860792d9b
+never-delete escalated: amendment=fc55afad1a7c
+authority-dominates escalated: amendment=e050ceab8733
+scope-keys-decay escalated: amendment=f969c0cfd671
+operator-only-verify escalated: amendment=c33bf8bc8745
+authority-dominates ratified-by: vu1n amendment=e050ceab8733 comment=4302440986 (https://github.com/vu1n/kypp/pull/43#discussion_r4302440986)
+never-delete ratified-by: vu1n amendment=fc55afad1a7c comment=4302441223 (https://github.com/vu1n/kypp/pull/43#discussion_r4302441223)
+scope-keys-decay ratified-by: vu1n amendment=f969c0cfd671 comment=4302441873 (https://github.com/vu1n/kypp/pull/43#discussion_r4302441873)
+operator-only-verify ratified-by: vu1n amendment=c33bf8bc8745 comment=4302441996 (https://github.com/vu1n/kypp/pull/43#discussion_r4302441996)
+compose-surface ratified-by: vu1n amendment=d45860792d9b comment=4302441612 (https://github.com/vu1n/kypp/pull/43#discussion_r4302441612)
+authority-dominates ratified-by: vu1n amendment=e050ceab8733 comment=4302440986 (https://github.com/vu1n/kypp/pull/43#discussion_r4302440986)

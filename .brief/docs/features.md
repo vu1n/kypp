@@ -11,6 +11,33 @@ What each part of kypp is, where its code lives, and what bites there. Address a
 touches. Internal areas count as features too. When code moves, update `paths:` in the same
 change, because `brief check` blocks any glob that matches nothing.
 
+<!-- brief:anchor claim-transition-contract -->
+## Proposed claim transition contract
+
+```yaml
+paths:
+  - "specs/claim_state_machine/model.py"
+  - "specs/claim_state_machine/v1.json"
+  - "tests/test_claim_state_machine_spec.py"
+  - "docs/claim-state-machine.md"
+```
+
+An unconnected executable proposal for lifecycle, acceptance, verification fencing and atomic
+commands. The amendment PR ratifies decision changes; production adapter conformance follows.
+
+### Gotchas
+- The reference is outside the runtime package and does not prove existing stores conform.
+- Actor capabilities, the separate Stamp argument, and typed agreement are trusted adapter inputs,
+  not client-selected permissions. Authenticate and authorize the exact group before invoking it.
+- Retirement is terminal; check outcomes qualify live read eligibility. Viewing is not acceptance.
+- Maintenance can reject unaccepted agent candidates, never accepted answers. Recurrence can reuse
+  older alternatives alongside a current-generation observation. Check tokens fence their issuance
+  generation; a blocked candidate pass records evidence without acquiring verified authority.
+- Each amended anchor stages activation at complete adapter/store cutover. A contract-only merge
+  does not require existing handlers to have already switched semantics.
+- Bounded schedules cover only their stated finite domain; SQL isolation and Python/Worker conformance
+  require adapter tests after ratification.
+
 <!-- brief:anchor store -->
 ## Store
 
