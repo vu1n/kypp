@@ -1,0 +1,19 @@
+{
+  "invalid_timestamp_values": [
+    {"id": "single-element-array", "value": ["2026-10-13T15:27:00Z"]},
+    {"id": "nested-array", "value": [["2026-10-13T15:27:00Z"]]},
+    {"id": "empty-array", "value": []},
+    {"id": "object", "value": {"timestamp": "2026-10-13T15:27:00Z"}},
+    {"id": "null", "value": null},
+    {"id": "boolean", "value": true},
+    {"id": "number", "value": 1791905220},
+    {"id": "empty-string", "value": ""},
+    {"id": "invalid-date", "value": "2026-02-30T15:27:00Z"}
+  ],
+  "unicode_search": [
+    {"id": "precomposed", "text": "naïve", "query": "naïve", "match": "\"naïve\""},
+    {"id": "decomposed-query", "text": "naïve", "query": "nai\u0308ve", "match": "\"nai\u0308ve\""},
+    {"id": "decomposed-record", "text": "nai\u0308ve", "query": "naïve", "match": "\"naïve\""},
+    {"id": "multiple-marks", "text": "résumé", "query": "re\u0301sume\u0301", "match": "\"re\u0301sume\u0301\""}
+  ]
+}
