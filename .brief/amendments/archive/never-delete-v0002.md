@@ -28,3 +28,9 @@ reference model and tests; production behavior is unchanged.
 Legacy retired claims remain retired; do not guess which were rejected by checks. Preserve every
 row/handle. Live checked claims can recover eligibility. Migration and writer upgrades follow
 ratification; this PR executes neither.
+
+
+---
+ratified_rev: 0002
+ratified_by: vu1n via /ratify (https://github.com/vu1n/kypp/pull/43#discussion_r4302441223); vu1n (merge of #43)
+ratified_via: human

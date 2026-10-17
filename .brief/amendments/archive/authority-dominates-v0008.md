@@ -31,3 +31,9 @@ rather than freeze arbitrary set_status. This PR changes no runtime writer.
 Reported corrections no longer self-accept. Legacy acceptance stays unknown when evidence is absent.
 All writers must upgrade before revision-only CAS. Operator/sync credentials stay distinct; sync is
 still future work. No privileged claim is written by this PR.
+
+
+---
+ratified_rev: 0008
+ratified_by: vu1n via /ratify (https://github.com/vu1n/kypp/pull/43#discussion_r4302440986); vu1n (merge of #43)
+ratified_via: human

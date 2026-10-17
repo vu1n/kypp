@@ -1,11 +1,11 @@
 additive-migrations:
   latest: 2
 agent-mcp-surface-compose:
-  latest: 2
+  latest: 3
 append-only-history:
-  latest: 1
+  latest: 2
 authority-order:
-  latest: 7
+  latest: 8
 corroboration-gate:
   latest: 2
 human-authority-operator-only:
@@ -13,7 +13,7 @@ human-authority-operator-only:
 kypp-independent:
   latest: 2
 memory-scope-decay:
-  latest: 10
+  latest: 11
 no-grader-leak:
   latest: 1
 pointers-not-content:
@@ -25,4 +25,4 @@ shared-claims-agnostic:
 turboquant-deferred:
   latest: 2
 verify-operator-only:
-  latest: 2
+  latest: 3

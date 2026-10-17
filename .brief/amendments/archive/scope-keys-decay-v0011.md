@@ -31,3 +31,9 @@ reference specifies these changes without connecting them to production.
 No scope, room, pin, origin or authorization widening. Cooperation remains separate. Decay, docs
 promotion, execution leases and terminal UI are not built here. Unknown paraphrases wait; exact
 normalized recurrence still works. Migration and full writer alignment follow ratification.
+
+
+---
+ratified_rev: 0011
+ratified_by: vu1n via /ratify (https://github.com/vu1n/kypp/pull/43#discussion_r4302441873); vu1n (merge of #43)
+ratified_via: human

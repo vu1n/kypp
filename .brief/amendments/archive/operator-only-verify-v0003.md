@@ -30,3 +30,9 @@ Old ID/boolean callbacks need an upgrade-required response. This PR executes no 
 can attach a verifier. Automatic admission fences the generation at check issuance. A blocked
 candidate pass records evidence without privileged authority; a fresh check can reassess it. Cutover
 must include a full operator verify sweep and report still-unconfirmed groups.
+
+
+---
+ratified_rev: 0003
+ratified_by: vu1n via /ratify (https://github.com/vu1n/kypp/pull/43#discussion_r4302441996); vu1n (merge of #43)
+ratified_via: human

@@ -28,3 +28,9 @@ This PR adds no tool/handler and does not implement the separate future compose 
 Existing tool names can remain aliases with clear candidate outcomes. Operator CLI acceptance and
 correction remain. No agent verifier/authority argument or approval queue. PR #32's cooperation
 validation fixes remain independently useful.
+
+
+---
+ratified_rev: 0003
+ratified_by: vu1n via /ratify (https://github.com/vu1n/kypp/pull/43#discussion_r4302441612); vu1n (merge of #43)
+ratified_via: human
