@@ -44,6 +44,12 @@ class McpRecurrence(unittest.TestCase):
         self.assertNotIn("accepted", self.statuses("port"))
         self.assertEqual(self.store.get(ids[0]).source_ids, ["made-up-1", "session:sessA"])
 
+    def test_cited_session_ids_are_not_stamps(self):
+        ids = [call(self.a, "claim", subject="port", content="port is 8080", source_ids=[f"session:x{n}"])
+               for n in (1, 2)]
+        self.assertNotIn("accepted", self.statuses("port"))
+        self.assertEqual(self.store.get(ids[0]).source_ids, ["cited:session:x1", "session:sessA"])
+
     def test_own_observations_do_not_corroborate(self):
         for n in (1, 2):
             oid = call(self.a, "observe", content=f"saw 8080 ({n})")
@@ -55,8 +61,8 @@ class McpRecurrence(unittest.TestCase):
         call(self.a, "claim", subject="port", content="port is 8080")
         call(b, "claim", subject="port", content="port is 8080")
         self.assertEqual(self.statuses("port"), ["accepted"])
-        for n in (1, 2):
-            call(self.a, "claim", subject="port", content="port is 9090", source_ids=[f"made-up-{n}"])
+        for ids in (["made-up-1"], ["session:sessB"]):
+            call(self.a, "claim", subject="port", content="port is 9090", source_ids=ids)
         consolidate(self.store, project="p")
         head = [c for c in self.store.recall("port", project="p") if c.subject == "port"]
         self.assertEqual([c.content for c in head], ["port is 8080"])
