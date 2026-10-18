@@ -67,6 +67,12 @@ class McpRecurrence(unittest.TestCase):
         head = [c for c in self.store.recall("port", project="p") if c.subject == "port"]
         self.assertEqual([c.content for c in head], ["port is 8080"])
 
+    def test_unstamped_server_caller_ids_do_not_corroborate(self):
+        srv = build_mcp(self.store, "p")
+        for n in (1, 2):
+            call(srv, "claim", subject="port", content="port is 8080", source_ids=[f"obs-{n}"])
+        self.assertNotIn("accepted", self.statuses("port"))
+
     def test_two_sessions_still_promote(self):
         b = build_mcp(self.store, "p", consumer="sessB")
         call(self.a, "claim", subject="port", content="port is 8080", source_ids=["obs-a"])

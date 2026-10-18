@@ -140,7 +140,7 @@ kypp batch                        # LLM re-distill a corpus of logs, one represe
 Each stdio server is one session: it mints a session id (or takes `KYPP_SESSION`), stamps it on
 every `claim` as a source so two sessions agreeing can promote a candidate, and logs what
 `recall` / `briefing` / `expand` showed it. A shared `--http` server only does this when
-`KYPP_SESSION` is set.
+`KYPP_SESSION` is set; without it, its claims never count toward promotion.
 
 The DX contract is **handles**: `recall`/`briefing` return one compact line per claim —
 `handle [type ✓conf] subject — content → code pointer` — and `expand(handle)` dereferences only

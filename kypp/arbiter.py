@@ -36,14 +36,15 @@ def _corroboration(members: list[Claim]) -> int:
 
     A claim carrying a server `session:` stamp (the MCP `claim` path) counts as that session only: the
     caller's own `source_ids` stay as provenance but can't add weight, or one session promotes its own
-    guess by citing invented ids or observations it filed itself."""
+    guess by citing invented ids or observations it filed itself. `cited:` ids (an MCP caller's, when
+    the server had no session to stamp) never count."""
     # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — recurrence counts trusted source stamps, never caller-supplied ids.
     return len({s for m in members for s in _sources(m)})
 
 
 def _sources(c: Claim) -> list[str]:
     stamped = [s for s in c.source_ids if s.startswith("session:")]
-    return stamped or c.source_ids
+    return stamped or [s for s in c.source_ids if not s.startswith("cited:")]
 
 
 def _survivor(members: list[Claim]) -> Claim:
