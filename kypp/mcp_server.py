@@ -114,7 +114,10 @@ def build_mcp(store: ClaimStore, project: str, *, name: str = "kypp",
         provenance. Anchor to code via code_refs [{symbol,path,query}] when it concerns specific code.
         Returns the claim id."""
         # Why: the session stamp is what lets consolidate's K=2 gate count two sessions agreeing.
-        sources = list(source_ids or []) + ([f"session:{consumer}"] if consumer else [])
+        # Caller ids are provenance only: a cited `session:` id is renamed so it can't pass as a stamp, and
+        # with no session to stamp (--http without KYPP_SESSION) every cited id is, so none of them counts.
+        cited = [f"cited:{s}" if s.startswith("session:") or not consumer else s for s in source_ids or []]
+        sources = cited + ([f"session:{consumer}"] if consumer else [])
         return store.claim(type, subject, content, scope=scope, project=project,
                            confidence=confidence, source_ids=sources, code_refs=code_refs,
                            user=user, agent=agent)

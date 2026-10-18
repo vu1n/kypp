@@ -80,7 +80,8 @@ export function survivor(members: Claim[]): Claim {
   return members.reduce((best, c) => (compareRank(c, best) > 0 ? c : best));
 }
 
-// Distinct sessions/observations backing a subject (arbiter._corroboration).
+// Distinct sessions/observations backing a subject (arbiter._corroboration). MCP claims here store only
+// the server's session stamp, never caller ids, so every entry counts.
 export function corroboration(members: Claim[]): number {
   return new Set(members.flatMap((m) => m.source_ids)).size;
 }

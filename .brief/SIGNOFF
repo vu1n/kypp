@@ -48,3 +48,5 @@ scope-keys-decay conforms: command persistence is isolated until complete cutove
 compose-surface conforms: recall passes raw text to the store without adding tools or authority parameters; command adapters are not wired to MCP and legacy correct remains explicitly permitted before activation
 scope-keys-decay conforms: normalized command metadata, changed claim projections, append-only event rows and the existing durable receipt ledger commit under the same group CAS; the pure kernel and live-store activation boundary are unchanged
 never-delete conforms: staged snapshot conversion retains every claim/event and original receipt; normalization introduces no truncation, expiry or deletion of claim/history rows
+operator-only-verify conforms: MCP claim only renames caller-cited source_ids so they can't count as session stamps; no MCP tool gains a verify argument and kypp verify is untouched
+scope-keys-decay amend-proposed: legacy recurrence counts only the adapter-added session stamp, never MCP caller-cited source ids, before cutover; withholds acceptance only
