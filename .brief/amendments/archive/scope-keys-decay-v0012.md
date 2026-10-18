@@ -28,3 +28,9 @@ No scope, origin, pin, room or authority change; nothing new can be accepted. An
 without `KYPP_SESSION` no longer promotes by recurrence (operator acceptance still works). Distill,
 seed and batch claims count as before. Rows written by an unstamped server before the change keep raw
 ids until cutover migration.
+
+
+---
+ratified_rev: 0012
+ratified_by: vu1n via /ratify (https://github.com/vu1n/kypp/pull/47#discussion_r4306158506); vu1n (merge of #47)
+ratified_via: human
