@@ -32,8 +32,18 @@ def _rank(c: Claim) -> tuple:
 def _corroboration(members: list[Claim]) -> int:
     """Independent backing for a subject = distinct source observations across its claims. Each distill
     run files ONE observation, so this counts the SESSIONS that landed the subject — the multiplayer
-    acceptance signal (one agent's claim is a guess; many sessions agreeing make it truth)."""
-    return len({s for m in members for s in m.source_ids})
+    acceptance signal (one agent's claim is a guess; many sessions agreeing make it truth).
+
+    A claim carrying a server `session:` stamp (the MCP `claim` path) counts as that session only: the
+    caller's own `source_ids` stay as provenance but can't add weight, or one session promotes its own
+    guess by citing invented ids or observations it filed itself."""
+    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — recurrence counts trusted source stamps, never caller-supplied ids.
+    return len({s for m in members for s in _sources(m)})
+
+
+def _sources(c: Claim) -> list[str]:
+    stamped = [s for s in c.source_ids if s.startswith("session:")]
+    return stamped or c.source_ids
 
 
 def _survivor(members: list[Claim]) -> Claim:

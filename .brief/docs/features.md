@@ -397,6 +397,10 @@ the weaker claims. It also promotes corroborated candidates.
   update: it is kept, not superseded, and replaces the old answer once it corroborates. Without
   that, accepted-beats-candidate made every update lose to the answer it corrects. Exact-subject
   groups only; the semantic pass doesn't keep updates.
+- Corroboration counts a claim's `session:` stamp when it has one, not the `source_ids` the MCP
+  caller cited (those stay as provenance). Otherwise one session promotes its own guess with invented
+  ids or observations it filed. An HTTP server with no `KYPP_SESSION` stamps nothing, so caller ids
+  still count there.
 - The S1 agreement judge only holds a promotion; `None` (no model, failed call) never blocks one.
   A held group still supersedes its weaker duplicates, so the subject waits for a fresh session.
 
