@@ -25,7 +25,9 @@ related_code:
 **Activation of the executable claim contract:** the new §6 lifecycle/admission/command rules bind
 a store when all its readers and writers complete adapter cutover in `docs/claim-state-machine.md`.
 Until then, existing candidate/accepted/superseded/rejected handling, recurrence/deduplication and
-verification status writes retain their legacy behavior. The existing scope, origin, pin and room
+verification status writes retain their legacy behavior, with one narrowing: legacy recurrence counts
+a claim's adapter-added session stamp, never source ids its MCP caller cited, and an unstamped MCP
+claim counts no source. This only withholds acceptance; it activates no other §6 rule. The existing scope, origin, pin and room
 authorization constraints bind throughout. Merge ratifies the target without claiming code on main
 already implements it; partial activation within one shared store is not permitted.
 

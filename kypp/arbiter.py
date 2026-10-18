@@ -43,7 +43,8 @@ def _corroboration(members: list[Claim]) -> int:
 
 
 def _sources(c: Claim) -> list[str]:
-    stamped = [s for s in c.source_ids if s.startswith("session:")]
+    # The MCP server appends its stamp last; older rows can still hold a caller's `session:` id before it.
+    stamped = [s for s in c.source_ids if s.startswith("session:")][-1:]
     return stamped or [s for s in c.source_ids if not s.startswith("cited:")]
 
 

@@ -67,6 +67,13 @@ class McpRecurrence(unittest.TestCase):
         head = [c for c in self.store.recall("port", project="p") if c.subject == "port"]
         self.assertEqual([c.content for c in head], ["port is 8080"])
 
+    def test_legacy_forged_stamp_does_not_corroborate(self):
+        # A row written before cited ids were renamed keeps the caller's session: id ahead of the stamp.
+        self.store.claim("fact", "port", "port is 8080", scope="project", project="p",
+                         source_ids=["session:forged", "session:sessA"])
+        call(self.a, "claim", subject="port", content="port is 8080")
+        self.assertNotIn("accepted", self.statuses("port"))
+
     def test_unstamped_server_caller_ids_do_not_corroborate(self):
         srv = build_mcp(self.store, "p")
         for n in (1, 2):
