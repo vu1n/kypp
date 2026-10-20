@@ -26,6 +26,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+from . import episodes as _episodes
 from . import s1
 from .vocab import OLLAMA_DEFAULT_HOST, TYPES  # single-sourced vocabulary (turso-free leaf)
 
@@ -75,7 +76,9 @@ class Trace:
     turns: list[dict] = field(default_factory=list)  # NL conversation [{role,text}]: the decision/
     # procedure/intent signal §0's action skeleton can't carry — present for dogfood transcripts
     # (Claude/Codex), empty for graded pillbox sessions; rendered to the LLM distiller, ignored by the
-    # heuristic floor (which mines only verifiable failures).
+    # heuristic floor (which mines only verifiable failures). Each turn also keeps `event` (its §0
+    # event index) and `source` (that event's unstripped text): the coordinates episodes point into.
+    episodes: list = field(default_factory=list)  # Episode pointers the LLM distiller was shown
 
     @property
     def tool_failures(self) -> Counter:
@@ -111,7 +114,7 @@ def build_trace(events: list[dict], task: str = "") -> Trace:
     sid, models, actions, turns = "", [], [], []
     run_failed: str | None = None
     verdict: Verdict | None = None
-    for ev in events:
+    for i, ev in enumerate(events):
         sid = sid or ev.get("sessionId", "")
         p = ev.get("payload") or {}
         t = p.get("type")
@@ -123,9 +126,11 @@ def build_trace(events: list[dict], task: str = "") -> Trace:
             if m and m not in models:
                 models.append(m)
         elif t in ("user_message", "assistant_message"):
-            txt = (p.get("text") or "").strip()
+            raw = p.get("text") or ""
+            txt = raw.strip() if isinstance(raw, str) else ""
             if txt:  # the NL turns dogfood transcripts carry and graded eval sessions don't
-                turns.append({"role": "user" if t == "user_message" else "assistant", "text": txt})
+                turns.append({"role": "user" if t == "user_message" else "assistant", "text": txt,
+                              "event": i, "source": raw})
         elif t == "run_failed":
             run_failed = p.get("reason", "") or f"exit {p.get('exitCode')}"
         elif t == "scored":
@@ -206,11 +211,14 @@ class LLMDistiller:
     (candidates, model-agnostic strip, provenance). The backend is the caller's: local ollama
     (`ollama_complete`), `claude -p`, or an API — distill only needs str→str."""
 
-    def __init__(self, complete, *, max_claims: int = 8):
+    def __init__(self, complete, *, max_claims: int = 8, episodes=None):
         self.complete = complete
         self.max_claims = max_claims
+        self.episodes = episodes  # optional extract(trace) -> list[Episode] | None (kypp.episodes)
 
     def distill(self, trace: Trace) -> list[ClaimDraft]:
+        if self.episodes is not None:
+            trace.episodes = _episodes.select(self.episodes(trace))  # None (failed/absent) → today's prompt
         return self.parse(self.complete(self.render_prompt(trace)))[: self.max_claims]
 
     def render_prompt(self, trace: Trace) -> str:
@@ -224,6 +232,8 @@ class LLMDistiller:
                 lines.append(f"  FAILED {c.get('name', '?')}: {_clip(c.get('feedback') or '', 200)}")
         if trace.run_failed:
             lines.append(f"run failed: {trace.run_failed}")
+        # Quotes from every user turn, ahead of the clipped conversation that may not reach them.
+        lines.extend(_episodes.render(trace.episodes))
         if trace.turns:  # dogfood transcripts: the decisions/intent/corrections live here, not in actions
             lines.append("## Conversation")
             for turn in trace.turns[:40]:
@@ -394,7 +404,8 @@ def distiller_from_env() -> Distiller:
     A configured System One model (see kypp.s1) adds the write gate on top. The seam-config analog
     of store.store_from_env."""
     model = os.environ.get("KYPP_DISTILL_MODEL")
-    inner = (FallbackDistiller(LLMDistiller(_complete_from_model(model)), HeuristicDistiller())
+    inner = (FallbackDistiller(LLMDistiller(_complete_from_model(model), episodes=_episodes.extractor_from_env()),
+                               HeuristicDistiller())
              if model else HeuristicDistiller())
     via = s1.client()
     return GatedDistiller(inner, via=via) if via else inner
@@ -408,11 +419,15 @@ def distill_session(events: list[dict], store: MemoryStore, *, project: str, sco
     Returns the new claim ids."""
     trace = build_trace(events, task=task)
     distiller = distiller or HeuristicDistiller()
+    drafts = distiller.distill(trace)  # before observe: the observation records the episodes it was shown
+    meta = {"models": trace.models, "event_count": trace.event_count}
+    if trace.episodes:
+        meta["episodes"] = _episodes.provenance(trace.episodes)
     oid = store.observe(actor=actor, content=_trace_summary(trace), scope=scope, project=project,
                         source=f"session:{trace.session_id}" if trace.session_id else None,
-                        metadata={"models": trace.models, "event_count": trace.event_count})
+                        metadata=meta)
     ids = []
-    for d in distiller.distill(trace):
+    for d in drafts:
         content = redact_for_scope(d.content, scope, models=trace.models)
         ids.append(store.claim(d.type, d.subject, content, scope=scope, project=project,
                                confidence=d.confidence, source_ids=[oid], code_refs=d.code_refs))
