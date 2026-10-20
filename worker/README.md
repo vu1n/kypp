@@ -140,6 +140,11 @@ npx wrangler secret put CONSENT_SECRET       # 32+ random chars
 npm run deploy                               # applies migrations, then deploys; use this from now on
 ```
 
+To deploy an existing install on every push without keeping a Cloudflare token anywhere else, connect
+its Worker to the repo with Workers Builds (Worker > Settings > Builds): root `worker`, deploy command
+`bash scripts/deploy-install.sh`, and build variables `KYPP_D1_DATABASE_ID`, `KYPP_KV_ID` and
+`KYPP_DOMAIN`. The script binds those into `wrangler.prod.jsonc`, applies the D1 migrations and deploys.
+
 ## Connect
 
 - **Claude Code:** in each repo, `claude mcp add --transport http --scope project kypp https://<worker>/mcp --header "X-Kypp-Project: <repo>"`,
