@@ -43,3 +43,9 @@ repos.
   until an independent session at the repo agrees.
 - **Cost.** One more defrag step per changed accepted room claim, with the S1 calls filing already
   makes. Every promotion is logged and the lane claim stays, so a promotion can be undone.
+
+
+---
+ratified_rev: 0013
+ratified_by: vu1n via /ratify (https://github.com/vu1n/kypp/pull/49#discussion_r4325003309); vu1n (merge of #49)
+ratified_via: human
