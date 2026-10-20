@@ -107,6 +107,17 @@ class Clairic(unittest.TestCase):
         self.assertTrue(all(len(s) <= 2_000 for s in run.states))
         self.assertEqual([(e.event, e.quote) for e in got], [(60, "we stopped using that lib last spring, it leaks sockets")])
 
+    def test_an_oversized_turn_is_split_and_maps_back_to_the_whole_turn(self):
+        log = "\n".join(f"line {i}: worker ok" for i in range(400))
+        text = log + "\nwe stopped using that lib last spring, it leaks sockets."
+        events = _events([("user", text)])
+        run = FakeRunner(corrections=["we stopped using that lib last spring"])
+        got = ep.ClairicExtractor(run, chunk_chars=1_000)(build_trace(events))
+        self.assertGreater(len(run.states), 1)
+        self.assertTrue(all(len(s) <= 1_000 for s in run.states))
+        self.assertEqual([e.quote for e in got], ["we stopped using that lib last spring, it leaks sockets."])
+        self.assertEqual(_source_slice(events, got[0]), got[0].quote)
+
     def test_any_failure_is_no_opinion(self):
         def boom(state, fields):
             raise TimeoutError("slow")
@@ -198,6 +209,18 @@ class Distiller(unittest.TestCase):
         self.assertNotIn("bun.lockb", rows[0][0])
         for f in glob.glob(os.path.join(d, "*")):
             os.remove(f)
+
+
+class Provenance(unittest.TestCase):
+    def test_records_only_what_the_prompt_showed(self):
+        many = [ep.Episode("correction", f"quote {i:02d} " + "x" * (400 if i == 0 else 5), 1, i * 1000, i * 1000 + 9)
+                for i in range(ep.MAX_SHOWN + 5)]
+        trace = build_trace(_events(TURNS))
+        LLMDistiller(lambda p: "[]", episodes=lambda t: many).distill(trace)
+        meta = ep.provenance(trace.episodes)
+        self.assertEqual(len(meta), ep.MAX_SHOWN)
+        self.assertEqual([m["clipped"] for m in meta[:2]], [True, False])
+        self.assertEqual(meta[-1]["start"], (ep.MAX_SHOWN - 1) * 1000)
 
 
 class Config(unittest.TestCase):

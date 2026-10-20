@@ -218,7 +218,7 @@ class LLMDistiller:
 
     def distill(self, trace: Trace) -> list[ClaimDraft]:
         if self.episodes is not None:
-            trace.episodes = self.episodes(trace) or []  # None (failed/absent) → today's prompt
+            trace.episodes = _episodes.select(self.episodes(trace))  # None (failed/absent) → today's prompt
         return self.parse(self.complete(self.render_prompt(trace)))[: self.max_claims]
 
     def render_prompt(self, trace: Trace) -> str:

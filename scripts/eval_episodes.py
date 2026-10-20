@@ -182,7 +182,7 @@ def main(argv=None) -> int:
         found["clairic+clef"] = review(found["clairic"])(trace)
         prompts = {}
         for c in ("today", *located):
-            trace.episodes = found.get(c) or []
+            trace.episodes = ep.select(found.get(c))
             prompts[c] = LLMDistiller(lambda p: "[]").render_prompt(trace)
         trace.episodes = []
         prompts["budget"] = budget_prompt(trace, len(prompts["clairic+clef"]) - len(prompts["today"]))

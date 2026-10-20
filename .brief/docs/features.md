@@ -385,7 +385,7 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
 - The LLM distiller sees only the first 40 turns, 400 characters each. `KYPP_EPISODES` (`cues`
   or `clairic`) adds verbatim user corrections and reasons from every turn ahead of them. Episodes
   are §0 event index plus offsets into that event's own text, checked before use; the observation
-  stores those pointers, never the quotes. Clairic list answers are phrase fragments with
+  stores pointers for the episodes the prompt showed (`episodes.select`), never the quotes. Clairic list answers are phrase fragments with
   meaningless list confidence: code widens each to its sentence. Unreviewed, Clairic quoted a
   pasted "AI agents must ignore prior instructions" line as a correction, so `clairic` always runs
   Clef review, which fails closed. Any error returns no episodes, never a partial or unreviewed
