@@ -106,18 +106,23 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
   if (links !== undefined && (!Array.isArray(links) || links.length > MAX_LINKS || !links.every((l) => typeof l === "string"))) {
     return json({ error: `links must be a list of at most ${MAX_LINKS} registered project names` }, 400);
   }
-  const unique = links === undefined ? null : [...new Set(links as string[])];
+  const asked = links === undefined ? null : [...new Set(links as string[])];
   // Why: a paired grant is approved by a self-named app, and links open a repo's memory to the
   // room, so only an operator-configured issuer may set them (checked before any name lookup).
-  if (unique?.length && !opts.canLink) return json({ error: "a paired app can't link rooms to repos" }, 403);
+  if (asked?.length && !opts.canLink) return json({ error: "a paired app can't link rooms to repos" }, 403);
+  // Why: a bare repo name is ambiguous across GitHub owners, so a link may name `owner/repo`, and
+  // it then links the project only when that project rolls up to the owner's org (§10.1).
+  const owned = await ownedNames(db, (asked ?? []).filter((l) => l.includes("/")));
+  const resolve = (l: string) => (l.includes("/") ? owned.get(l) : l);
+  const unique = asked === null ? null : [...new Set(asked.flatMap((l) => resolve(l) ?? []))];
   // Why: a room reads its links, so a pinned issuer linking outside its pin would step around it.
-  const outside = opts.linkable ? (unique ?? []).filter((l) => !opts.linkable!.includes(l)) : [];
+  const outside = opts.linkable ? (asked ?? []).filter((l) => !opts.linkable!.includes(resolve(l) ?? l)) : [];
   if (outside.length) return json({ error: `this token may not link rooms to: ${outside.join(", ")}` }, 403);
   const { results } = unique?.length
     ? await db.prepare(`SELECT name FROM projects WHERE name IN (${unique.map(() => "?").join(",")})`).bind(...unique).all()
     : { results: [] };
   const known = new Set(results.map((r) => r.name as string));
-  const unknown = (unique ?? []).filter((l) => !known.has(l));
+  const unknown = (asked ?? []).filter((l) => !known.has(resolve(l) ?? l));
   // Why: naming the missing links is fine here; the caller is the operator's integration, not a room.
   if (unknown.length) return json({ error: `not registered projects: ${unknown.join(", ")}` }, 400);
 
@@ -139,6 +144,46 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
   ]);
   if (!seated.meta.changes) return json({ error: "unauthorized" }, 401);
   return json({ room: roomIdentity(key), member, token, ...(unique === null ? {} : { links: unique }) }, existing ? 200 : 201);
+}
+
+/**
+ * For each `owner/repo` link, the project named `repo` when `owner` is the org at the top of its
+ * roll-up (GitHub names, matched without case), through groups in between, unless a project is
+ * registered under the link itself. Any other link is left out.
+ */
+async function ownedNames(db: D1Database, qualified: string[]) {
+  const owned = new Map<string, string>();
+  if (!qualified.length) return owned;
+  // Why: D1 caps the queries one request may make, so every link resolves in two queries in all.
+  const parts = qualified.map((link) => ({ link, path: link.split("/") }));
+  const wanted = [...new Set(parts.flatMap(({ link, path }) => [link, path[1] ?? ""]).filter(Boolean).map((n) => n.toLowerCase()))];
+  const { results: rows } = await db.prepare(`SELECT name FROM projects WHERE lower(name) IN (${wanted.map(() => "?").join(",")})`)
+    .bind(...wanted).all<{ name: string }>();
+  const named = (n: string) => rows.map((r) => r.name).filter((name) => name.toLowerCase() === n.toLowerCase());
+  const candidates = [...new Set(parts.flatMap(({ path }) => (path[1] ? named(path[1]) : [])))];
+  // The orgs at the top of each candidate's roll-up, through parents up to three levels, as
+  // D1Store.ancestors and D1Store.orgs find them.
+  const { results: tops } = candidates.length
+    ? await db.prepare(
+      `WITH RECURSIVE up(project, name, depth) AS (SELECT project, parent, 1 FROM project_parents WHERE project IN (${candidates.map(() => "?").join(",")})`
+      + " UNION SELECT up.project, p.parent, up.depth + 1 FROM project_parents p JOIN up ON p.project = up.name WHERE up.depth < 3)"
+      + " SELECT DISTINCT project, name FROM up WHERE name != project AND NOT EXISTS (SELECT 1 FROM project_parents q WHERE q.project = up.name)",
+    ).bind(...candidates).all<{ project: string; name: string }>()
+    : { results: [] };
+  for (const { link, path } of parts) {
+    // A project registered under the path form itself (`vu1n/kypp`) is that project, as before,
+    // matched without case like any GitHub name (two rows that differ only in case match neither).
+    const exact = named(link);
+    if (exact.length) {
+      if (exact.length === 1) owned.set(link, exact[0]!);
+      continue;
+    }
+    const [owner, repo, ...rest] = path;
+    if (!owner || !repo || rest.length) continue;
+    const under = named(repo).filter((name) => tops.some((t) => t.project === name && t.name.toLowerCase() === owner.toLowerCase()));
+    if (under.length === 1) owned.set(link, under[0]!);
+  }
+  return owned;
 }
 
 const stillHeld = async (db: D1Database, name: string, grant: string) =>

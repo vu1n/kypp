@@ -64,6 +64,68 @@ test("links must be registered projects", async () => {
   assert.match(body.error, /secret-repo/);
 });
 
+test("an owner/repo link links the repo only under that owner's org", async () => {
+  const db = await setup();
+  for (const org of ["vu1n", "acme"]) {
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind(org, "", TS).run();
+  }
+  await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES('huddles','vu1n',?)").bind(TS).run();
+  const linked = await register(db, "room-a", ["Vu1n/Huddles", "pillbox"]);
+  assert.equal(linked.status, 201);
+  assert.deepEqual(linked.body.links, ["huddles", "pillbox"]);
+  // Another owner's repo of the same name is not the registered project.
+  const other = await register(db, "room-b", ["acme/huddles"]);
+  assert.equal(other.status, 400);
+  assert.match(other.body.error, /not registered projects: acme\/huddles$/);
+  assert.equal((await register(db, "room-c", ["vu1n/pillbox"])).status, 400);
+  // The owner is the org at the top of the roll-up, through a group in between, never the group.
+  for (const [project, parent] of [["site", "web"], ["web", "vu1n"]]) {
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind(project, "", TS).run();
+    await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES(?,?,?)").bind(project, parent, TS).run();
+  }
+  assert.deepEqual((await register(db, "room-f", ["vu1n/site"])).body.links, ["site"]);
+  assert.equal((await register(db, "room-g", ["web/site"])).status, 400);
+  // Of repos whose names differ only in case, the owner picks the one under its org.
+  for (const [project, parent] of [["API", "vu1n"], ["api", "acme"]]) {
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind(project, "", TS).run();
+    await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES(?,?,?)").bind(project, parent, TS).run();
+  }
+  assert.deepEqual((await register(db, "room-j", ["acme/api"])).body.links, ["api"]);
+  assert.deepEqual((await register(db, "room-k", ["vu1n/api"])).body.links, ["API"]);
+  // A project registered under its path form is linked by that name, as before.
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('vu1n/kypp','',?)").bind(TS).run();
+  assert.deepEqual((await register(db, "room-h", ["vu1n/kypp"])).body.links, ["vu1n/kypp"]);
+  assert.deepEqual((await register(db, "room-i", ["Vu1n/Kypp"])).body.links, ["vu1n/kypp"]);
+  // A paired app is refused any link before kypp looks a name up, so it learns nothing from it.
+  for (const link of ["vu1n/huddles", "acme/huddles"]) {
+    const paired = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-p", links: [link] }) }), db, "app", { canLink: false, grant: "g" });
+    assert.equal(paired.status, 403);
+  }
+  // A pinned issuer's pin bounds the project a qualified link resolves to.
+  const pinned = (id: string, linkable: string[]) =>
+    handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id, links: ["vu1n/huddles"] }) }), db, "huddles", { canLink: true, credential: "d-huddles", linkable });
+  assert.equal((await pinned("room-d", ["huddles"])).status, 201);
+  assert.equal((await pinned("room-e", ["pillbox"])).status, 403);
+});
+
+test("owner/repo links resolve in a fixed number of queries, within D1's per-request cap", async () => {
+  const db = await setup();
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('vu1n','',?)").bind(TS).run();
+  const links: string[] = [];
+  for (let i = 0; i < 16; i++) {
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind(`r${i}`, "", TS).run();
+    await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES(?,?,?)").bind(`r${i}`, "vu1n", TS).run();
+    links.push(`vu1n/r${i}`);
+  }
+  let queries = 0;
+  const counted = new Proxy(db, { get: (target, key) => key === "prepare" ? (sql: string) => (queries++, target.prepare(sql)) : Reflect.get(target, key) });
+  const res = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-q", links }) }), counted, "huddles", { canLink: true, credential: "d-huddles" });
+  assert.equal(res.status, 201);
+  assert.equal(((await res.json()) as any).links.length, 16);
+  // The links' own inserts are one batch; the lookups don't grow with the number of links.
+  assert.ok(queries - 16 <= 10, `${queries} queries`);
+});
+
 test("re-registering rotates the token; a revoked room stays revoked", async () => {
   const db = await setup();
   const first = (await register(db, "room-a")).body.token;
