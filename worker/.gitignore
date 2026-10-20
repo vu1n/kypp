@@ -2,3 +2,4 @@ node_modules
 .wrangler
 .dev.vars
 wrangler.local.jsonc
+wrangler.prod.jsonc
