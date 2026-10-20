@@ -16,3 +16,5 @@ compose-surface ratified-by: vu1n amendment=d45860792d9b comment=4302441612 (htt
 authority-dominates ratified-by: vu1n amendment=e050ceab8733 comment=4302440986 (https://github.com/vu1n/kypp/pull/43#discussion_r4302440986)
 scope-keys-decay escalated: amendment=efc1bbcf43c9
 scope-keys-decay ratified-by: vu1n amendment=efc1bbcf43c9 comment=4306158506 (https://github.com/vu1n/kypp/pull/47#discussion_r4306158506)
+scope-keys-decay escalated: amendment=d7d422b88b68
+scope-keys-decay ratified-by: vu1n amendment=d7d422b88b68 comment=4325003309 (https://github.com/vu1n/kypp/pull/49#discussion_r4325003309)

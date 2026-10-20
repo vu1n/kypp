@@ -346,15 +346,25 @@ inside its roll-up.
 4. **Inside the lane, the usual lifecycle.** The write gate (§2, §8.2's injection guard) applies;
    candidates are accepted when they recur in two sessions, so two wakes count; event clocks (§4)
    decay them.
-5. **Nothing leaves a lane automatically.** Defrag never files, widens or promotes a room claim.
-   Recurrence across rooms is not a reason to widen: rooms with different people saying similar
-   things have not agreed to share.
-6. **Leaving the lane is an explicit share.** A room identity may write a `project` claim only at one
-   of its room's linked origins, and only through an explicit share (`share_to` naming the linked
-   origin). The claim records `shared_from: room:<id>` and then follows §8 like any origin claim. The
-   bot is told to share only when someone in the room asked. The server cannot check that, so the
-   link is the hard boundary: the manager opts a room into each repo it may write to (§10.7's
-   disclosure rule, applied to claims).
+5. **Promotion out of a lane is narrow and earned** (amended 2026-10-20). Defrag may promote a room
+   claim to one of its room's linked origins, and only when all of these hold: the claim is accepted
+   in its lane (it recurred in two of the room's sessions); the S1 write gate rates it a general
+   lesson about that repo's code or practice, never about the people in the room, their preferences
+   or the room's own conduct (the S1 `general` score may hold a promotion back, never cause one); and
+   S1 is sure which linked origin it is about (unsure claims stay in the lane). The promoted claim
+   lands at that origin as a candidate recording `shared_from: room:<id>` and `promoted_by: defrag`,
+   and then follows §8: it is accepted only when a session at that origin, or another room linked to
+   it, claims the same subject on its own. Until then it is not shown to other sessions at the
+   origin, so it can't seed its own confirmation. A room never promotes past its links, and never to
+   a group, org or global; from the origin, §8.4 and §9 apply unchanged. Recurrence across rooms is
+   still not a reason to widen anything a room hasn't linked. Every promotion is logged with its
+   reason and score, and the lane claim stays, so a promotion can be undone.
+6. **An explicit share is the immediate path.** A room identity may also write a `project` claim at
+   one of its room's linked origins at once, through an explicit share (`share_to` naming the linked
+   origin). The claim records `shared_from: room:<id>` and then follows §8 like any origin claim,
+   visible as a candidate right away. The bot is told to share only when someone in the room asked.
+   The server cannot check that, so the link is the hard boundary for both paths: the manager opts a
+   room into each repo it may reach (§10.7's disclosure rule, applied to claims).
 7. **Issuing and revoking.** An integration may register rooms only with an *issuer grant*, from
    one of two sources. The first is operator configuration: a `KYPP_API_TOKENS` name listed in
    `KYPP_ROOM_ISSUERS`. The second is **pairing** (amended 2026-10-14, ratified by Vu). The
