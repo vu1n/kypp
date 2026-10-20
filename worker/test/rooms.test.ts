@@ -85,6 +85,9 @@ test("an owner/repo link links the repo only under that owner's org", async () =
   }
   assert.deepEqual((await register(db, "room-f", ["vu1n/site"])).body.links, ["site"]);
   assert.equal((await register(db, "room-g", ["web/site"])).status, 400);
+  // A project registered under its path form is linked by that name, as before.
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('vu1n/kypp','',?)").bind(TS).run();
+  assert.deepEqual((await register(db, "room-h", ["vu1n/kypp"])).body.links, ["vu1n/kypp"]);
   // A paired app is refused any link before kypp looks a name up, so it learns nothing from it.
   for (const link of ["vu1n/huddles", "acme/huddles"]) {
     const paired = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-p", links: [link] }) }), db, "app", { canLink: false, grant: "g" });

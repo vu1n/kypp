@@ -149,13 +149,18 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
 
 /**
  * For each `owner/repo` link, the project named `repo` when `owner` is the org at the top of its
- * roll-up (GitHub names, matched without case), through groups in between. Any other link is left
- * out.
+ * roll-up (GitHub names, matched without case), through groups in between, unless a project is
+ * registered under the link itself. Any other link is left out.
  */
 async function ownedNames(db: D1Database, qualified: string[]) {
   const store = new D1Store(db);
   const owned = new Map<string, string>();
   for (const link of qualified) {
+    // A project registered under the path form itself (`vu1n/kypp`) is that project, as before.
+    if (await db.prepare("SELECT 1 FROM projects WHERE name = ?").bind(link).first()) {
+      owned.set(link, link);
+      continue;
+    }
     const [owner, repo, ...rest] = link.split("/");
     if (!owner || !repo || rest.length) continue;
     const row = await db.prepare("SELECT name FROM projects WHERE lower(name) = lower(?)").bind(repo).first<{ name: string }>();
