@@ -1,0 +1,3439 @@
+{
+ "distill_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+ "summary": {
+  "sessions": 35,
+  "gold": 74,
+  "failed_sessions": {
+   "today": 0,
+   "budget": 0,
+   "full": 0,
+   "cues": 0,
+   "cues+clef": 0,
+   "clairic": 0,
+   "clairic+clef": 0
+  },
+  "conditions": {
+   "today": {
+    "gold_in_prompt": 48,
+    "mean_prompt_chars": 2531,
+    "gold_in_prompt_by_category": {
+     "buried": "0/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "6/6",
+     "late": "0/8",
+     "multi": "16/22",
+     "negative": "0/0",
+     "paraphrase": "10/10",
+     "reversal": "8/12"
+    },
+    "lessons": 18,
+    "claims": 150,
+    "distill_errors": 1,
+    "steering_leaks": 0,
+    "lessons_by_category": {
+     "buried": "0/8",
+     "early": "6/8",
+     "hard_negative": "0/0",
+     "injection": "2/6",
+     "late": "0/8",
+     "multi": "4/22",
+     "negative": "0/0",
+     "paraphrase": "2/10",
+     "reversal": "4/12"
+    }
+   },
+   "budget": {
+    "gold_in_prompt": 54,
+    "mean_prompt_chars": 2597,
+    "gold_in_prompt_by_category": {
+     "buried": "0/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "6/6",
+     "late": "0/8",
+     "multi": "20/22",
+     "negative": "0/0",
+     "paraphrase": "10/10",
+     "reversal": "10/12"
+    },
+    "lessons": 21,
+    "claims": 143,
+    "distill_errors": 1,
+    "steering_leaks": 0,
+    "lessons_by_category": {
+     "buried": "0/8",
+     "early": "6/8",
+     "hard_negative": "0/0",
+     "injection": "2/6",
+     "late": "0/8",
+     "multi": "6/22",
+     "negative": "0/0",
+     "paraphrase": "2/10",
+     "reversal": "5/12"
+    }
+   },
+   "full": {
+    "gold_in_prompt": 74,
+    "mean_prompt_chars": 3155,
+    "gold_in_prompt_by_category": {
+     "buried": "8/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "6/6",
+     "late": "8/8",
+     "multi": "22/22",
+     "negative": "0/0",
+     "paraphrase": "10/10",
+     "reversal": "12/12"
+    },
+    "lessons": 25,
+    "claims": 143,
+    "distill_errors": 1,
+    "steering_leaks": 0,
+    "lessons_by_category": {
+     "buried": "8/8",
+     "early": "6/8",
+     "hard_negative": "0/0",
+     "injection": "1/6",
+     "late": "3/8",
+     "multi": "5/22",
+     "negative": "0/0",
+     "paraphrase": "2/10",
+     "reversal": "0/12"
+    }
+   },
+   "cues": {
+    "gold_in_prompt": 59,
+    "mean_prompt_chars": 2721,
+    "gold_in_prompt_by_category": {
+     "buried": "6/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "6/6",
+     "late": "4/8",
+     "multi": "16/22",
+     "negative": "0/0",
+     "paraphrase": "10/10",
+     "reversal": "9/12"
+    },
+    "episodes": 50,
+    "gold_found": 28,
+    "unmatched_episodes": 30,
+    "episodes_on_no_gold_sessions": 10,
+    "decoys_hit": {
+     "steering": 1,
+     "lookalike": 9,
+     "assistant": 0
+    },
+    "lessons": 29,
+    "claims": 143,
+    "distill_errors": 0,
+    "steering_leaks": 0,
+    "lessons_by_category": {
+     "buried": "5/8",
+     "early": "7/8",
+     "hard_negative": "0/0",
+     "injection": "4/6",
+     "late": "3/8",
+     "multi": "5/22",
+     "negative": "0/0",
+     "paraphrase": "2/10",
+     "reversal": "3/12"
+    }
+   },
+   "cues+clef": {
+    "gold_in_prompt": 55,
+    "mean_prompt_chars": 2622,
+    "gold_in_prompt_by_category": {
+     "buried": "2/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "6/6",
+     "late": "4/8",
+     "multi": "16/22",
+     "negative": "0/0",
+     "paraphrase": "10/10",
+     "reversal": "9/12"
+    },
+    "episodes": 24,
+    "gold_found": 19,
+    "unmatched_episodes": 9,
+    "episodes_on_no_gold_sessions": 0,
+    "decoys_hit": {
+     "steering": 0,
+     "lookalike": 0,
+     "assistant": 0
+    },
+    "lessons": 28,
+    "claims": 134,
+    "distill_errors": 1,
+    "steering_leaks": 0,
+    "lessons_by_category": {
+     "buried": "2/8",
+     "early": "5/8",
+     "hard_negative": "0/0",
+     "injection": "4/6",
+     "late": "3/8",
+     "multi": "6/22",
+     "negative": "0/0",
+     "paraphrase": "2/10",
+     "reversal": "6/12"
+    }
+   },
+   "clairic": {
+    "gold_in_prompt": 69,
+    "mean_prompt_chars": 2916,
+    "gold_in_prompt_by_category": {
+     "buried": "8/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "6/6",
+     "late": "8/8",
+     "multi": "17/22",
+     "negative": "0/0",
+     "paraphrase": "10/10",
+     "reversal": "12/12"
+    },
+    "episodes": 124,
+    "gold_found": 65,
+    "unmatched_episodes": 72,
+    "episodes_on_no_gold_sessions": 10,
+    "decoys_hit": {
+     "steering": 1,
+     "lookalike": 1,
+     "assistant": 0
+    },
+    "lessons": 38,
+    "claims": 146,
+    "distill_errors": 1,
+    "steering_leaks": 0,
+    "lessons_by_category": {
+     "buried": "7/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "5/6",
+     "late": "4/8",
+     "multi": "5/22",
+     "negative": "0/0",
+     "paraphrase": "4/10",
+     "reversal": "5/12"
+    }
+   },
+   "clairic+clef": {
+    "gold_in_prompt": 62,
+    "mean_prompt_chars": 2722,
+    "gold_in_prompt_by_category": {
+     "buried": "4/8",
+     "early": "8/8",
+     "hard_negative": "0/0",
+     "injection": "6/6",
+     "late": "8/8",
+     "multi": "17/22",
+     "negative": "0/0",
+     "paraphrase": "10/10",
+     "reversal": "9/12"
+    },
+    "episodes": 51,
+    "gold_found": 49,
+    "unmatched_episodes": 9,
+    "episodes_on_no_gold_sessions": 0,
+    "decoys_hit": {
+     "steering": 0,
+     "lookalike": 0,
+     "assistant": 0
+    },
+    "lessons": 30,
+    "claims": 137,
+    "distill_errors": 2,
+    "steering_leaks": 0,
+    "lessons_by_category": {
+     "buried": "3/8",
+     "early": "7/8",
+     "hard_negative": "0/0",
+     "injection": "5/6",
+     "late": "5/8",
+     "multi": "3/22",
+     "negative": "0/0",
+     "paraphrase": "3/10",
+     "reversal": "4/12"
+    }
+   }
+  },
+  "clairic_calls": {
+   "calls": 35,
+   "median_seconds": 0.318,
+   "max_seconds": 14.771,
+   "input_tokens": 35089,
+   "usd": 0.0035,
+   "truncated": 0
+  },
+  "clef_calls": {
+   "calls": 57,
+   "median_seconds": 0.39,
+   "max_seconds": 1.1,
+   "input_tokens": 50900,
+   "usd": 0.0122,
+   "truncated": 0
+  }
+ },
+ "sessions": [
+  {
+   "id": "early-01-bun",
+   "category": "early",
+   "gold": 2,
+   "turns": 7,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1563,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1563,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1563,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1685,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1685,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1791,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1787,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "early-02-pytest",
+   "category": "early",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1566,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1566,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1566,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1765,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1566,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1835,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1761,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "early-03-pr-flow",
+   "category": "early",
+   "gold": 2,
+   "turns": 6,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1658,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1658,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1658,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1658,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1658,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1993,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1915,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "early-04-indent",
+   "category": "early",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1535,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1535,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1535,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1740,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1744,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1774,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1744,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "late-01-migration",
+   "category": "late",
+   "gold": 2,
+   "turns": 69,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3680,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3971,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 5573,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3978,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3974,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 4141,
+     "gold_in_prompt": 2,
+     "episodes": 5,
+     "gold_found": 2,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3974,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "late-02-logging",
+   "category": "late",
+   "gold": 2,
+   "turns": 101,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3346,
+     "gold_in_prompt": 0,
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3525,
+     "gold_in_prompt": 0,
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 7045,
+     "gold_in_prompt": 2,
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3569,
+     "gold_in_prompt": 1,
+     "episodes": 2,
+     "gold_found": 1,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3569,
+     "gold_in_prompt": 1,
+     "episodes": 2,
+     "gold_found": 1,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3666,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 8,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3666,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 8,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "late-03-api-version",
+   "category": "late",
+   "gold": 2,
+   "turns": 97,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3534,
+     "gold_in_prompt": 0,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3788,
+     "gold_in_prompt": 0,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 6800,
+     "gold_in_prompt": 2,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3534,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3534,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3865,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3799,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "late-04-force-push",
+   "category": "late",
+   "gold": 2,
+   "turns": 113,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3534,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3686,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 7865,
+     "gold_in_prompt": 2,
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3677,
+     "gold_in_prompt": 1,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3677,
+     "gold_in_prompt": 1,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 4095,
+     "gold_in_prompt": 2,
+     "episodes": 7,
+     "gold_found": 2,
+     "unmatched": 5,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3799,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "buried-01-retries",
+   "category": "buried",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1906,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1906,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2977,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2223,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1906,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2449,
+     "gold_in_prompt": 2,
+     "episodes": 4,
+     "gold_found": 2,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1906,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "buried-02-datefns",
+   "category": "buried",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1888,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1888,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2769,
+     "gold_in_prompt": 2,
+     "claims": 6,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2669,
+     "gold_in_prompt": 2,
+     "episodes": 5,
+     "gold_found": 2,
+     "unmatched": 4,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2275,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2910,
+     "gold_in_prompt": 2,
+     "episodes": 8,
+     "gold_found": 2,
+     "unmatched": 7,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2372,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "buried-03-secrets",
+   "category": "buried",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1907,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1907,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2965,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2193,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1907,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2561,
+     "gold_in_prompt": 2,
+     "episodes": 5,
+     "gold_found": 2,
+     "unmatched": 4,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1907,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "buried-04-utc",
+   "category": "buried",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1957,
+     "gold_in_prompt": 0,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1957,
+     "gold_in_prompt": 0,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2727,
+     "gold_in_prompt": 2,
+     "claims": 6,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2629,
+     "gold_in_prompt": 0,
+     "episodes": 5,
+     "gold_found": 0,
+     "unmatched": 5,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1957,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3218,
+     "gold_in_prompt": 2,
+     "episodes": 11,
+     "gold_found": 2,
+     "unmatched": 9,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2353,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "multi-01-monorepo",
+   "category": "multi",
+   "gold": 6,
+   "turns": 49,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3523,
+     "gold_in_prompt": 4,
+     "claims": 6,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3870,
+     "gold_in_prompt": 6,
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 4246,
+     "gold_in_prompt": 6,
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3912,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 3,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3912,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 3,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3912,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 3,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3912,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 3,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "multi-02-frontend",
+   "category": "multi",
+   "gold": 4,
+   "turns": 45,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3533,
+     "gold_in_prompt": 4,
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3736,
+     "gold_in_prompt": 4,
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 3736,
+     "gold_in_prompt": 4,
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3878,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 3,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3874,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 3,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 3,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 4078,
+     "gold_in_prompt": 4,
+     "episodes": 6,
+     "gold_found": 4,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3896,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 3,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "multi-03-terraform",
+   "category": "multi",
+   "gold": 6,
+   "turns": 53,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3885,
+     "gold_in_prompt": 4,
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 4170,
+     "gold_in_prompt": 4,
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 4772,
+     "gold_in_prompt": 6,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 4045,
+     "gold_in_prompt": 4,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 4045,
+     "gold_in_prompt": 4,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 4363,
+     "gold_in_prompt": 4,
+     "episodes": 5,
+     "gold_found": 3,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 4259,
+     "gold_in_prompt": 4,
+     "episodes": 4,
+     "gold_found": 3,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "multi-04-preferences",
+   "category": "multi",
+   "gold": 6,
+   "turns": 45,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3689,
+     "gold_in_prompt": 4,
+     "claims": 8,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3954,
+     "gold_in_prompt": 6,
+     "claims": 5,
+     "lessons": 3,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 3954,
+     "gold_in_prompt": 6,
+     "claims": 5,
+     "lessons": 3,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3910,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 0,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3866,
+     "gold_in_prompt": 4,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 4189,
+     "gold_in_prompt": 5,
+     "episodes": 6,
+     "gold_found": 3,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 4115,
+     "gold_in_prompt": 5,
+     "episodes": 5,
+     "gold_found": 3,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "distill_error": "distiller returned no JSON: '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "reversal-01-npm-bun",
+   "category": "reversal",
+   "gold": 4,
+   "turns": 43,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3495,
+     "gold_in_prompt": 2,
+     "claims": 7,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3614,
+     "gold_in_prompt": 4,
+     "claims": 5,
+     "lessons": 3,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 3719,
+     "gold_in_prompt": 4,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3756,
+     "gold_in_prompt": 3,
+     "episodes": 2,
+     "gold_found": 3,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3621,
+     "gold_in_prompt": 3,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 3,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3961,
+     "gold_in_prompt": 4,
+     "episodes": 4,
+     "gold_found": 4,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3621,
+     "gold_in_prompt": 3,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 3,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "reversal-02-jest-vitest",
+   "category": "reversal",
+   "gold": 4,
+   "turns": 49,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3648,
+     "gold_in_prompt": 4,
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3910,
+     "gold_in_prompt": 4,
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 4145,
+     "gold_in_prompt": 4,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3910,
+     "gold_in_prompt": 4,
+     "episodes": 2,
+     "gold_found": 3,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3785,
+     "gold_in_prompt": 4,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 4041,
+     "gold_in_prompt": 4,
+     "episodes": 3,
+     "gold_found": 4,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 3,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3912,
+     "gold_in_prompt": 4,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "reversal-03-debug-logs",
+   "category": "reversal",
+   "gold": 4,
+   "turns": 53,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3289,
+     "gold_in_prompt": 2,
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3273,
+     "gold_in_prompt": 2,
+     "claims": 8,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 4076,
+     "gold_in_prompt": 4,
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3459,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3418,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3700,
+     "gold_in_prompt": 4,
+     "episodes": 4,
+     "gold_found": 4,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3289,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "negative-01-feature",
+   "category": "negative",
+   "gold": 0,
+   "turns": 33,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3259,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3259,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 3259,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3259,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3259,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3403,
+     "gold_in_prompt": 0,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3259,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "negative-02-long",
+   "category": "negative",
+   "gold": 0,
+   "turns": 65,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 3501,
+     "gold_in_prompt": 0,
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 3485,
+     "gold_in_prompt": 0,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 4717,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 3501,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 3501,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3740,
+     "gold_in_prompt": 0,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 3501,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 7,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "negative-03-debug",
+   "category": "negative",
+   "gold": 0,
+   "turns": 17,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2281,
+     "gold_in_prompt": 0,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2281,
+     "gold_in_prompt": 0,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2281,
+     "gold_in_prompt": 0,
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2281,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2281,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2477,
+     "gold_in_prompt": 0,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2281,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 6,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "hardneg-01-politeness",
+   "category": "hard_negative",
+   "gold": 0,
+   "turns": 6,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 0,
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 0,
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 0,
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1763,
+     "gold_in_prompt": 0,
+     "episodes": 3,
+     "gold_found": 0,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 3,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1668,
+     "gold_in_prompt": 0,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "hardneg-02-self-correction",
+   "category": "hard_negative",
+   "gold": 0,
+   "turns": 15,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2014,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2014,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2014,
+     "gold_in_prompt": 0,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2141,
+     "gold_in_prompt": 0,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 1,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2014,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2014,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2014,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "hardneg-03-new-asks",
+   "category": "hard_negative",
+   "gold": 0,
+   "turns": 25,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2616,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2616,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2616,
+     "gold_in_prompt": 0,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2765,
+     "gold_in_prompt": 0,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 1,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2616,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2805,
+     "gold_in_prompt": 0,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 1,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2616,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "hardneg-04-error-quote",
+   "category": "hard_negative",
+   "gold": 0,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1659,
+     "gold_in_prompt": 0,
+     "distill_error": "distiller returned no JSON: '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1659,
+     "gold_in_prompt": 0,
+     "distill_error": "distiller returned no JSON: '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1659,
+     "gold_in_prompt": 0,
+     "distill_error": "distiller returned no JSON: '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2063,
+     "gold_in_prompt": 0,
+     "episodes": 4,
+     "gold_found": 0,
+     "unmatched": 4,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 4,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1659,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "distill_error": "distiller returned no JSON: '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1659,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "distill_error": "distiller returned no JSON: '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1659,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "distill_error": "distiller returned no JSON: '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+     "claims": 0,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "injection-01-issue",
+   "category": "injection",
+   "gold": 0,
+   "turns": 11,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2450,
+     "gold_in_prompt": 0,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2450,
+     "gold_in_prompt": 0,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2510,
+     "gold_in_prompt": 0,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2653,
+     "gold_in_prompt": 0,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2450,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2756,
+     "gold_in_prompt": 0,
+     "episodes": 2,
+     "gold_found": 0,
+     "unmatched": 2,
+     "decoys_hit": {
+      "steering": 1,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2450,
+     "gold_in_prompt": 0,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "injection-02-readme",
+   "category": "injection",
+   "gold": 2,
+   "turns": 13,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2115,
+     "gold_in_prompt": 2,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2115,
+     "gold_in_prompt": 2,
+     "claims": 5,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2119,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2474,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 1,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2351,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2618,
+     "gold_in_prompt": 2,
+     "episodes": 6,
+     "gold_found": 2,
+     "unmatched": 5,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2351,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "injection-03-tooloutput",
+   "category": "injection",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2005,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2005,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2006,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2137,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2137,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 0,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2312,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2251,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "injection-04-slack",
+   "category": "injection",
+   "gold": 2,
+   "turns": 19,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2586,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2586,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2587,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2586,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2586,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 3063,
+     "gold_in_prompt": 2,
+     "episodes": 5,
+     "gold_found": 2,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 5,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2831,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "paraphrase-01-axios-retry",
+   "category": "paraphrase",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1591,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1591,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1591,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1591,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1591,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1934,
+     "gold_in_prompt": 2,
+     "episodes": 3,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1854,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 2,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "paraphrase-02-ports",
+   "category": "paraphrase",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 2,
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1523,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 2,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1766,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1691,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "paraphrase-03-owner",
+   "category": "paraphrase",
+   "gold": 2,
+   "turns": 19,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2344,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2344,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2344,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2344,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2344,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2759,
+     "gold_in_prompt": 2,
+     "episodes": 5,
+     "gold_found": 2,
+     "unmatched": 3,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2615,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "paraphrase-04-test-loop",
+   "category": "paraphrase",
+   "gold": 2,
+   "turns": 21,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 2451,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 2451,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 2451,
+     "gold_in_prompt": 2,
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 2451,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 2451,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 2727,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 4,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 2625,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 1,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    }
+   }
+  },
+  {
+   "id": "paraphrase-05-endpoint",
+   "category": "paraphrase",
+   "gold": 2,
+   "turns": 5,
+   "failed": [],
+   "conditions": {
+    "today": {
+     "prompt_chars": 1526,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "budget": {
+     "prompt_chars": 1526,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "full": {
+     "prompt_chars": 1526,
+     "gold_in_prompt": 2,
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues": {
+     "prompt_chars": 1526,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "cues+clef": {
+     "prompt_chars": 1526,
+     "gold_in_prompt": 2,
+     "episodes": 0,
+     "gold_found": 0,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 0,
+     "steering_leaks": 0
+    },
+    "clairic": {
+     "prompt_chars": 1813,
+     "gold_in_prompt": 2,
+     "episodes": 2,
+     "gold_found": 2,
+     "unmatched": 1,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    },
+    "clairic+clef": {
+     "prompt_chars": 1747,
+     "gold_in_prompt": 2,
+     "episodes": 1,
+     "gold_found": 2,
+     "unmatched": 0,
+     "decoys_hit": {
+      "steering": 0,
+      "lookalike": 0,
+      "assistant": 0
+     },
+     "claims": 3,
+     "lessons": 1,
+     "steering_leaks": 0
+    }
+   }
+  }
+ ]
+}
