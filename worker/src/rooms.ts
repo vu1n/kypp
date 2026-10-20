@@ -1,6 +1,7 @@
 // rooms.ts — room lanes (memory-scope-decay §11): registering a chat room's bot as its own principal,
 // and recognising its bearer token on /mcp. The lane rules themselves live in mcp.ts and store.ts.
 import type { Caller } from "./mcp.ts";
+import { D1Store } from "./store.ts";
 
 export const ROOMS_PATH = "/rooms";
 const ROOM_ID = /^[A-Za-z0-9._-]{1,128}$/;
@@ -107,14 +108,14 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
     return json({ error: `links must be a list of at most ${MAX_LINKS} registered project names` }, 400);
   }
   const asked = links === undefined ? null : [...new Set(links as string[])];
+  // Why: a paired grant is approved by a self-named app, and links open a repo's memory to the
+  // room, so only an operator-configured issuer may set them (checked before any name lookup).
+  if (asked?.length && !opts.canLink) return json({ error: "a paired app can't link rooms to repos" }, 403);
   // Why: a bare repo name is ambiguous across GitHub owners, so a link may name `owner/repo`, and
   // it then links the project only when that project rolls up to the owner's org (§10.1).
   const owned = await ownedNames(db, (asked ?? []).filter((l) => l.includes("/")));
   const resolve = (l: string) => (l.includes("/") ? owned.get(l) : l);
   const unique = asked === null ? null : [...new Set(asked.flatMap((l) => resolve(l) ?? []))];
-  // Why: a paired grant is approved by a self-named app, and links open a repo's memory to the
-  // room, so only an operator-configured issuer may set them (checked before any name lookup).
-  if (unique?.length && !opts.canLink) return json({ error: "a paired app can't link rooms to repos" }, 403);
   // Why: a room reads its links, so a pinned issuer linking outside its pin would step around it.
   const outside = opts.linkable ? (asked ?? []).filter((l) => !opts.linkable!.includes(resolve(l) ?? l)) : [];
   if (outside.length) return json({ error: `this token may not link rooms to: ${outside.join(", ")}` }, 403);
@@ -147,17 +148,20 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
 }
 
 /**
- * For each `owner/repo` link, the project named `repo` when it rolls up to the org named `owner`
- * (GitHub names, matched without case). A link with no such project is left out.
+ * For each `owner/repo` link, the project named `repo` when `owner` is the org at the top of its
+ * roll-up (GitHub names, matched without case), through groups in between. Any other link is left
+ * out.
  */
 async function ownedNames(db: D1Database, qualified: string[]) {
+  const store = new D1Store(db);
   const owned = new Map<string, string>();
   for (const link of qualified) {
     const [owner, repo, ...rest] = link.split("/");
     if (!owner || !repo || rest.length) continue;
-    const row = await db.prepare("SELECT project FROM project_parents WHERE lower(project) = lower(?) AND lower(parent) = lower(?)")
-      .bind(repo, owner).first<{ project: string }>();
-    if (row) owned.set(link, row.project);
+    const row = await db.prepare("SELECT name FROM projects WHERE lower(name) = lower(?)").bind(repo).first<{ name: string }>();
+    if (!row) continue;
+    const orgs = await store.orgs(await store.ancestors(row.name));
+    if ([...orgs].some((org) => org.toLowerCase() === owner.toLowerCase())) owned.set(link, row.name);
   }
   return owned;
 }

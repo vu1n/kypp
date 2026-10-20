@@ -78,6 +78,18 @@ test("an owner/repo link links the repo only under that owner's org", async () =
   assert.equal(other.status, 400);
   assert.match(other.body.error, /not registered projects: acme\/huddles$/);
   assert.equal((await register(db, "room-c", ["vu1n/pillbox"])).status, 400);
+  // The owner is the org at the top of the roll-up, through a group in between, never the group.
+  for (const [project, parent] of [["site", "web"], ["web", "vu1n"]]) {
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind(project, "", TS).run();
+    await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES(?,?,?)").bind(project, parent, TS).run();
+  }
+  assert.deepEqual((await register(db, "room-f", ["vu1n/site"])).body.links, ["site"]);
+  assert.equal((await register(db, "room-g", ["web/site"])).status, 400);
+  // A paired app is refused any link before kypp looks a name up, so it learns nothing from it.
+  for (const link of ["vu1n/huddles", "acme/huddles"]) {
+    const paired = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-p", links: [link] }) }), db, "app", { canLink: false, grant: "g" });
+    assert.equal(paired.status, 403);
+  }
   // A pinned issuer's pin bounds the project a qualified link resolves to.
   const pinned = (id: string, linkable: string[]) =>
     handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id, links: ["vu1n/huddles"] }) }), db, "huddles", { canLink: true, credential: "d-huddles", linkable });
