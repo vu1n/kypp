@@ -85,6 +85,13 @@ test("an owner/repo link links the repo only under that owner's org", async () =
   }
   assert.deepEqual((await register(db, "room-f", ["vu1n/site"])).body.links, ["site"]);
   assert.equal((await register(db, "room-g", ["web/site"])).status, 400);
+  // Of repos whose names differ only in case, the owner picks the one under its org.
+  for (const [project, parent] of [["API", "vu1n"], ["api", "acme"]]) {
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind(project, "", TS).run();
+    await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES(?,?,?)").bind(project, parent, TS).run();
+  }
+  assert.deepEqual((await register(db, "room-j", ["acme/api"])).body.links, ["api"]);
+  assert.deepEqual((await register(db, "room-k", ["vu1n/api"])).body.links, ["API"]);
   // A project registered under its path form is linked by that name, as before.
   await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('vu1n/kypp','',?)").bind(TS).run();
   assert.deepEqual((await register(db, "room-h", ["vu1n/kypp"])).body.links, ["vu1n/kypp"]);

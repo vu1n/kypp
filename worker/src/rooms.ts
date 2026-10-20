@@ -165,10 +165,13 @@ async function ownedNames(db: D1Database, qualified: string[]) {
     }
     const [owner, repo, ...rest] = link.split("/");
     if (!owner || !repo || rest.length) continue;
-    const row = await db.prepare("SELECT name FROM projects WHERE lower(name) = lower(?)").bind(repo).first<{ name: string }>();
-    if (!row) continue;
-    const orgs = await store.orgs(await store.ancestors(row.name));
-    if ([...orgs].some((org) => org.toLowerCase() === owner.toLowerCase())) owned.set(link, row.name);
+    const { results: rows } = await db.prepare("SELECT name FROM projects WHERE lower(name) = lower(?)").bind(repo).all<{ name: string }>();
+    const under: string[] = [];
+    for (const { name } of rows) {
+      const orgs = await store.orgs(await store.ancestors(name));
+      if ([...orgs].some((org) => org.toLowerCase() === owner.toLowerCase())) under.push(name);
+    }
+    if (under.length === 1) owned.set(link, under[0]!);
   }
   return owned;
 }
