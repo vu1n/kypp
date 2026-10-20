@@ -156,9 +156,11 @@ async function ownedNames(db: D1Database, qualified: string[]) {
   const store = new D1Store(db);
   const owned = new Map<string, string>();
   for (const link of qualified) {
-    // A project registered under the path form itself (`vu1n/kypp`) is that project, as before.
-    if (await db.prepare("SELECT 1 FROM projects WHERE name = ?").bind(link).first()) {
-      owned.set(link, link);
+    // A project registered under the path form itself (`vu1n/kypp`) is that project, as before,
+    // matched without case like any GitHub name (two rows that differ only in case match neither).
+    const { results: named } = await db.prepare("SELECT name FROM projects WHERE lower(name) = lower(?)").bind(link).all<{ name: string }>();
+    if (named.length) {
+      if (named.length === 1) owned.set(link, named[0]!.name);
       continue;
     }
     const [owner, repo, ...rest] = link.split("/");
