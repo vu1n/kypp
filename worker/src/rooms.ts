@@ -1,7 +1,6 @@
 // rooms.ts — room lanes (memory-scope-decay §11): registering a chat room's bot as its own principal,
 // and recognising its bearer token on /mcp. The lane rules themselves live in mcp.ts and store.ts.
 import type { Caller } from "./mcp.ts";
-import { D1Store } from "./store.ts";
 
 export const ROOMS_PATH = "/rooms";
 const ROOM_ID = /^[A-Za-z0-9._-]{1,128}$/;
@@ -153,24 +152,35 @@ export async function handleRooms(request: Request, db: D1Database, issuer: stri
  * registered under the link itself. Any other link is left out.
  */
 async function ownedNames(db: D1Database, qualified: string[]) {
-  const store = new D1Store(db);
   const owned = new Map<string, string>();
-  for (const link of qualified) {
+  if (!qualified.length) return owned;
+  // Why: D1 caps the queries one request may make, so every link resolves in two queries in all.
+  const parts = qualified.map((link) => ({ link, path: link.split("/") }));
+  const wanted = [...new Set(parts.flatMap(({ link, path }) => [link, path[1] ?? ""]).filter(Boolean).map((n) => n.toLowerCase()))];
+  const { results: rows } = await db.prepare(`SELECT name FROM projects WHERE lower(name) IN (${wanted.map(() => "?").join(",")})`)
+    .bind(...wanted).all<{ name: string }>();
+  const named = (n: string) => rows.map((r) => r.name).filter((name) => name.toLowerCase() === n.toLowerCase());
+  const candidates = [...new Set(parts.flatMap(({ path }) => (path[1] ? named(path[1]) : [])))];
+  // The orgs at the top of each candidate's roll-up, through parents up to three levels, as
+  // D1Store.ancestors and D1Store.orgs find them.
+  const { results: tops } = candidates.length
+    ? await db.prepare(
+      `WITH RECURSIVE up(project, name, depth) AS (SELECT project, parent, 1 FROM project_parents WHERE project IN (${candidates.map(() => "?").join(",")})`
+      + " UNION SELECT up.project, p.parent, up.depth + 1 FROM project_parents p JOIN up ON p.project = up.name WHERE up.depth < 3)"
+      + " SELECT DISTINCT project, name FROM up WHERE name != project AND NOT EXISTS (SELECT 1 FROM project_parents q WHERE q.project = up.name)",
+    ).bind(...candidates).all<{ project: string; name: string }>()
+    : { results: [] };
+  for (const { link, path } of parts) {
     // A project registered under the path form itself (`vu1n/kypp`) is that project, as before,
     // matched without case like any GitHub name (two rows that differ only in case match neither).
-    const { results: named } = await db.prepare("SELECT name FROM projects WHERE lower(name) = lower(?)").bind(link).all<{ name: string }>();
-    if (named.length) {
-      if (named.length === 1) owned.set(link, named[0]!.name);
+    const exact = named(link);
+    if (exact.length) {
+      if (exact.length === 1) owned.set(link, exact[0]!);
       continue;
     }
-    const [owner, repo, ...rest] = link.split("/");
+    const [owner, repo, ...rest] = path;
     if (!owner || !repo || rest.length) continue;
-    const { results: rows } = await db.prepare("SELECT name FROM projects WHERE lower(name) = lower(?)").bind(repo).all<{ name: string }>();
-    const under: string[] = [];
-    for (const { name } of rows) {
-      const orgs = await store.orgs(await store.ancestors(name));
-      if ([...orgs].some((org) => org.toLowerCase() === owner.toLowerCase())) under.push(name);
-    }
+    const under = named(repo).filter((name) => tops.some((t) => t.project === name && t.name.toLowerCase() === owner.toLowerCase()));
     if (under.length === 1) owned.set(link, under[0]!);
   }
   return owned;

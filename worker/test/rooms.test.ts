@@ -108,6 +108,24 @@ test("an owner/repo link links the repo only under that owner's org", async () =
   assert.equal((await pinned("room-e", ["pillbox"])).status, 403);
 });
 
+test("owner/repo links resolve in a fixed number of queries, within D1's per-request cap", async () => {
+  const db = await setup();
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('vu1n','',?)").bind(TS).run();
+  const links: string[] = [];
+  for (let i = 0; i < 16; i++) {
+    await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind(`r${i}`, "", TS).run();
+    await db.prepare("INSERT INTO project_parents(project, parent, created_at) VALUES(?,?,?)").bind(`r${i}`, "vu1n", TS).run();
+    links.push(`vu1n/r${i}`);
+  }
+  let queries = 0;
+  const counted = new Proxy(db, { get: (target, key) => key === "prepare" ? (sql: string) => (queries++, target.prepare(sql)) : Reflect.get(target, key) });
+  const res = await handleRooms(new Request("https://k/rooms", { method: "POST", body: JSON.stringify({ id: "room-q", links }) }), counted, "huddles", { canLink: true, credential: "d-huddles" });
+  assert.equal(res.status, 201);
+  assert.equal(((await res.json()) as any).links.length, 16);
+  // The links' own inserts are one batch; the lookups don't grow with the number of links.
+  assert.ok(queries - 16 <= 10, `${queries} queries`);
+});
+
 test("re-registering rotates the token; a revoked room stays revoked", async () => {
   const db = await setup();
   const first = (await register(db, "room-a")).body.token;
