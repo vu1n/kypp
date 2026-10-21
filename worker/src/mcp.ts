@@ -135,7 +135,7 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
-// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — search pulls a wide pool and System One reranks it; ranking never changes what a caller may see.
+// Context: doc://kypp/memory-scope-decay@0013#scope-keys-decay — search pulls a wide pool and System One reranks it; ranking never changes what a caller may see.
 // With a model, recall searches a wider pool than it returns, so the reranker can lift a relevant
 // claim the keyword order put past `limit`; without one, the pool is the answer.
 const recallLimit = (v: unknown) => Math.min(Math.max(Number(v) || 10, 1), 50);
