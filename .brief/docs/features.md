@@ -252,6 +252,9 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   into one request scored relevant claims under 0.2, so `RERANK_CHUNK` is part of the tuning too.
   Any other model reorders but drops nothing (`relevantFloorFor`). The rerank fails open to keyword
   order and only sees the pool, so a claim the keyword search misses still can't come back.
+  A pointer hit (`Claim.pointer`: the query named the claim's path, anchor or ref) skips the model
+  and stays first, and the model reads the whole claim, so it can't drop the memory the query named
+  or miss the words that matched.
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.

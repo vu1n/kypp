@@ -327,7 +327,7 @@ export class D1Store {
     ).bind(...pointBinds, ...params, ...fparams, ...groups, limit).all();
     const seen = new Set<string>();
     const merged = [];
-    for (const c of [...pointed.results.map(hydrate), ...text]) {
+    for (const c of [...pointed.results.map((r) => ({ ...hydrate(r), pointer: true })), ...text]) {
       if (seen.has(c.id)) continue;
       seen.add(c.id);
       merged.push(c);

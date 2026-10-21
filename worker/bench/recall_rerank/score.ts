@@ -78,7 +78,8 @@ for (const r of lessons) {
 
 const out: string[] = [];
 for (const q of queries) {
-  const pool = await store.recall(q.q, null, null, { candidates: "none", limit: RERANK_POOL });
+  // Pointer hits skip the model in recall (s1.rankForQuery), so they aren't scored here either.
+  const pool = (await store.recall(q.q, null, null, { candidates: "none", limit: RERANK_POOL })).filter((c) => !c.pointer);
   const scored: Record<string, number[]> = {};
   for (const chunk of [Number(o.chunk), ...compare]) {
     const s = await relevance(client, q.q, pool, 60_000, chunk);

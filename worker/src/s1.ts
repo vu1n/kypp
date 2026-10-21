@@ -211,7 +211,6 @@ const RELEVANT_CRITERIA = {
 } as const;
 export const RERANK_POOL = 40;   // keyword hits scored per recall; the reranker only sees these
 export const RERANK_CHUNK = 1;  // one claim per request: larger chunks dropped relevant claims
-const RERANK_CONTENT = 600;     // chars of each claim the model reads; the subject carries the rest
 
 // Tuned on Clef with eval/recall_rerank (README there); like DROP_BELOW it belongs to one model, one
 // wording of the question and one chunk size. Any other model reorders recall but drops nothing
@@ -225,7 +224,8 @@ export function relevantFloorFor(model: string): number {
 
 async function relevanceChunk(client: S1Client, query: string, claims: { subject: string; content: string }[],
   deadlineMs: number): Promise<(number | null)[]> {
-  const state = { query, claims: claims.map((c, n) => ({ n, subject: c.subject, content: c.content.slice(0, RERANK_CONTENT) })) };
+  // The whole claim (at most MAX_CONTENT), so the model sees the words the keyword search matched.
+  const state = { query, claims: claims.map((c, n) => ({ n, subject: c.subject, content: c.content })) };
   const questions = Object.fromEntries(claims.map((_, n) => [`c${n}`,
     { type: "noul", instructions: `Is claim ${n} in the state relevant to the query?`, criteria: RELEVANT_CRITERIA }]));
   const answers = await ask(client, state, questions, deadlineMs);
@@ -260,8 +260,11 @@ export function rerank<T>(claims: T[], scores: number[], floor: number, limit: n
 
 // Recall's top `limit` for `query` from a keyword pool: reranked when the model answers, else the
 // pool's own order. The model only reorders and drops; it never adds a claim the search didn't find.
-export async function rankForQuery<T extends { subject: string; content: string }>(client: S1Client | null, query: string,
-  pool: T[], limit: number): Promise<T[]> {
-  const scores = await relevance(client, query, pool);
-  return scores ? rerank(pool, scores, client?.relevantFloor ?? 0, limit) : pool.slice(0, limit);
+// A pointer hit (the query named the claim's path, anchor or ref) is an identity match: it stays
+// first and is never scored, so the model can't drop the exact memory asked for.
+export async function rankForQuery<T extends { subject: string; content: string; pointer?: boolean }>(client: S1Client | null,
+  query: string, pool: T[], limit: number): Promise<T[]> {
+  const named = pool.filter((c) => c.pointer), rest = pool.filter((c) => !c.pointer);
+  const scores = await relevance(client, query, rest);
+  return [...named, ...(scores ? rerank(rest, scores, client?.relevantFloor ?? 0, limit) : rest)].slice(0, limit);
 }

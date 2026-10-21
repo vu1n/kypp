@@ -59,6 +59,7 @@ export interface Claim {
   created_at: string;
   updated_at: string;
   verify?: string | null; // the operator's freshness command; set only through POST /v1/operator
+  pointer?: boolean;      // set by recall when a path, anchor or doc:// ref in the query matched the claim, not its words
 }
 
 // Context: doc://kypp/authority-order@0007#authority-dominates — rank survivors by authority first; agent < verified < human.

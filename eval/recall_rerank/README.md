@@ -32,8 +32,8 @@ python worker/bench/recall_rerank/report.py eval/recall_rerank/scores.jsonl eval
   --score p_rel --floor 0.3 --score p_chunk5 --floor 0.3 --score p_chunk40 --floor 0.3 --json eval/recall_rerank/report.json
 ```
 
-Re-run all three after changing the relevance question, the gate's model, `RERANK_CHUNK` or
-`RERANK_CONTENT`. A floor belongs to one model, one question and one request shape.
+Re-run all three after changing the relevance question, the gate's model, `RERANK_CHUNK` or what
+each request carries of a claim. A floor belongs to one model, one question and one request shape.
 
 ## Minimums and costs
 
@@ -94,6 +94,8 @@ trusting either number.
 
 - No live store. The 93 hosted claims and real agent queries are the next check, labelled before
   scoring.
-- Path and anchor queries. Recall puts a code-pointer hit first, but the rerank can drop it if the
-  model doesn't see the claim as relevant to a bare path.
+- Path and anchor queries. A code-pointer hit skips the model and stays first (`rankForQuery`),
+  so no query here produced one and the floor says nothing about them.
+- Long claims. Every claim here is under 230 characters; recall sends the whole claim (up to
+  4,000), and longer claims may score differently.
 - Briefing. §8 also scores the briefing against the repo and task; this change covers `recall` only.

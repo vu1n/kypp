@@ -66,6 +66,20 @@ test("the floor applies only to the model it was tuned on; others reorder withou
   assert.deepEqual((await rankForQuery(untuned, "q", [claim("a"), claim("b")], 10)).map((c) => c.subject), ["b", "a"]);
 });
 
+test("a pointer hit stays first and unscored, so the model can't drop the claim the query named", async () => {
+  const { client, calls } = scorer({ named: 0, b: 0.9, c: 0.1 });
+  const pool = [{ ...claim("named"), pointer: true }, claim("c"), claim("b")];
+  assert.deepEqual((await rankForQuery(client, "worker/src/s1.ts", pool, 10)).map((c) => c.subject), ["named", "b"]);
+  assert.deepEqual(calls.map((r) => r.state.claims[0].subject), ["c", "b"], "only word matches are scored");
+});
+
+test("the model reads the whole claim, so a match late in long content is seen", async () => {
+  const { client, calls } = scorer({});
+  const long = { subject: "s", content: `${"x ".repeat(1500)}needle` };
+  await relevance(client, "needle", [long]);
+  assert.equal(calls[0].state.claims[0].content, long.content);
+});
+
 test("without an opinion recall keeps the keyword order, cut to the limit", async () => {
   const pool = [claim("a"), claim("b"), claim("c")];
   assert.deepEqual(await rankForQuery(null, "q", pool, 2), pool.slice(0, 2));
@@ -88,12 +102,12 @@ async function seeded(n: number) {
       .bind(`${i}`.padStart(32, "0"), `lesson ${i}`, `cache note ${i}`, "2026-10-21T00:00:00Z", "2026-10-21T00:00:00Z").run();
     await db.prepare("INSERT INTO claims_fts(claim_id, subject, content) VALUES(?,?,?)").bind(`${i}`.padStart(32, "0"), `lesson ${i}`, `cache note ${i}`).run();
   }
-  return call;
+  return { call, db };
 }
 const subjects = (text: string) => [...text.matchAll(/lesson (\d+)/g)].map((m) => Number(m[1]));
 
 test("recall reranks a pool wider than its limit, so a relevant claim past the keyword cut comes back", async () => {
-  const call = await seeded(30);
+  const { call } = await seeded(30);
   const plain = subjects(await call(null, { query: "cache", limit: 3 })());
   assert.equal(plain.length, 3);
   const target = [...Array(30).keys()].find((i) => !plain.includes(i))!; // a claim keyword order left out
@@ -102,8 +116,16 @@ test("recall reranks a pool wider than its limit, so a relevant claim past the k
   assert.equal(calls.length, Math.min(30, RERANK_POOL), "the whole pool was scored");
 });
 
+test("recall marks a path match as a pointer hit and keeps it under the floor", async () => {
+  const { call, db } = await seeded(3);
+  await db.prepare("INSERT INTO code_pointers(id,claim_id,entry_ref,project,doc_id,anchor,revision,path,symbol,kind,created_at)"
+    + " VALUES('p1',?,'','','','','','worker/src/store.ts','','context',?)").bind("1".padStart(32, "0"), "2026-10-21T00:00:00Z").run();
+  const { client } = scorer({}); // every word match scores 0
+  assert.deepEqual(subjects(await call(client, { query: "worker/src/store.ts" })()), [1]);
+});
+
 test("recall with no query browses without calling the model", async () => {
-  const call = await seeded(3);
+  const { call } = await seeded(3);
   const { client, calls } = scorer({});
   assert.equal(subjects(await call(client, { query: "", limit: 2 })()).length, 2);
   assert.equal(calls.length, 0);
