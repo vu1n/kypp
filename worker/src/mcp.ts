@@ -208,7 +208,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
         throw new Error(links.length ? `share_to must be one of this room's linked repos: ${links.join(", ")}` : "this room is linked to no repo, so lessons stay in the room");
       }
       const v = await judge(ctx.s1, { subject, content, project: share });
-      if (v.keep !== null && v.keep < DROP_BELOW) {
+      if (v.keep !== null && v.keep < (ctx.s1?.dropBelow ?? DROP_BELOW)) {
         return `Not stored: this reads as status or conversation detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}).`;
       }
       if (v.control !== null && v.control > CONTROL_ABOVE) {
@@ -314,7 +314,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
       // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
       const v = await judge(ctx.s1, { subject, content, project });
-      if (v.keep !== null && v.keep < DROP_BELOW) {
+      if (v.keep !== null && v.keep < (ctx.s1?.dropBelow ?? DROP_BELOW)) {
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
       }
       // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — reads are a channel between agents, so the gate holds back control text aimed at them.

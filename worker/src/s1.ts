@@ -14,9 +14,11 @@ export interface S1Env {
   AI?: Ai;
 }
 
-// The slice of TypeSafeClient the gate uses, so tests can pass a fake.
+// The slice of TypeSafeClient the gate uses, so tests can pass a fake. `dropBelow` is the keep
+// cutoff for the client's model (see dropBelowFor); a client without one gets DROP_BELOW.
 export interface S1Client {
   systemOne(req: { state: unknown; questions: Record<string, unknown> }): PromiseLike<{ answers: Record<string, any> }>;
+  dropBelow?: number;
 }
 
 // A TypeSafe key wins; otherwise Clef on the Worker's own AI binding (same System One request and
@@ -24,14 +26,14 @@ export interface S1Client {
 export function s1Client(env: S1Env): S1Client | null {
   if (["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
   if (!env.TYPESAFE_API_KEY && !env.AI) return null;
-  warnIfUntuned(gateModel(env));
+  const model = gateModel(env), dropBelow = dropBelowFor(model);
   if (!env.TYPESAFE_API_KEY) {
-    const ai = env.AI!, model = gateModel(env);
-    return { systemOne: ({ state, questions }) => ai.run(`@cf/cloudflare/${model}` as any, { model, state, questions } as any) as any };
+    const ai = env.AI!;
+    return { dropBelow, systemOne: ({ state, questions }) => ai.run(`@cf/cloudflare/${model}` as any, { model, state, questions } as any) as any };
   }
   // A slow gate stalls the agent's claim call, so cap it; a timeout fails open like any error.
-  return new TypeSafeClient({ apiKey: env.TYPESAFE_API_KEY, baseURL: env.TYPESAFE_BASE_URL, defaultModel: env.TYPESAFE_DEFAULT_MODEL,
-    timeout: DEADLINE_MS, retry: { maxRetries: 0 } });
+  return Object.assign(new TypeSafeClient({ apiKey: env.TYPESAFE_API_KEY, baseURL: env.TYPESAFE_BASE_URL, defaultModel: env.TYPESAFE_DEFAULT_MODEL,
+    timeout: DEADLINE_MS, retry: { maxRetries: 0 } }), { dropBelow });
 }
 
 // The model a gate call goes to: TYPESAFE_DEFAULT_MODEL (the SDK's own default is jev-latest) with
@@ -41,18 +43,24 @@ export function gateModel(env: S1Env): string {
 }
 
 const warned = new Set<string>(); // once per model per isolate, not per claim
-function warnIfUntuned(model: string) {
-  if (warned.has(model) || model === DROP_BELOW_MODEL) return;
-  warned.add(model);
-  console.warn(`s1: the write gate runs ${model}, but DROP_BELOW was tuned on ${DROP_BELOW_MODEL}; re-tune it (eval/write_gate) before trusting drops`);
+// The tuned cutoff only for the model it was tuned on; any other model keeps the old, lower bar
+// (drops less) and a warning, until eval/write_gate is re-run on it.
+export function dropBelowFor(model: string): number {
+  if (model === DROP_BELOW_MODEL) return DROP_BELOW;
+  if (!warned.has(model)) {
+    warned.add(model);
+    console.warn(`s1: the write gate runs ${model}, but DROP_BELOW was tuned on ${DROP_BELOW_MODEL}; using ${UNTUNED_DROP_BELOW} until eval/write_gate is re-run on ${model}`);
+  }
+  return UNTUNED_DROP_BELOW;
 }
 
 export const DEADLINE_MS = 5000; // end to end, enforced in judge() too, not just per attempt
 // A cutoff belongs to one model and one wording of the keep question; changing either needs a re-tune.
-// Tuned on Clef with eval/write_gate (cross-validated, costs and floor in its README): 0.25 drops
-// about 4 in 5 junk drafts and kept every labeled lesson, with ~0.06 margin under the lowest live one.
+// Tuned on Clef with eval/write_gate (cross-validated, costs, floor and margin in its README): 0.25
+// drops about 4 in 5 junk drafts and kept every labeled lesson and every live one.
 export const DROP_BELOW = 0.25;
 export const DROP_BELOW_MODEL = "clef";
+export const UNTUNED_DROP_BELOW = 0.1; // the pre-eval bar, copied from distill.GatedDistiller
 const RETYPE_ABOVE = 0.6;        // only relabel a defaulted type when the model is fairly sure
 
 const QUESTIONS = {

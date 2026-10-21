@@ -24,7 +24,7 @@ cd worker && node --experimental-strip-types bench/write_gate/score.ts \
   --out ../eval/write_gate/scores.jsonl            # add --live to fill cache misses from Workers AI
 cd .. && python scripts/tune_cutoff.py eval/write_gate/scores.jsonl --score p_keep --act-below \
   --act-label drop --cost-wrong 10 --cost-missed 1 --max-wrong-rate 0.02 \
-  --fixed 0.1 --fixed 0.2 --fixed 0.25 --fixed 0.3 --json eval/write_gate/results.json
+  --grid 0.05 --margin 0.1 --fixed 0.1 --fixed 0.35 --json eval/write_gate/results.json
 ```
 
 Re-run both after changing the keep question's wording or the gate's model: a cutoff belongs to
@@ -40,30 +40,34 @@ one model and one question.
 
 ## Results (Clef, 2026-10-21)
 
-Held out, 20 repeats of stratified 5-fold (each draft scored 20 times as held-out):
+The selection rule runs inside each training fold, so its held-out numbers aren't leaked: on a
+0.05 grid, take the lowest-cost cutoff that meets the floor and sits at least 0.1 below the lowest
+training lesson. Every one of the 100 training splits (20 repeats of stratified 5-fold) picked 0.25,
+none infeasible. The other rows are fixed cutoffs scored on the same held-out folds for comparison.
+They are not a held-out estimate for a cutoff picked by reading them.
 
 | Cutoff | Lessons dropped | Junk dropped | Cost per 100 |
 |---|---|---|---|
 | 0.1 (old) | 0% | 46% | 26.8 |
-| 0.2 | 0% | 78% | 11.1 |
-| **0.25 (new)** | **0%** | **82%** | **9.1** |
-| 0.3 | 0% | 84% | 8.1 |
-| CV-tuned (mean 0.355) | 1.2% | 89% | 11.7 |
+| **0.25 (the rule above)** | **0%** | **82%** | **9.2** |
+| No margin (picks 0.35; ~0.355 off the grid) | 0.3% (1.2% off the grid) | 88% | 7.5 |
 
 - **0.1 only catches status.** It dropped 19 of 25 status drafts but 1 of 20 code-stated facts,
   7 of 15 play-by-plays and 6 of 15 one-run details. Kept junk scored up to 0.43 for code-stated
   facts and 0.26 for play-by-plays.
-- **The cost-optimal cutoff hugs the lowest lesson.** Every training fold picked ~0.35, just under
-  the lowest synthetic lesson (0.355), and lost 1.2% of lessons held out. On the live store it would
-  be worse: the lowest live lessons score 0.32 (below).
+- **Why a margin.** Without one, every fold puts the cutoff right under the lowest synthetic lesson
+  (0.355). Live lessons sit lower than these clean, hand-written ones, so that edge doesn't carry.
 - **Live check (not committed).** The hosted store's 93 claims were re-scored the same way. They are
   all past the old 0.1 gate, so this checks only the lesson side. 91 read as lessons; the lowest
   scored 0.321 and 0.323. The other 2 are account-investigation logs (0.13, 0.19). At 0.25 no live
   lesson is dropped and both logs are. At 0.35 two live lessons (2.2%) would be, which breaks the
   floor. Re-scores matched the scores stored at write time (mean difference 0.015), and Clef gave
   identical scores on a repeat run.
-- **0.25 it is:** the floor holds on both sets with ~0.07 margin under the lowest live lesson, and
-  it catches 82% of junk. Zero lessons lost in 190 still allows up to about 1.6% (rule of three).
+- **Not an untouched test.** The 0.1 margin was set after seeing that live lessons sit ~0.035 below
+  the synthetic floor, so the live check informed the rule. A fresh labeled batch, written before
+  scoring, is the honest test for the next re-tune. Zero lessons lost in 190 still allows up to about
+  1.6% (rule of three).
+- **Costs barely matter here.** The choice is the same at 5:1 and 20:1; the floor and margin decide it.
 
 ## Calibration
 

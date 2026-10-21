@@ -9,11 +9,11 @@
     "cost_missed": 1.0,
     "max_wrong_rate": 0.02,
     "min_precision": 0.0,
+    "grid": 0.05,
+    "margin": 0.1,
     "fixed": [
       0.1,
-      0.2,
-      0.25,
-      0.3
+      0.35
     ],
     "repeats": 20,
     "seed": 20261021
@@ -21,22 +21,22 @@
   "cv": {
     "splits": 100,
     "infeasible_splits": 0,
-    "cutoff_mean": 0.3554,
+    "cutoff_mean": 0.2505,
     "cutoff_p10_p50_p90": [
-      0.3476,
-      0.3485,
-      0.379
+      0.25,
+      0.25,
+      0.25
     ],
     "held_out": {
       "tuned": {
-        "wrong": 24,
-        "missed": 224,
-        "caught": 1756,
-        "spared": 1956,
-        "wrong_rate": 0.0121,
-        "catch_rate": 0.8869,
-        "precision": 0.9865,
-        "cost_per_100": 11.72
+        "wrong": 0,
+        "missed": 364,
+        "caught": 1616,
+        "spared": 1980,
+        "wrong_rate": 0.0,
+        "catch_rate": 0.8162,
+        "precision": 1.0,
+        "cost_per_100": 9.19
       },
       "fixed 0.1": {
         "wrong": 0,
@@ -48,42 +48,22 @@
         "precision": 1.0,
         "cost_per_100": 26.77
       },
-      "fixed 0.2": {
+      "fixed 0.35": {
         "wrong": 0,
-        "missed": 440,
-        "caught": 1540,
+        "missed": 240,
+        "caught": 1740,
         "spared": 1980,
         "wrong_rate": 0.0,
-        "catch_rate": 0.7778,
+        "catch_rate": 0.8788,
         "precision": 1.0,
-        "cost_per_100": 11.11
-      },
-      "fixed 0.25": {
-        "wrong": 0,
-        "missed": 360,
-        "caught": 1620,
-        "spared": 1980,
-        "wrong_rate": 0.0,
-        "catch_rate": 0.8182,
-        "precision": 1.0,
-        "cost_per_100": 9.09
-      },
-      "fixed 0.3": {
-        "wrong": 0,
-        "missed": 320,
-        "caught": 1660,
-        "spared": 1980,
-        "wrong_rate": 0.0,
-        "catch_rate": 0.8384,
-        "precision": 1.0,
-        "cost_per_100": 8.08
+        "cost_per_100": 6.06
       }
     },
     "brier_raw": 0.0555,
     "brier_platt": 0.0384
   },
   "full_set": {
-    "cutoff": 0.3485,
+    "cutoff": 0.25,
     "feasible": true
   },
   "reliability": [

@@ -62,15 +62,26 @@ def feasible(c: dict, a: argparse.Namespace) -> bool:
     return not (a.min_precision and acted and c["caught"] / acted < a.min_precision)
 
 
-def candidates(rows) -> list[float]:
-    """Midpoints between adjacent distinct scores, plus both ends: every distinct decision."""
-    xs = sorted({s for s, _, _ in rows})
-    return [0.0] + [(x + y) / 2 for x, y in zip(xs, xs[1:])] + [1.0 + 1e-9]
+def candidates(rows, a: argparse.Namespace) -> list[float]:
+    """Every distinct decision (midpoints between adjacent scores, plus both ends), or a --grid.
+    --margin keeps only cutoffs at least that far inside the nearest row to leave alone, so the
+    rule that sets the margin is chosen inside each training fold, not after seeing held-out rows."""
+    if a.grid:
+        ts = [round(i * a.grid, 6) for i in range(int(1 / a.grid) + 1)]
+    else:
+        xs = sorted({s for s, _, _ in rows})
+        ts = [0.0] + [(x + y) / 2 for x, y in zip(xs, xs[1:])] + [1.0 + 1e-9]
+    if a.margin:
+        leave = [s for s, y, _ in rows if not y]
+        if leave:
+            edge = min(leave) - a.margin if a.below else max(leave) + a.margin
+            ts = [t for t in ts if (t <= edge if a.below else t >= edge)] or [0.0 if a.below else 1.0 + 1e-9]
+    return ts
 
 
 def choose(rows, a: argparse.Namespace) -> tuple[float, bool]:
     best = None
-    for t in candidates(rows):
+    for t in candidates(rows, a):
         c = confusion(rows, t, a.below)
         # Rank feasible first, then cost, then fewer acts (the conservative side of a tie).
         key = (not feasible(c, a), cost(c, a), c["wrong"] + c["caught"])
@@ -152,7 +163,12 @@ def main(argv=None) -> dict:
     ap.add_argument("--cost-missed", type=float, required=True)
     ap.add_argument("--max-wrong-rate", type=float, default=1.0, help="minimum: wrong acts / rows to leave alone")
     ap.add_argument("--min-precision", type=float, default=0.0, help="minimum: right acts / acts")
-    ap.add_argument("--fixed", type=float, action="append", default=[], help="also report this cutoff held out")
+    ap.add_argument("--grid", type=float, default=0.0, help="choose only multiples of this (e.g. 0.05)")
+    ap.add_argument("--margin", type=float, default=0.0,
+                    help="choose only cutoffs this far inside the nearest training row to leave alone")
+    ap.add_argument("--fixed", type=float, action="append", default=[],
+                    help="also report this cutoff on the held-out folds (for comparison only: a cutoff "
+                         "picked by reading these numbers is not held out)")
     ap.add_argument("--repeats", type=int, default=20)
     ap.add_argument("--seed", type=int, default=20261021)
     ap.add_argument("--test", help="a separate scores file the tuning never saw")

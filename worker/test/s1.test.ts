@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DROP_BELOW_MODEL, type S1Client, gateModel, judge, s1Client } from "../src/s1.ts";
+import { DROP_BELOW, DROP_BELOW_MODEL, type S1Client, UNTUNED_DROP_BELOW, gateModel, judge, s1Client } from "../src/s1.ts";
 
 const draft = { subject: "s", content: "c", project: "p" };
 const fake = (answers: Record<string, unknown>): S1Client => ({ systemOne: async () => ({ answers }) });
@@ -21,7 +21,7 @@ test("without a key the gate runs Clef on the AI binding", async () => {
   assert.equal(s1Client({ AI, KYPP_S1: "off" }), null);
 });
 
-test("the gate names its runtime model and warns once per model when DROP_BELOW wasn't tuned on it", () => {
+test("the tuned cutoff applies only to the model it was tuned on; others keep the old bar and warn once", () => {
   assert.equal(gateModel({ AI: {} as any }), DROP_BELOW_MODEL);
   assert.equal(gateModel({ AI: {} as any, KYPP_S1_MODEL: "clef-flash" }), "clef-flash");
   assert.equal(gateModel({ TYPESAFE_API_KEY: "k" }), "jev-latest");
@@ -29,11 +29,13 @@ test("the gate names its runtime model and warns once per model when DROP_BELOW 
   const warn = console.warn, seen: string[] = [];
   console.warn = (m: string) => seen.push(m);
   try {
-    s1Client({ AI: {} as any });
+    assert.equal(s1Client({ AI: {} as any })!.dropBelow, DROP_BELOW);
+    assert.equal(s1Client({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "clef" })!.dropBelow, DROP_BELOW);
     assert.equal(seen.length, 0);
+    assert.equal(s1Client({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "jev-untuned" })!.dropBelow, UNTUNED_DROP_BELOW);
+    assert.equal(s1Client({ AI: {} as any, KYPP_S1_MODEL: "flash-untuned" })!.dropBelow, UNTUNED_DROP_BELOW);
     s1Client({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "jev-untuned" });
-    s1Client({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "jev-untuned" });
-    assert.equal(seen.length, 1);
+    assert.equal(seen.length, 2);
     assert.match(seen[0], /jev-untuned.*tuned on clef/);
   } finally {
     console.warn = warn;
