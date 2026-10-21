@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type S1Client, judge, s1Client } from "../src/s1.ts";
+import { DROP_BELOW, DROP_BELOW_MODEL, type S1Client, UNTUNED_DROP_BELOW, gateModel, judge, s1Client } from "../src/s1.ts";
 
 const draft = { subject: "s", content: "c", project: "p" };
 const fake = (answers: Record<string, unknown>): S1Client => ({ systemOne: async () => ({ answers }) });
@@ -19,6 +19,27 @@ test("without a key the gate runs Clef on the AI binding", async () => {
   await s1Client({ AI, KYPP_S1_MODEL: "clef-flash" })!.systemOne({ state: draft, questions: {} });
   assert.equal(calls[1][0], "@cf/cloudflare/clef-flash");
   assert.equal(s1Client({ AI, KYPP_S1: "off" }), null);
+});
+
+test("the tuned cutoff applies only to the model it was tuned on; others keep the old bar and warn once", () => {
+  assert.equal(gateModel({ AI: {} as any }), DROP_BELOW_MODEL);
+  assert.equal(gateModel({ AI: {} as any, KYPP_S1_MODEL: "clef-flash" }), "clef-flash");
+  assert.equal(gateModel({ TYPESAFE_API_KEY: "k" }), "jev-latest");
+  assert.equal(gateModel({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "clef" }), "clef");
+  const warn = console.warn, seen: string[] = [];
+  console.warn = (m: string) => seen.push(m);
+  try {
+    assert.equal(s1Client({ AI: {} as any })!.dropBelow, DROP_BELOW);
+    assert.equal(s1Client({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "clef" })!.dropBelow, DROP_BELOW);
+    assert.equal(seen.length, 0);
+    assert.equal(s1Client({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "jev-untuned" })!.dropBelow, UNTUNED_DROP_BELOW);
+    assert.equal(s1Client({ AI: {} as any, KYPP_S1_MODEL: "flash-untuned" })!.dropBelow, UNTUNED_DROP_BELOW);
+    s1Client({ TYPESAFE_API_KEY: "k", TYPESAFE_DEFAULT_MODEL: "jev-untuned" });
+    assert.equal(seen.length, 2);
+    assert.match(seen[0], /jev-untuned.*tuned on clef/);
+  } finally {
+    console.warn = warn;
+  }
 });
 
 test("reads keep, a confident type and generality", async () => {

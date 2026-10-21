@@ -1,0 +1,163 @@
+{
+  "rows": 198,
+  "act_rows": 99,
+  "settings": {
+    "score": "p_keep",
+    "below": true,
+    "act_label": "drop",
+    "cost_wrong": 10.0,
+    "cost_missed": 1.0,
+    "max_wrong_rate": 0.02,
+    "min_precision": 0.0,
+    "grid": 0.05,
+    "margin": 0.1,
+    "fixed": [
+      0.1,
+      0.35
+    ],
+    "repeats": 20,
+    "seed": 20261021
+  },
+  "cv": {
+    "splits": 100,
+    "infeasible_splits": 0,
+    "cutoff_mean": 0.2505,
+    "cutoff_p10_p50_p90": [
+      0.25,
+      0.25,
+      0.25
+    ],
+    "held_out": {
+      "tuned": {
+        "wrong": 0,
+        "missed": 364,
+        "caught": 1616,
+        "spared": 1980,
+        "wrong_rate": 0.0,
+        "catch_rate": 0.8162,
+        "precision": 1.0,
+        "cost_per_100": 9.19
+      },
+      "fixed 0.1": {
+        "wrong": 0,
+        "missed": 1060,
+        "caught": 920,
+        "spared": 1980,
+        "wrong_rate": 0.0,
+        "catch_rate": 0.4646,
+        "precision": 1.0,
+        "cost_per_100": 26.77
+      },
+      "fixed 0.35": {
+        "wrong": 0,
+        "missed": 240,
+        "caught": 1740,
+        "spared": 1980,
+        "wrong_rate": 0.0,
+        "catch_rate": 0.8788,
+        "precision": 1.0,
+        "cost_per_100": 6.06
+      }
+    },
+    "brier_raw": 0.0555,
+    "brier_platt": 0.0384
+  },
+  "full_set": {
+    "cutoff": 0.25,
+    "feasible": true
+  },
+  "reliability": [
+    {
+      "n": 39,
+      "predicted": 0.112,
+      "observed": 0.0
+    },
+    {
+      "n": 40,
+      "predicted": 0.199,
+      "observed": 0.025
+    },
+    {
+      "n": 39,
+      "predicted": 0.507,
+      "observed": 0.462
+    },
+    {
+      "n": 40,
+      "predicted": 0.854,
+      "observed": 1.0
+    },
+    {
+      "n": 40,
+      "predicted": 0.936,
+      "observed": 1.0
+    }
+  ],
+  "by_kind": {
+    "leave:artifact": {
+      "n": 7,
+      "min": 0.355,
+      "max": 0.824
+    },
+    "leave:decision": {
+      "n": 14,
+      "min": 0.431,
+      "max": 0.908
+    },
+    "leave:fact": {
+      "n": 15,
+      "min": 0.547,
+      "max": 0.876
+    },
+    "leave:hypothesis": {
+      "n": 5,
+      "min": 0.624,
+      "max": 0.885
+    },
+    "leave:pitfall": {
+      "n": 25,
+      "min": 0.634,
+      "max": 0.913
+    },
+    "leave:preference": {
+      "n": 14,
+      "min": 0.841,
+      "max": 0.934
+    },
+    "leave:procedure": {
+      "n": 19,
+      "min": 0.622,
+      "max": 0.904
+    },
+    "act:chitchat": {
+      "n": 8,
+      "min": 0.053,
+      "max": 0.364
+    },
+    "act:codestated": {
+      "n": 20,
+      "min": 0.086,
+      "max": 0.428
+    },
+    "act:ephemeral": {
+      "n": 15,
+      "min": 0.057,
+      "max": 0.673
+    },
+    "act:hard": {
+      "n": 16,
+      "min": 0.029,
+      "max": 0.839
+    },
+    "act:playbyplay": {
+      "n": 15,
+      "min": 0.052,
+      "max": 0.255
+    },
+    "act:status": {
+      "n": 25,
+      "min": 0.037,
+      "max": 0.216
+    }
+  }
+}

@@ -242,6 +242,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   sends pinned callers to `pinnedTool`, which never shows the project list; defrag finds a pinned
   token's claims by `user = agent = name` (`tokenPins`). A new read path, write path or filer must
   honour the pin too, or the token reaches every registered project.
+- `DROP_BELOW` was tuned on Clef with `eval/write_gate` (rerun its README's two commands). A new
+  gate model or a reworded keep question needs a re-tune, not a copied number: Clef scores junk
+  well above its face value, and a cutoff fitted to one model's scale misplaces another's. Until a
+  model is tuned, `dropBelowFor` keeps it on the old 0.1 and warns.
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.
