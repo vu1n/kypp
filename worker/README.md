@@ -142,8 +142,10 @@ npm run deploy                               # applies migrations, then deploys;
 
 To deploy an existing install on every push without keeping a Cloudflare token anywhere else, connect
 its Worker to the repo with Workers Builds (Worker > Settings > Builds): root `worker`, deploy command
-`bash scripts/deploy-install.sh`, and build variables `KYPP_D1_DATABASE_ID`, `KYPP_KV_ID` and
-`KYPP_DOMAIN`. The script binds those into `wrangler.prod.jsonc`, applies the D1 migrations and deploys.
+`npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`, and no build variables. The
+install's ids and domain stay on the Worker in Cloudflare, not in the build: the migration finds the
+D1 database by its name, the deploy keeps the D1 and KV the Worker is already bound to, and a config
+with no `routes` leaves the custom domain set under Settings > Domains & Routes alone.
 
 ## Connect
 
