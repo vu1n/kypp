@@ -137,9 +137,11 @@ function claimDict(c: Claim) {
 
 // Context: doc://kypp/memory-scope-decay@0013#scope-keys-decay — search pulls a wide pool and System One reranks it; ranking never changes what a caller may see.
 // With a model, recall searches a wider pool than it returns, so the reranker can lift a relevant
-// claim the keyword order put past `limit`; without one, the pool is the answer.
+// claim the keyword order put past `limit`; without one, the pool is the answer. The model scores at
+// most RERANK_POOL claims, so a reranked recall returns at most that many.
 const recallLimit = (v: unknown) => Math.min(Math.max(Number(v) || 10, 1), 50);
-const poolSize = (s1: S1Client | null, query: string, limit: number) => (s1 && query.trim() ? Math.max(limit, RERANK_POOL) : limit);
+const poolSize = (s1: S1Client | null, query: string, limit: number) =>
+  (s1 && s1.rerank !== false && query.trim() ? RERANK_POOL : limit);
 
 export interface ToolCtx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy; correct: boolean }
 

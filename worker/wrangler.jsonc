@@ -37,5 +37,6 @@
   // pins a token to those projects, see README), KYPP_S1_TOKENS
   // (optional "name:token,..." for /v1/systemone callers outside GitHub Actions; never accepted on /mcp).
   // System One gate: Clef on the AI binding by default. A TYPESAFE_API_KEY secret (plus optional
-  // TYPESAFE_BASE_URL / TYPESAFE_DEFAULT_MODEL vars) routes it to TypeSafe instead. KYPP_S1=off disables it.
+  // TYPESAFE_BASE_URL / TYPESAFE_DEFAULT_MODEL vars) routes it to TypeSafe instead. KYPP_S1=off disables it;
+  // KYPP_RERANK=off keeps the write gate but leaves recall in keyword order (no per-recall model calls).
 }

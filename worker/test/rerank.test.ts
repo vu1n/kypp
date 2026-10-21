@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { handleMcp } from "../src/mcp.ts";
-import { RELEVANT_FLOOR, RELEVANT_FLOOR_MODEL, RERANK_POOL, type S1Client, rankForQuery, relevance, relevantFloorFor, rerank, s1Client } from "../src/s1.ts";
+import { RELEVANT_FLOOR, RELEVANT_FLOOR_MODEL, RERANK_IN_FLIGHT, RERANK_POOL, RERANK_QUERY, type S1Client, rankForQuery, relevance, relevantFloorFor, rerank, s1Client } from "../src/s1.ts";
 import { memoryD1 } from "./d1.ts";
 
 const claim = (subject: string) => ({ subject, content: `${subject} content` });
@@ -40,6 +40,43 @@ test("no model, no query, an error, a timeout or a missing answer is no opinion"
   assert.equal(await relevance({ systemOne: () => new Promise(() => {}) }, "q", [claim("a")], 20), null);
   assert.equal(await relevance({ systemOne: async () => ({ answers: {} }) }, "q", [claim("a")]), null);
   assert.equal(await relevance({ systemOne: async () => ({ answers: { c0: { type: "noul", noul: 2 } } }) }, "q", [claim("a")]), null);
+});
+
+test("the rerank bounds its burst, the query it forwards and the claims it scores", async () => {
+  let open = 0, peak = 0;
+  const calls: any[] = [];
+  const slow: S1Client = { systemOne: async (req: any) => {
+    calls.push(req);
+    peak = Math.max(peak, ++open);
+    await new Promise((r) => setTimeout(r, 5));
+    open--;
+    return { answers: { c0: { type: "noul", noul: 0.9 } } };
+  } };
+  const pool = Array.from({ length: 50 }, (_, i) => claim(`s${i}`));
+  const out = await rankForQuery(slow, "q".repeat(5000), pool, 50);
+  assert.equal(peak, RERANK_IN_FLIGHT);
+  assert.equal(calls.length, RERANK_POOL, "only the first RERANK_POOL claims are scored");
+  assert.equal(out.length, RERANK_POOL);
+  assert.equal(calls[0].state.query.length, RERANK_QUERY);
+});
+
+test("one deadline covers the whole pool, and a failure starts no more requests", async () => {
+  let calls = 0;
+  const hang: S1Client = { systemOne: () => (calls++, new Promise(() => {})) };
+  const t = Date.now();
+  assert.equal(await relevance(hang, "q", Array.from({ length: 30 }, (_, i) => claim(`s${i}`)), 30), null);
+  assert.ok(Date.now() - t < 1000);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(calls, RERANK_IN_FLIGHT, "no request started after the deadline");
+});
+
+test("KYPP_RERANK=off keeps the write gate and recall's keyword order", async () => {
+  assert.equal(s1Client({ AI: {} as any, KYPP_RERANK: "off" })!.rerank, false);
+  assert.equal(s1Client({ AI: {} as any })!.rerank, true);
+  const { client, calls } = scorer({ a: 0, b: 0.9 });
+  const pool = [claim("a"), claim("b")];
+  assert.deepEqual(await rankForQuery({ ...client, rerank: false }, "q", pool, 10), pool);
+  assert.equal(calls.length, 0);
 });
 
 test("rerank drops claims under the floor, sorts by score in bands and keeps keyword order inside a band", () => {

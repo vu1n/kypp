@@ -255,6 +255,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   A pointer hit (`Claim.pointer`: the query named the claim's path, anchor or ref) skips the model
   and stays first, and the model reads the whole claim, so it can't drop the memory the query named
   or miss the words that matched.
+- Each recall with a query costs up to `RERANK_POOL` model requests, `RERANK_IN_FLIGHT` at a time
+  under one 5 s deadline, each carrying at most `RERANK_QUERY` chars of the caller's query. There is
+  no per-caller budget yet, so a token that can call `recall` can spend the install's AI quota;
+  `KYPP_RERANK=off` turns the rerank off and keeps the write gate.
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.
