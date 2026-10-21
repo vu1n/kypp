@@ -10,30 +10,38 @@ export interface S1Env {
   TYPESAFE_BASE_URL?: string;
   TYPESAFE_DEFAULT_MODEL?: string;
   KYPP_S1?: string;
+  KYPP_RERANK?: string; // "off" keeps the write gate but turns off recall's rerank
   KYPP_S1_MODEL?: string; // Workers AI decision model: "clef" (default) or "clef-flash"
   AI?: Ai;
 }
 
 // The slice of TypeSafeClient the gate uses, so tests can pass a fake. `dropBelow` is the keep
 // cutoff for the client's model (see dropBelowFor); a client without one gets DROP_BELOW.
+// `relevantFloor` is recall's cutoff for the same model (see relevantFloorFor); without one, recall
+// reorders but drops nothing. `rerank: false` (KYPP_RERANK=off) keeps recall in keyword order.
 export interface S1Client {
   systemOne(req: { state: unknown; questions: Record<string, unknown> }): PromiseLike<{ answers: Record<string, any> }>;
   dropBelow?: number;
+  relevantFloor?: number;
+  rerank?: boolean;
 }
+
+const OFF = ["0", "off", "false", "no"];
 
 // A TypeSafe key wins; otherwise Clef on the Worker's own AI binding (same System One request and
 // answer shape, billed to the Cloudflare account, no key to manage).
 export function s1Client(env: S1Env): S1Client | null {
-  if (["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
+  if (OFF.includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
   if (!env.TYPESAFE_API_KEY && !env.AI) return null;
-  const model = gateModel(env), dropBelow = dropBelowFor(model);
+  const model = gateModel(env), dropBelow = dropBelowFor(model), relevantFloor = relevantFloorFor(model);
+  const rerank = !OFF.includes((env.KYPP_RERANK ?? "").toLowerCase());
   if (!env.TYPESAFE_API_KEY) {
     const ai = env.AI!;
-    return { dropBelow, systemOne: ({ state, questions }) => ai.run(`@cf/cloudflare/${model}` as any, { model, state, questions } as any) as any };
+    return { dropBelow, relevantFloor, rerank, systemOne: ({ state, questions }) => ai.run(`@cf/cloudflare/${model}` as any, { model, state, questions } as any) as any };
   }
   // A slow gate stalls the agent's claim call, so cap it; a timeout fails open like any error.
   return Object.assign(new TypeSafeClient({ apiKey: env.TYPESAFE_API_KEY, baseURL: env.TYPESAFE_BASE_URL, defaultModel: env.TYPESAFE_DEFAULT_MODEL,
-    timeout: DEADLINE_MS, retry: { maxRetries: 0 } }), { dropBelow });
+    timeout: DEADLINE_MS, retry: { maxRetries: 0 } }), { dropBelow, relevantFloor, rerank });
 }
 
 // The model a gate call goes to: TYPESAFE_DEFAULT_MODEL (the SDK's own default is jev-latest) with
@@ -196,4 +204,88 @@ export async function fileUnder(client: S1Client | null, claim: { subject: strin
   } catch {
     return null;
   }
+}
+
+// Recall's rerank (memory-scope-decay §8): for each claim the keyword search found, ask whether it
+// bears on the query. Claims go out in chunks of RERANK_CHUNK, one question per claim over a shared
+// state, at most RERANK_IN_FLIGHT at a time. On eval/recall_rerank, chunks of 5 to 40 cost fewer
+// requests but scored two relevant claims under 0.2 that scored over 0.4 on their own.
+const RELEVANT_CRITERIA = {
+  true: "Reading it would help with what the query asks: it is about the same problem, tool, procedure or preference.",
+  false: "It is about something else, even if it shares a word with the query.",
+} as const;
+export const RERANK_POOL = 40;   // keyword hits scored per recall; the reranker only sees these
+export const RERANK_CHUNK = 1;  // one claim per request: larger chunks dropped relevant claims
+// Every recall with a query costs up to RERANK_POOL model requests, so bound the burst and what the
+// caller controls in each one. A per-caller budget is not built yet; KYPP_RERANK=off is the stop.
+export const RERANK_IN_FLIGHT = 8;
+export const RERANK_QUERY = 500; // chars of the query each request carries
+
+// Tuned on Clef with eval/recall_rerank (README there); like DROP_BELOW it belongs to one model, one
+// wording of the question and one chunk size. Any other model reorders recall but drops nothing
+// until re-tuned.
+export const RELEVANT_FLOOR = 0.3;
+export const RELEVANT_FLOOR_MODEL = "clef";
+
+export function relevantFloorFor(model: string): number {
+  return model === RELEVANT_FLOOR_MODEL ? RELEVANT_FLOOR : 0;
+}
+
+async function relevanceChunk(client: S1Client, query: string, claims: { subject: string; content: string }[],
+  deadlineMs: number): Promise<(number | null)[]> {
+  // The whole claim (at most MAX_CONTENT), so the model sees the words the keyword search matched.
+  const state = { query: query.slice(0, RERANK_QUERY), claims: claims.map((c, n) => ({ n, subject: c.subject, content: c.content })) };
+  const questions = Object.fromEntries(claims.map((_, n) => [`c${n}`,
+    { type: "noul", instructions: `Is claim ${n} in the state relevant to the query?`, criteria: RELEVANT_CRITERIA }]));
+  const answers = await ask(client, state, questions, deadlineMs);
+  return claims.map((_, n) => (answers[`c${n}`]?.type === "noul" ? prob(answers[`c${n}`].noul) : null));
+}
+
+// P(relevant) per claim, in the order given, or null for no opinion (no model, an error, a timeout,
+// or an answer missing for any claim). Fails open: the caller keeps the keyword order. The deadline
+// covers the whole pool: a request starts only with time left and gets only the time left.
+export async function relevance(client: S1Client | null, query: string, claims: { subject: string; content: string }[],
+  deadlineMs = DEADLINE_MS, chunk = RERANK_CHUNK): Promise<number[] | null> {
+  if (!client || !query.trim() || !claims.length) return null;
+  const chunks: { subject: string; content: string }[][] = [];
+  for (let i = 0; i < claims.length; i += chunk) chunks.push(claims.slice(i, i + chunk));
+  const until = Date.now() + deadlineMs, scores: (number | null)[][] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < chunks.length) {
+      const i = next++, left = until - Date.now();
+      if (left <= 0) throw new Error("s1 deadline");
+      scores[i] = await relevanceChunk(client, query, chunks[i], left);
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(RERANK_IN_FLIGHT, chunks.length) }, worker));
+    const flat = scores.flat();
+    return flat.every((s) => s !== null) ? (flat as number[]) : null;
+  } catch {
+    next = chunks.length; // one failure is no opinion; start no more requests
+    return null;
+  }
+}
+
+const BAND = 0.1; // scores in one band count as a tie, so the keyword search's order decides
+
+// Keep claims at or above `floor`, most relevant first; within a band, the keyword search's order
+// (pointer hits, then bm25, then status, nearness and confidence) breaks the tie.
+export function rerank<T>(claims: T[], scores: number[], floor: number, limit: number): T[] {
+  return claims.map((c, i) => ({ c, i, s: scores[i] }))
+    .filter((x) => x.s >= floor)
+    .sort((a, b) => Math.floor(b.s / BAND) - Math.floor(a.s / BAND) || a.i - b.i)
+    .slice(0, limit).map((x) => x.c);
+}
+
+// Recall's top `limit` for `query` from a keyword pool: reranked when the model answers, else the
+// pool's own order. The model only reorders and drops; it never adds a claim the search didn't find.
+// A pointer hit (the query named the claim's path, anchor or ref) is an identity match: it stays
+// first and is never scored, so the model can't drop the exact memory asked for.
+export async function rankForQuery<T extends { subject: string; content: string; pointer?: boolean }>(client: S1Client | null,
+  query: string, pool: T[], limit: number): Promise<T[]> {
+  const named = pool.filter((c) => c.pointer), rest = pool.filter((c) => !c.pointer);
+  const scores = client?.rerank === false ? null : await relevance(client, query, rest.slice(0, RERANK_POOL));
+  return [...named, ...(scores ? rerank(rest, scores, client?.relevantFloor ?? 0, limit) : rest)].slice(0, limit);
 }

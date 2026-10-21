@@ -1,0 +1,157 @@
+{
+ "limit": 10,
+ "arms": {
+  "keyword order": {
+   "direct": {
+    "queries": 15,
+    "relevant": 34,
+    "found": 34,
+    "shown": 106,
+    "noise": 72,
+    "empty": 0,
+    "mrr": 1.0
+   },
+   "none": {
+    "queries": 5,
+    "relevant": 0,
+    "found": 0,
+    "shown": 31,
+    "noise": 31,
+    "empty": 1,
+    "mrr": null
+   },
+   "paraphrase": {
+    "queries": 20,
+    "relevant": 22,
+    "found": 19,
+    "shown": 196,
+    "noise": 177,
+    "empty": 0,
+    "mrr": 0.817
+   },
+   "all": {
+    "queries": 40,
+    "relevant": 56,
+    "found": 53,
+    "shown": 333,
+    "noise": 280,
+    "empty": 1,
+    "mrr": 0.895
+   }
+  },
+  "p_rel >= 0.3": {
+   "direct": {
+    "queries": 15,
+    "relevant": 34,
+    "found": 34,
+    "shown": 64,
+    "noise": 30,
+    "empty": 0,
+    "mrr": 0.967
+   },
+   "none": {
+    "queries": 5,
+    "relevant": 0,
+    "found": 0,
+    "shown": 3,
+    "noise": 3,
+    "empty": 4,
+    "mrr": null
+   },
+   "paraphrase": {
+    "queries": 20,
+    "relevant": 22,
+    "found": 21,
+    "shown": 98,
+    "noise": 77,
+    "empty": 0,
+    "mrr": 0.95
+   },
+   "all": {
+    "queries": 40,
+    "relevant": 56,
+    "found": 55,
+    "shown": 165,
+    "noise": 110,
+    "empty": 4,
+    "mrr": 0.957
+   }
+  },
+  "p_chunk5 >= 0.3": {
+   "direct": {
+    "queries": 15,
+    "relevant": 34,
+    "found": 32,
+    "shown": 54,
+    "noise": 22,
+    "empty": 0,
+    "mrr": 0.967
+   },
+   "none": {
+    "queries": 5,
+    "relevant": 0,
+    "found": 0,
+    "shown": 4,
+    "noise": 4,
+    "empty": 4,
+    "mrr": null
+   },
+   "paraphrase": {
+    "queries": 20,
+    "relevant": 22,
+    "found": 21,
+    "shown": 98,
+    "noise": 77,
+    "empty": 0,
+    "mrr": 0.95
+   },
+   "all": {
+    "queries": 40,
+    "relevant": 56,
+    "found": 53,
+    "shown": 156,
+    "noise": 103,
+    "empty": 4,
+    "mrr": 0.957
+   }
+  },
+  "p_chunk40 >= 0.3": {
+   "direct": {
+    "queries": 15,
+    "relevant": 34,
+    "found": 32,
+    "shown": 47,
+    "noise": 15,
+    "empty": 0,
+    "mrr": 1.0
+   },
+   "none": {
+    "queries": 5,
+    "relevant": 0,
+    "found": 0,
+    "shown": 4,
+    "noise": 4,
+    "empty": 3,
+    "mrr": null
+   },
+   "paraphrase": {
+    "queries": 20,
+    "relevant": 22,
+    "found": 21,
+    "shown": 128,
+    "noise": 107,
+    "empty": 0,
+    "mrr": 0.95
+   },
+   "all": {
+    "queries": 40,
+    "relevant": 56,
+    "found": 53,
+    "shown": 179,
+    "noise": 126,
+    "empty": 3,
+    "mrr": 0.971
+   }
+  }
+ }
+}

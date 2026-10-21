@@ -246,6 +246,19 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   gate model or a reworded keep question needs a re-tune, not a copied number: Clef scores junk
   well above its face value, and a cutoff fitted to one model's scale misplaces another's. Until a
   model is tuned, `dropBelowFor` keeps it on the old 0.1 and warns.
+- `recall` with a query and an S1 model searches `RERANK_POOL` (40) keyword hits, scores each in its
+  own request (`s1.relevance`), drops those under `RELEVANT_FLOOR` and returns the rest by score.
+  The floor was tuned on Clef with `eval/recall_rerank`, at one claim per request: batching claims
+  into one request scored relevant claims under 0.2, so `RERANK_CHUNK` is part of the tuning too.
+  Any other model reorders but drops nothing (`relevantFloorFor`). The rerank fails open to keyword
+  order and only sees the pool, so a claim the keyword search misses still can't come back.
+  A pointer hit (`Claim.pointer`: the query named the claim's path, anchor or ref) skips the model
+  and stays first, and the model reads the whole claim, so it can't drop the memory the query named
+  or miss the words that matched.
+- Each recall with a query costs up to `RERANK_POOL` model requests, `RERANK_IN_FLIGHT` at a time
+  under one 5 s deadline, each carrying at most `RERANK_QUERY` chars of the caller's query. There is
+  no per-caller budget yet, so a token that can call `recall` can spend the install's AI quota;
+  `KYPP_RERANK=off` turns the rerank off and keeps the write gate.
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.
