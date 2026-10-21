@@ -1,0 +1,6 @@
+# Keys this repo reads through `tumbler run -- <cmd>`. Names only; values live in the broker.
+# Started from `tumbler auto`; GITHUB_PAT dropped (nothing here calls the GitHub API).
+CLOUDFLARE_ACCOUNT_ID  # Workers AI for Clairic/Clef episodes (kypp/episodes.py, scripts/eval_episodes.py); wrangler
+CLOUDFLARE_AI_TOKEN    # Workers AI bearer for the same
+CLOUDFLARE_API_TOKEN   # wrangler deploy of worker/
+TYPESAFE_API_KEY       # brief triage (brief[s1]) and kypp's s1 extra
