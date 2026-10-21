@@ -4,7 +4,7 @@
 import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
 import { consolidate } from "./consolidate.ts";
 import { fileClaim } from "./defrag.ts";
-import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, type S1Client, judge } from "./s1.ts";
+import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, RERANK_POOL, type S1Client, judge, rankForQuery } from "./s1.ts";
 import { type RoomScope, D1Store } from "./store.ts";
 import { roomIdentity } from "./rooms.ts";
 
@@ -135,6 +135,12 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
+// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — search pulls a wide pool and System One reranks it; ranking never changes what a caller may see.
+// With a model, recall searches a wider pool than it returns, so the reranker can lift a relevant
+// claim the keyword order put past `limit`; without one, the pool is the answer.
+const recallLimit = (v: unknown) => Math.min(Math.max(Number(v) || 10, 1), 50);
+const poolSize = (s1: S1Client | null, query: string, limit: number) => (s1 && query.trim() ? Math.max(limit, RERANK_POOL) : limit);
+
 export interface ToolCtx { project: string | null; session: string | null; caller: Caller; s1: S1Client | null; policy: Policy; correct: boolean }
 
 export interface McpOptions {
@@ -195,8 +201,9 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
         + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours)}` : "");
     }
     case "recall": {
-      const claims = await store.recall(String(a.query ?? ""), null, null,
-        { room, candidates: a.include_candidates ? "all" : "origin", types: a.types, limit: a.limit, session: ctx.session });
+      const query = String(a.query ?? ""), limit = recallLimit(a.limit);
+      const claims = await rankForQuery(ctx.s1, query, await store.recall(query, null, null,
+        { room, candidates: a.include_candidates ? "all" : "origin", types: a.types, limit: poolSize(ctx.s1, query, limit), session: ctx.session }), limit);
       await store.recordUsage(ctx.session, claims, "recall", null, a.query || null);
       return renderClaims(claims);
     }
@@ -305,8 +312,9 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
     }
     case "recall": {
-      const claims = await store.recall(String(a.query ?? ""), project, user,
-        { candidates: a.include_candidates ? "all" : "origin", groups, types: a.types, agent: a.agent, limit: a.limit, session: ctx.session });
+      const query = String(a.query ?? ""), limit = recallLimit(a.limit);
+      const claims = await rankForQuery(ctx.s1, query, await store.recall(query, project, user,
+        { candidates: a.include_candidates ? "all" : "origin", groups, types: a.types, agent: a.agent, limit: poolSize(ctx.s1, query, limit), session: ctx.session }), limit);
       await store.recordUsage(ctx.session, claims, "recall", project, a.query || null);
       return note + renderClaims(claims);
     }

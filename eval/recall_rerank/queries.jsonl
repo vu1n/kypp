@@ -1,0 +1,40 @@
+{"id": "q01", "kind": "direct", "q": "D1 migrations order in tests", "relevant": ["keep-pitfall-000", "keep-procedure-038"]}
+{"id": "q02", "kind": "direct", "q": "FTS5 MATCH query syntax errors", "relevant": ["keep-pitfall-001", "keep-fact-074"]}
+{"id": "q03", "kind": "direct", "q": "libkrun virtiofs", "relevant": ["keep-pitfall-002", "keep-hypothesis-096", "keep-procedure-026"]}
+{"id": "q04", "kind": "direct", "q": "brief SIGNOFF sign-off", "relevant": ["keep-pitfall-004", "keep-decision-069", "keep-procedure-030"]}
+{"id": "q05", "kind": "direct", "q": "Hyperliquid account balances", "relevant": ["keep-pitfall-008", "keep-procedure-029"]}
+{"id": "q06", "kind": "direct", "q": "foundry invariant test flags", "relevant": ["keep-pitfall-010"]}
+{"id": "q07", "kind": "direct", "q": "Durable Object alarm cold start", "relevant": ["keep-pitfall-017", "keep-hypothesis-095"]}
+{"id": "q08", "kind": "direct", "q": "write gate cutoff", "relevant": ["keep-decision-063", "keep-decision-067", "keep-pitfall-024", "keep-fact-086"]}
+{"id": "q09", "kind": "direct", "q": "Workers Builds deploy", "relevant": ["keep-procedure-041", "keep-fact-081"]}
+{"id": "q10", "kind": "direct", "q": "PostHog", "relevant": ["keep-artifact-087", "keep-procedure-037"]}
+{"id": "q11", "kind": "direct", "q": "recall ranking BM25", "relevant": ["keep-decision-058", "keep-decision-059", "keep-pitfall-021", "keep-decision-064"]}
+{"id": "q12", "kind": "direct", "q": "Clairic dates", "relevant": ["keep-fact-078", "keep-fact-083"]}
+{"id": "q13", "kind": "direct", "q": "amendment ratification merge", "relevant": ["keep-decision-062", "keep-procedure-030"]}
+{"id": "q14", "kind": "direct", "q": "pnpm filter CI", "relevant": ["keep-pitfall-023"]}
+{"id": "q15", "kind": "direct", "q": "PaperTrade API", "relevant": ["keep-decision-070", "keep-hypothesis-098"]}
+{"id": "q16", "kind": "paraphrase", "q": "why does my bearer token show up on another host after a 302", "relevant": ["keep-pitfall-011"]}
+{"id": "q17", "kind": "paraphrase", "q": "cargo hangs inside the VM when the host builds too", "relevant": ["keep-pitfall-002"]}
+{"id": "q18", "kind": "paraphrase", "q": "gRPC calls through the sandbox network fail", "relevant": ["keep-pitfall-003"]}
+{"id": "q19", "kind": "paraphrase", "q": "postgres locking through the Cloudflare database gateway", "relevant": ["keep-pitfall-005"]}
+{"id": "q20", "kind": "paraphrase", "q": "fetch works in node unit tests but breaks once deployed to Cloudflare", "relevant": ["keep-pitfall-007"]}
+{"id": "q21", "kind": "paraphrase", "q": "how should I format my answer to Vu", "relevant": ["keep-preference-046", "keep-preference-054"]}
+{"id": "q22", "kind": "paraphrase", "q": "can I spin up parallel agents to speed this up", "relevant": ["keep-preference-057"]}
+{"id": "q23", "kind": "paraphrase", "q": "should I add docker support for this pillbox feature", "relevant": ["keep-preference-045"]}
+{"id": "q24", "kind": "paraphrase", "q": "how big can a value stored in the hosted database be", "relevant": ["keep-pitfall-013"]}
+{"id": "q25", "kind": "paraphrase", "q": "two restored VMs lose network", "relevant": ["keep-pitfall-019"]}
+{"id": "q26", "kind": "paraphrase", "q": "token transfer revert message is swallowed in tests", "relevant": ["keep-pitfall-022"]}
+{"id": "q27", "kind": "paraphrase", "q": "the GitHub command line tool fails with an auth error", "relevant": ["keep-pitfall-020"]}
+{"id": "q28", "kind": "paraphrase", "q": "how do I ssh to the server from a cloud session", "relevant": ["keep-procedure-027"]}
+{"id": "q29", "kind": "paraphrase", "q": "where are the research notes kept", "relevant": ["keep-artifact-089"]}
+{"id": "q30", "kind": "paraphrase", "q": "can the keeper backdate or settle early", "relevant": ["keep-fact-076", "keep-fact-077"]}
+{"id": "q31", "kind": "paraphrase", "q": "which repo does an unpinned token write to", "relevant": ["keep-fact-073"]}
+{"id": "q32", "kind": "paraphrase", "q": "how does a claim get accepted", "relevant": ["keep-fact-072"]}
+{"id": "q33", "kind": "paraphrase", "q": "keyword search with Chinese text returns random results", "relevant": ["keep-fact-074"]}
+{"id": "q34", "kind": "paraphrase", "q": "how many CI minutes should my PR burn", "relevant": ["keep-procedure-036"]}
+{"id": "q35", "kind": "paraphrase", "q": "printing a secret inside the microVM shows a fake value", "relevant": ["keep-fact-075"]}
+{"id": "q36", "kind": "none", "q": "kubernetes helm chart values", "relevant": []}
+{"id": "q37", "kind": "none", "q": "how to configure the iOS push notification certificate", "relevant": []}
+{"id": "q38", "kind": "none", "q": "Rust borrow checker lifetime error in the parser", "relevant": []}
+{"id": "q39", "kind": "none", "q": "stripe webhook signature verification", "relevant": []}
+{"id": "q40", "kind": "none", "q": "deploy the marketing site to vercel", "relevant": []}

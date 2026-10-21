@@ -1,0 +1,123 @@
+{
+  "rows": 995,
+  "act_rows": 940,
+  "settings": {
+    "score": "p_rel",
+    "below": true,
+    "act_label": "irrelevant",
+    "cost_wrong": 10.0,
+    "cost_missed": 1.0,
+    "max_wrong_rate": 0.02,
+    "min_precision": 0.0,
+    "grid": 0.05,
+    "margin": 0.1,
+    "fixed": [
+      0.2,
+      0.4
+    ],
+    "repeats": 20,
+    "seed": 20261021
+  },
+  "cv": {
+    "splits": 100,
+    "infeasible_splits": 0,
+    "cutoff_mean": 0.3015,
+    "cutoff_p10_p50_p90": [
+      0.3,
+      0.3,
+      0.3
+    ],
+    "held_out": {
+      "tuned": {
+        "wrong": 0,
+        "missed": 2266,
+        "caught": 16534,
+        "spared": 1100,
+        "wrong_rate": 0.0,
+        "catch_rate": 0.8795,
+        "precision": 1.0,
+        "cost_per_100": 11.39
+      },
+      "fixed 0.2": {
+        "wrong": 0,
+        "missed": 3920,
+        "caught": 14880,
+        "spared": 1100,
+        "wrong_rate": 0.0,
+        "catch_rate": 0.7915,
+        "precision": 1.0,
+        "cost_per_100": 19.7
+      },
+      "fixed 0.4": {
+        "wrong": 0,
+        "missed": 1300,
+        "caught": 17500,
+        "spared": 1100,
+        "wrong_rate": 0.0,
+        "catch_rate": 0.9309,
+        "precision": 1.0,
+        "cost_per_100": 6.53
+      }
+    },
+    "brier_raw": 0.0407,
+    "brier_platt": 0.0167
+  },
+  "full_set": {
+    "cutoff": 0.3,
+    "feasible": true
+  },
+  "reliability": [
+    {
+      "n": 199,
+      "predicted": 0.475,
+      "observed": 0.724
+    },
+    {
+      "n": 199,
+      "predicted": 0.826,
+      "observed": 1.0
+    },
+    {
+      "n": 199,
+      "predicted": 0.907,
+      "observed": 1.0
+    },
+    {
+      "n": 199,
+      "predicted": 0.946,
+      "observed": 1.0
+    },
+    {
+      "n": 199,
+      "predicted": 0.968,
+      "observed": 1.0
+    }
+  ],
+  "by_kind": {
+    "leave:direct": {
+      "n": 34,
+      "min": 0.418,
+      "max": 0.947
+    },
+    "leave:paraphrase": {
+      "n": 21,
+      "min": 0.789,
+      "max": 0.968
+    },
+    "act:direct": {
+      "n": 112,
+      "min": 0.033,
+      "max": 0.632
+    },
+    "act:none": {
+      "n": 121,
+      "min": 0.02,
+      "max": 0.692
+    },
+    "act:paraphrase": {
+      "n": 707,
+      "min": 0.022,
+      "max": 0.955
+    }
+  }
+}
