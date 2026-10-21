@@ -23,9 +23,10 @@ export interface S1Client {
 // answer shape, billed to the Cloudflare account, no key to manage).
 export function s1Client(env: S1Env): S1Client | null {
   if (["0", "off", "false", "no"].includes((env.KYPP_S1 ?? "").toLowerCase())) return null;
+  if (!env.TYPESAFE_API_KEY && !env.AI) return null;
+  warnIfUntuned(gateModel(env));
   if (!env.TYPESAFE_API_KEY) {
-    if (!env.AI) return null;
-    const ai = env.AI, model = env.KYPP_S1_MODEL || "clef";
+    const ai = env.AI!, model = gateModel(env);
     return { systemOne: ({ state, questions }) => ai.run(`@cf/cloudflare/${model}` as any, { model, state, questions } as any) as any };
   }
   // A slow gate stalls the agent's claim call, so cap it; a timeout fails open like any error.
@@ -33,8 +34,25 @@ export function s1Client(env: S1Env): S1Client | null {
     timeout: DEADLINE_MS, retry: { maxRetries: 0 } });
 }
 
+// The model a gate call goes to: TYPESAFE_DEFAULT_MODEL (the SDK's own default is jev-latest) with
+// a key, else KYPP_S1_MODEL on the AI binding.
+export function gateModel(env: S1Env): string {
+  return env.TYPESAFE_API_KEY ? env.TYPESAFE_DEFAULT_MODEL || "jev-latest" : env.KYPP_S1_MODEL || "clef";
+}
+
+const warned = new Set<string>(); // once per model per isolate, not per claim
+function warnIfUntuned(model: string) {
+  if (warned.has(model) || model === DROP_BELOW_MODEL) return;
+  warned.add(model);
+  console.warn(`s1: the write gate runs ${model}, but DROP_BELOW was tuned on ${DROP_BELOW_MODEL}; re-tune it (eval/write_gate) before trusting drops`);
+}
+
 export const DEADLINE_MS = 5000; // end to end, enforced in judge() too, not just per attempt
-export const DROP_BELOW = 0.1;   // same bar as distill.GatedDistiller
+// A cutoff belongs to one model and one wording of the keep question; changing either needs a re-tune.
+// Tuned on Clef with eval/write_gate (cross-validated, costs and floor in its README): 0.25 drops
+// about 4 in 5 junk drafts and kept every labeled lesson, with ~0.06 margin under the lowest live one.
+export const DROP_BELOW = 0.25;
+export const DROP_BELOW_MODEL = "clef";
 const RETYPE_ABOVE = 0.6;        // only relabel a defaulted type when the model is fairly sure
 
 const QUESTIONS = {
