@@ -247,10 +247,10 @@ export async function relevance(client: S1Client | null, query: string, claims: 
   }
 }
 
-const BAND = 0.1; // scores this close count as a tie, so the store's order (status, nearness, confidence) decides
+const BAND = 0.1; // scores in one band count as a tie, so the keyword search's order decides
 
 // Keep claims at or above `floor`, most relevant first; within a band, the keyword search's order
-// (which already ranks accepted, nearer and more confident claims first) breaks the tie.
+// (pointer hits, then bm25, then status, nearness and confidence) breaks the tie.
 export function rerank<T>(claims: T[], scores: number[], floor: number, limit: number): T[] {
   return claims.map((c, i) => ({ c, i, s: scores[i] }))
     .filter((x) => x.s >= floor)
