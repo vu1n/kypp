@@ -8,7 +8,8 @@
     "deploy": "npm run db:migrate && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types test/*.test.ts",
-    "db:migrate": "wrangler d1 migrations apply DB --remote"
+    "db:migrate": "wrangler d1 migrations apply DB --remote",
+    "deploy:production": "wrangler d1 migrations apply DB --remote --env production && wrangler deploy --env production"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
