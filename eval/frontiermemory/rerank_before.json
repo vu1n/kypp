@@ -1,0 +1,197 @@
+[
+ {
+  "task": "apex-brightpath-market-share",
+  "rerank": {
+   "returned": 2,
+   "own": 1,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 4,
+   "keyword_own": 5
+  }
+ },
+ {
+  "task": "apex-brightpath-seat-surplus",
+  "rerank": {
+   "returned": 2,
+   "own": 1,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 6,
+   "keyword_own": 5
+  }
+ },
+ {
+  "task": "apex-eurogrid-curtailment",
+  "rerank": {
+   "returned": 1,
+   "own": 0,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 10,
+   "keyword_own": 10
+  }
+ },
+ {
+  "task": "automationbench-marketing-content-gap-analysis",
+  "rerank": {
+   "returned": 10,
+   "own": 2,
+   "keyword_own": 2
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 3,
+   "keyword_own": 4
+  }
+ },
+ {
+  "task": "automationbench-sales-chatgpt-proposal-customization",
+  "rerank": {
+   "returned": 10,
+   "own": 0,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 2,
+   "keyword_own": 4
+  }
+ },
+ {
+  "task": "automationbench-sales-partnership-contract",
+  "rerank": {
+   "returned": 10,
+   "own": 5,
+   "keyword_own": 4
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 4,
+   "keyword_own": 2
+  }
+ },
+ {
+  "task": "awilix-release-tier-explicit",
+  "rerank": {
+   "returned": 10,
+   "own": 0,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 2,
+   "keyword_own": 2
+  }
+ },
+ {
+  "task": "awilix-release-tier-implicit",
+  "rerank": {
+   "returned": 10,
+   "own": 0,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 0,
+   "keyword_own": 0
+  }
+ },
+ {
+  "task": "build-word2vec-pipeline",
+  "rerank": {
+   "returned": 2,
+   "own": 0,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 10,
+   "keyword_own": 10
+  }
+ },
+ {
+  "task": "cattrs-compositional-changelog",
+  "rerank": {
+   "returned": 10,
+   "own": 0,
+   "keyword_own": 0
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 5,
+   "keyword_own": 4
+  }
+ },
+ {
+  "task": "cookie-store-compositional-changelog",
+  "rerank": {
+   "returned": 10,
+   "own": 8,
+   "keyword_own": 5
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 1,
+   "keyword_own": 2
+  }
+ },
+ {
+  "task": "customer-delivery-contextual-preferences",
+  "rerank": {
+   "returned": 10,
+   "own": 2,
+   "keyword_own": 1
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 2,
+   "keyword_own": 2
+  }
+ },
+ {
+  "task": "dapt-intrusion-detection-workflow-learning",
+  "rerank": {
+   "returned": 10,
+   "own": 10,
+   "keyword_own": 10
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 10,
+   "keyword_own": 10
+  }
+ },
+ {
+  "task": "enterpriseops-csm-26d1b04a",
+  "rerank": {
+   "returned": 10,
+   "own": 2,
+   "keyword_own": 2
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 9,
+   "keyword_own": 5
+  }
+ },
+ {
+  "task": "enterpriseops-teams-2725d17f",
+  "rerank": {
+   "returned": 8,
+   "own": 2,
+   "keyword_own": 2
+  },
+  "rerank+cand": {
+   "returned": 10,
+   "own": 10,
+   "keyword_own": 10
+  }
+ }
+]

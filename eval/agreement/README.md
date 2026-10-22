@@ -74,6 +74,21 @@ Two traps the eval caught:
 - **Rubric.** The first labels asked for redundancy, not agreement, and made Clef look worse than
   it is on the gate's actual question.
 
+## Follow-up: where the rest of the loss is
+
+- **Hosted rerank.** `eval/frontiermemory/rerank_check.py` reproduces the hosted Worker's recall:
+  a keyword pool of 40, Clef relevance per claim, floor 0.3. On top of the gate, own-task results go
+  from 55 to 62 of 150 and tasks with none from 4 to 2. Without the gate the same rerank gives 33,
+  so the gate and the rerank add up.
+- **The two tasks still at zero** (awilix explicit and implicit) have a generic prompt ("you're in
+  `/app`, ask the maintainer, save a plan"). Their lessons are about the maintainer's process, and
+  recall returns the same lessons filed under sibling tasks ("plan-only step must stop after saving
+  the plan"). An agent would recall again after reading the repo, so a prompt-only query is the
+  wrong probe for these. Chasing them would mean tuning to the benchmark.
+- **Neighbours per claim.** 4, 8 and 16 neighbours give 61, 55 and 56 own-task results. That's
+  within noise on 150, so the default stays at 8. 4 would halve the Clef calls (2,447 versus 4,686),
+  and that decision belongs on a held-out store.
+
 ## Not done
 
 - **No held-out repo yet.** These claims all come from one benchmark. Rerun steps 1–4 on the

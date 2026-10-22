@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--tags", required=True)
     ap.add_argument("--after", required=True)
     ap.add_argument("--out", default=os.path.join(HERE, "gate_results.json"))
+    ap.add_argument("--neighbours", type=int, help="override arbiter.NEIGHBOURS")
     a = ap.parse_args()
     for ext in ("", "-wal", "-shm"):
         if os.path.exists(a.db + ext):
@@ -38,6 +39,8 @@ def main():
     from kypp.s1 import agree_question
     from kypp.store import store_from_env
     store = store_from_env()
+    if a.neighbours:
+        arbiter.NEIGHBOURS = a.neighbours
     tags = json.load(open(a.tags))
     run = workers_ai_runner(os.environ["CLOUDFLARE_ACCOUNT_ID"], os.environ["CLOUDFLARE_AI_TOKEN"],
                             model="clef", key="questions")
