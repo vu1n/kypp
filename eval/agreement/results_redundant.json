@@ -1,0 +1,212 @@
+{
+  "rows": 600,
+  "act_rows": 189,
+  "settings": {
+    "score": "p_agree",
+    "below": false,
+    "act_label": "same",
+    "cost_wrong": 10.0,
+    "cost_missed": 1.0,
+    "max_wrong_rate": 0.02,
+    "min_precision": 0.0,
+    "grid": 0.01,
+    "margin": 0.0,
+    "fixed": [
+      0.9
+    ],
+    "repeats": 20,
+    "seed": 20261021
+  },
+  "cv": {
+    "splits": 100,
+    "infeasible_splits": 0,
+    "cutoff_mean": 0.9516,
+    "cutoff_p10_p50_p90": [
+      0.94,
+      0.96,
+      0.96
+    ],
+    "held_out": {
+      "tuned": {
+        "wrong": 158,
+        "missed": 2118,
+        "caught": 1662,
+        "spared": 8062,
+        "wrong_rate": 0.0192,
+        "catch_rate": 0.4397,
+        "precision": 0.9132,
+        "cost_per_100": 30.82
+      },
+      "fixed 0.9": {
+        "wrong": 320,
+        "missed": 560,
+        "caught": 3220,
+        "spared": 7900,
+        "wrong_rate": 0.0389,
+        "catch_rate": 0.8519,
+        "precision": 0.9096,
+        "cost_per_100": 31.33
+      }
+    },
+    "brier_raw": 0.0661,
+    "brier_platt": 0.0459
+  },
+  "full_set": {
+    "cutoff": 0.96,
+    "feasible": true
+  },
+  "reliability": [
+    {
+      "n": 120,
+      "predicted": 0.026,
+      "observed": 0.0
+    },
+    {
+      "n": 120,
+      "predicted": 0.039,
+      "observed": 0.0
+    },
+    {
+      "n": 120,
+      "predicted": 0.152,
+      "observed": 0.008
+    },
+    {
+      "n": 120,
+      "predicted": 0.847,
+      "observed": 0.633
+    },
+    {
+      "n": 120,
+      "predicted": 0.959,
+      "observed": 0.933
+    }
+  ],
+  "by_kind": {
+    "leave:apex-brightpath-market-share": {
+      "n": 25,
+      "min": 0.025,
+      "max": 0.969
+    },
+    "leave:apex-brightpath-seat-surplus": {
+      "n": 32,
+      "min": 0.022,
+      "max": 0.963
+    },
+    "leave:apex-eurogrid-curtailment": {
+      "n": 32,
+      "min": 0.021,
+      "max": 0.946
+    },
+    "leave:automationbench-marketing-content-gap-analysis": {
+      "n": 14,
+      "min": 0.037,
+      "max": 0.952
+    },
+    "leave:automationbench-sales-chatgpt-proposal-customization": {
+      "n": 20,
+      "min": 0.028,
+      "max": 0.757
+    },
+    "leave:automationbench-sales-partnership-contract": {
+      "n": 16,
+      "min": 0.027,
+      "max": 0.923
+    },
+    "leave:awilix-release-tier-explicit": {
+      "n": 40,
+      "min": 0.02,
+      "max": 0.417
+    },
+    "leave:awilix-release-tier-implicit": {
+      "n": 40,
+      "min": 0.019,
+      "max": 0.069
+    },
+    "leave:build-word2vec-pipeline": {
+      "n": 15,
+      "min": 0.027,
+      "max": 0.778
+    },
+    "leave:cattrs-compositional-changelog": {
+      "n": 40,
+      "min": 0.018,
+      "max": 0.798
+    },
+    "leave:cookie-store-compositional-changelog": {
+      "n": 40,
+      "min": 0.021,
+      "max": 0.643
+    },
+    "leave:customer-delivery-contextual-preferences": {
+      "n": 40,
+      "min": 0.019,
+      "max": 0.906
+    },
+    "leave:dapt-intrusion-detection-workflow-learning": {
+      "n": 15,
+      "min": 0.028,
+      "max": 0.707
+    },
+    "leave:enterpriseops-csm-26d1b04a": {
+      "n": 23,
+      "min": 0.026,
+      "max": 0.95
+    },
+    "leave:enterpriseops-teams-2725d17f": {
+      "n": 19,
+      "min": 0.037,
+      "max": 0.962
+    },
+    "act:apex-brightpath-market-share": {
+      "n": 15,
+      "min": 0.761,
+      "max": 0.97
+    },
+    "act:apex-brightpath-seat-surplus": {
+      "n": 8,
+      "min": 0.864,
+      "max": 0.97
+    },
+    "act:apex-eurogrid-curtailment": {
+      "n": 8,
+      "min": 0.815,
+      "max": 0.965
+    },
+    "act:automationbench-marketing-content-gap-analysis": {
+      "n": 26,
+      "min": 0.727,
+      "max": 0.964
+    },
+    "act:automationbench-sales-chatgpt-proposal-customization": {
+      "n": 20,
+      "min": 0.689,
+      "max": 0.958
+    },
+    "act:automationbench-sales-partnership-contract": {
+      "n": 24,
+      "min": 0.892,
+      "max": 0.969
+    },
+    "act:build-word2vec-pipeline": {
+      "n": 25,
+      "min": 0.413,
+      "max": 0.963
+    },
+    "act:dapt-intrusion-detection-workflow-learning": {
+      "n": 25,
+      "min": 0.953,
+      "max": 0.972
+    },
+    "act:enterpriseops-csm-26d1b04a": {
+      "n": 17,
+      "min": 0.47,
+      "max": 0.965
+    },
+    "act:enterpriseops-teams-2725d17f": {
+      "n": 21,
+      "min": 0.837,
+      "max": 0.972
+    }
+  }
+}

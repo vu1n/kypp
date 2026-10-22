@@ -1,0 +1,68 @@
+{
+ "claims": 940,
+ "correct": 739,
+ "accuracy": 0.786,
+ "unanswered": 0,
+ "per_tag": {
+  "apex-brightpath-market-share": {
+   "correct": 46,
+   "n": 49
+  },
+  "apex-brightpath-seat-surplus": {
+   "correct": 2,
+   "n": 44
+  },
+  "apex-eurogrid-curtailment": {
+   "correct": 48,
+   "n": 48
+  },
+  "automationbench-marketing-content-gap-analysis": {
+   "correct": 72,
+   "n": 74
+  },
+  "automationbench-sales-chatgpt-proposal-customization": {
+   "correct": 99,
+   "n": 100
+  },
+  "automationbench-sales-partnership-contract": {
+   "correct": 83,
+   "n": 83
+  },
+  "awilix-release-tier-explicit": {
+   "correct": 13,
+   "n": 36
+  },
+  "awilix-release-tier-implicit": {
+   "correct": 6,
+   "n": 26
+  },
+  "build-word2vec-pipeline": {
+   "correct": 32,
+   "n": 32
+  },
+  "cattrs-compositional-changelog": {
+   "correct": 16,
+   "n": 36
+  },
+  "cookie-store-compositional-changelog": {
+   "correct": 22,
+   "n": 66
+  },
+  "customer-delivery-contextual-preferences": {
+   "correct": 16,
+   "n": 62
+  },
+  "dapt-intrusion-detection-workflow-learning": {
+   "correct": 145,
+   "n": 145
+  },
+  "enterpriseops-csm-26d1b04a": {
+   "correct": 77,
+   "n": 77
+  },
+  "enterpriseops-teams-2725d17f": {
+   "correct": 62,
+   "n": 62
+  }
+ }
+}

@@ -80,6 +80,50 @@ def _plan_groups(groups: list[list[Claim]], keep_updates: bool = True) -> list[d
     return plan
 
 
+AGREE_AT = 0.9  # eval/agreement: held-out precision 0.96, catch 0.78 on 600 labelled pairs
+NEIGHBOURS = 8  # pairs judged per claim: its most word-similar tag-mates from other sessions
+
+
+def _words(c: Claim) -> set[str]:
+    return {w for w in "".join(ch.lower() if ch.isalnum() else " " for ch in f"{c.subject} {c.content}").split()
+            if len(w) > 2}
+
+
+def _agreement_clusters(claims: list[Claim], tag_of, pair_judge,
+                        agree_at: float) -> tuple[list[list[Claim]], set[frozenset]]:
+    """Different-subject restatements of one lesson. Only candidates that share a tag are compared, and
+    each only with its NEIGHBOURS most word-similar tag-mates from other sessions, so the judge sees
+    O(n) pairs, not O(n²). A tag narrows the comparison and never counts as agreement: two lessons
+    about one feature are still two lessons. A pair is joined only on an affirmative judgment;
+    `None` (no model, failed call) joins nothing."""
+    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — only an affirmative agreement judgment plus independent recurrence accepts.
+    # Tags subdivide arbitration groups, never cross them: scope, project and owner stay in the key.
+    by_tag: dict[tuple, list[Claim]] = defaultdict(list)
+    for c in claims:
+        t = tag_of(c) if c.status == "candidate" else None
+        if t:
+            by_tag[(t, c.scope, c.project, c.user if c.scope == "user" else None)].append(c)
+    pairs = []
+    for members in by_tag.values():
+        words = {c.id: _words(c) for c in members}
+        seen = set()
+        for a in members:
+            near = sorted((b for b in members if b.id != a.id and set(_sources(a)).isdisjoint(_sources(b))),
+                          key=lambda b: -len(words[a.id] & words[b.id]) / (len(words[a.id] | words[b.id]) or 1))
+            for b in near[:NEIGHBOURS]:
+                key = tuple(sorted((a.id, b.id)))
+                if key not in seen:
+                    seen.add(key)
+                    pairs.append((a, b))
+    alive = {c.id: c for members in by_tag.values() for c in members}
+    agreed = []
+    for a, b in pairs:
+        p = pair_judge([a, b])
+        if p is not None and p >= agree_at:
+            agreed.append((a.id, b.id))
+    return _semantic_clusters(agreed, alive), {frozenset(p) for p in agreed}
+
+
 def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) -> list[list[Claim]]:
     """Union-find the near-dup pairs (restricted to still-alive ids) into clusters of >1."""
     parent: dict[str, str] = {}
@@ -103,7 +147,8 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
 # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
 def consolidate(store: ClaimStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None,
-                accept_corroboration: int | None = 2, judge=None) -> dict:
+                accept_corroboration: int | None = 2, judge=None,
+                tag_of=None, pair_judge=None, agree_at: float = AGREE_AT) -> dict:
     """Phase 1: group live claims by exact (subject, scope, project); keep the strongest, supersede the
     rest. Phase 2 (when `semantic` is a cosine max-distance AND claims are embedded): cluster the
     SURVIVORS' different-subject near-duplicates and dedup those too — the LLM-distiller case, where
@@ -111,7 +156,11 @@ def consolidate(store: ClaimStore, *, project: str | None = None, subject: str |
     `accept_corroboration` is set, default 2): a candidate survivor backed by >= that many independent
     sessions is PROMOTED to accepted — the swarm-truth gate, so a corroborated lesson surfaces in
     briefing/default recall without a manual --accept. `judge` (s1.agreement_judge) may hold a
-    promotion back when the supporting claims look conflicted; it never causes one.
+    promotion back when the supporting claims look conflicted; it never causes one. Phase 4 (when
+    `tag_of` and `pair_judge` are given): candidates the exact-subject pass left alone are compared
+    pairwise within a tag, and pairs `pair_judge` rates >= `agree_at` count as one lesson; the
+    survivor plus the claims matched with it directly, backed by >= K sessions, is promoted and those
+    restatements superseded.
     dry_run returns the plan without writing.
     Returns {groups, superseded, promoted, dry_run, plan:[{subject, survivor, superseded:[ids]}]}."""
     claims = store.live_claims(project, subject)
@@ -172,6 +221,34 @@ def consolidate(store: ClaimStore, *, project: str | None = None, subject: str |
                 retired = [m.id for m in members if m.id != winner.id and m.id not in superseded]
                 superseded |= set(retired)
                 plan.append({"subject": winner.subject, "survivor": winner.id, "superseded": retired})
+
+    if accept_corroboration and tag_of and pair_judge:
+        # A candidate on a subject that already has an accepted answer is a pending update: the
+        # exact-subject pass owns it (it retires the old answer when the update wins), so it stays out.
+        answered = {(c.subject, c.scope, c.project) for c in claims
+                    if c.status == "accepted" and c.id not in superseded}
+        alive = [c for c in claims if c.id not in superseded and c.id not in promoted
+                 and (c.subject, c.scope, c.project) not in answered]
+        clusters, agreed = _agreement_clusters(alive, tag_of, pair_judge, agree_at)
+        for linked in clusters:
+            # Only claims the judge matched with the centre itself count: A~B and B~C chain different
+            # lessons into one cluster (the eval saw clusters of 25), so a transitive link is not
+            # agreement. Try each claim as centre, strongest first, with its direct matches not yet
+            # merged; a centre that fails merges nothing, so its matches stay free for a later centre.
+            merged: set[str] = set()
+            for survivor in sorted(linked, key=_rank, reverse=True):
+                if survivor.id in merged or survivor.status != "candidate":
+                    continue
+                cluster = [survivor] + [m for m in linked if m.id not in merged
+                                        and frozenset((m.id, survivor.id)) in agreed]
+                if len(cluster) < 2 or _corroboration(cluster) < accept_corroboration or held(cluster):
+                    continue
+                merged |= {m.id for m in cluster}
+                promoted.append(survivor.id)
+                retired = [m.id for m in cluster if m.id != survivor.id and m.status == "candidate"]
+                superseded |= set(retired)
+                plan.append({"subject": survivor.subject, "survivor": survivor.id, "superseded": retired,
+                             "agreement": True})
 
     if not dry_run:
         for cid in superseded:

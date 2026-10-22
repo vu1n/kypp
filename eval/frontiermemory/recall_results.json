@@ -1,0 +1,362 @@
+{
+ "status": {
+  "accepted": 72,
+  "candidate": 868,
+  "superseded": 102
+ },
+ "briefing_tasks": {
+  "dapt-intrusion-detection-workflow-learning": 10,
+  "cookie-store-compositional-changelog": 2
+ },
+ "rows": [
+  {
+   "task": "apex-brightpath-market-share",
+   "claims": {
+    "candidate": 48,
+    "accepted": 1
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 5
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 4
+   }
+  },
+  {
+   "task": "apex-brightpath-seat-surplus",
+   "claims": {
+    "candidate": 43,
+    "superseded": 2,
+    "accepted": 1
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 5
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 6
+   }
+  },
+  {
+   "task": "apex-eurogrid-curtailment",
+   "claims": {
+    "candidate": 48
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 10
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 9
+   }
+  },
+  {
+   "task": "automationbench-marketing-content-gap-analysis",
+   "claims": {
+    "candidate": 71,
+    "superseded": 4,
+    "accepted": 3
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 2
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 4
+   },
+   "short": {
+    "returned": 10,
+    "own": 2
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 4
+   }
+  },
+  {
+   "task": "automationbench-sales-chatgpt-proposal-customization",
+   "claims": {
+    "accepted": 1,
+    "candidate": 99,
+    "superseded": 5
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 4
+   },
+   "short": {
+    "returned": 10,
+    "own": 1
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 0
+   }
+  },
+  {
+   "task": "automationbench-sales-partnership-contract",
+   "claims": {
+    "candidate": 78,
+    "superseded": 4,
+    "accepted": 5
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 4
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 2
+   },
+   "short": {
+    "returned": 10,
+    "own": 5
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 4
+   }
+  },
+  {
+   "task": "awilix-release-tier-explicit",
+   "claims": {
+    "candidate": 36
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 2
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 1
+   }
+  },
+  {
+   "task": "awilix-release-tier-implicit",
+   "claims": {
+    "candidate": 26
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 0
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 2
+   }
+  },
+  {
+   "task": "build-word2vec-pipeline",
+   "claims": {
+    "candidate": 32
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 10
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 10
+   }
+  },
+  {
+   "task": "cattrs-compositional-changelog",
+   "claims": {
+    "superseded": 34,
+    "candidate": 36
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 4
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 1
+   }
+  },
+  {
+   "task": "cookie-store-compositional-changelog",
+   "claims": {
+    "accepted": 34,
+    "candidate": 32,
+    "superseded": 6
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 5
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 2
+   },
+   "short": {
+    "returned": 10,
+    "own": 6
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 2
+   }
+  },
+  {
+   "task": "customer-delivery-contextual-preferences",
+   "claims": {
+    "accepted": 6,
+    "candidate": 56
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 1
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 2
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 2
+   }
+  },
+  {
+   "task": "dapt-intrusion-detection-workflow-learning",
+   "claims": {
+    "candidate": 128,
+    "superseded": 38,
+    "accepted": 17
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 10
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 10
+   },
+   "short": {
+    "returned": 10,
+    "own": 9
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 10
+   }
+  },
+  {
+   "task": "enterpriseops-csm-26d1b04a",
+   "claims": {
+    "candidate": 75,
+    "accepted": 2,
+    "superseded": 5
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 2
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 5
+   },
+   "short": {
+    "returned": 10,
+    "own": 2
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 6
+   }
+  },
+  {
+   "task": "enterpriseops-teams-2725d17f",
+   "claims": {
+    "candidate": 60,
+    "superseded": 4,
+    "accepted": 2
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 2
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 10
+   },
+   "short": {
+    "returned": 10,
+    "own": 2
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 10
+   }
+  }
+ ]
+}
