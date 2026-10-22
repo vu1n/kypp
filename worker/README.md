@@ -140,12 +140,14 @@ npx wrangler secret put CONSENT_SECRET       # 32+ random chars
 npm run deploy                               # applies migrations, then deploys; use this from now on
 ```
 
-To deploy an existing install on every push without keeping a Cloudflare token anywhere else, connect
-its Worker to the repo with Workers Builds (Worker > Settings > Builds): root `worker`, deploy command
-`npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`, and no build variables. The
-install's ids and domain stay on the Worker in Cloudflare, not in the build: the migration finds the
-D1 database by its name, the deploy keeps the D1 and KV the Worker is already bound to, and a config
-with no `routes` leaves the custom domain set under Settings > Domains & Routes alone.
+The owner's install (`kypp.vu1n.dev`) is the `production` environment in `wrangler.jsonc`: its D1
+and KV ids, custom domain, `workers_dev: false` and vars are committed there, and the top level stays
+the template the button copies. Deploy it with `npm run deploy:production` (migrations, then
+`wrangler deploy --env production`). To deploy it on every push to main without keeping a Cloudflare
+token in GitHub, connect the Worker to the repo with Workers Builds (Worker > Settings > Builds): root
+`worker`, deploy command `npm run deploy:production`, no build variables. A deploy without
+`--env production` targets the template and would turn workers.dev back on, so don't run plain
+`wrangler deploy` against this install. For your own install, add your own env block the same way.
 
 ## Connect
 
