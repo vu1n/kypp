@@ -1,0 +1,371 @@
+{
+ "status": {
+  "accepted": 215,
+  "candidate": 441,
+  "superseded": 386
+ },
+ "briefing_tasks": {
+  "dapt-intrusion-detection-workflow-learning": 11,
+  "build-word2vec-pipeline": 1
+ },
+ "rows": [
+  {
+   "task": "apex-brightpath-market-share",
+   "claims": {
+    "superseded": 20,
+    "candidate": 17,
+    "accepted": 12
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 5
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 6
+   },
+   "short": {
+    "returned": 10,
+    "own": 5
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 3
+   }
+  },
+  {
+   "task": "apex-brightpath-seat-surplus",
+   "claims": {
+    "candidate": 23,
+    "superseded": 12,
+    "accepted": 11
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 2
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 4
+   },
+   "short": {
+    "returned": 10,
+    "own": 2
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 6
+   }
+  },
+  {
+   "task": "apex-eurogrid-curtailment",
+   "claims": {
+    "candidate": 30,
+    "superseded": 10,
+    "accepted": 8
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 6
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 10
+   },
+   "short": {
+    "returned": 10,
+    "own": 3
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 9
+   }
+  },
+  {
+   "task": "automationbench-marketing-content-gap-analysis",
+   "claims": {
+    "accepted": 15,
+    "superseded": 32,
+    "candidate": 31
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 3
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 3
+   },
+   "short": {
+    "returned": 10,
+    "own": 3
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 5
+   }
+  },
+  {
+   "task": "automationbench-sales-chatgpt-proposal-customization",
+   "claims": {
+    "accepted": 17,
+    "candidate": 47,
+    "superseded": 41
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 3
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 3
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 1
+   }
+  },
+  {
+   "task": "automationbench-sales-partnership-contract",
+   "claims": {
+    "candidate": 48,
+    "superseded": 24,
+    "accepted": 15
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 4
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 4
+   },
+   "short": {
+    "returned": 10,
+    "own": 5
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 4
+   }
+  },
+  {
+   "task": "awilix-release-tier-explicit",
+   "claims": {
+    "accepted": 1,
+    "candidate": 35
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 2
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 2
+   }
+  },
+  {
+   "task": "awilix-release-tier-implicit",
+   "claims": {
+    "candidate": 25,
+    "superseded": 1
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 0
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 2
+   }
+  },
+  {
+   "task": "build-word2vec-pipeline",
+   "claims": {
+    "superseded": 23,
+    "candidate": 5,
+    "accepted": 4
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 3
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 7
+   },
+   "short": {
+    "returned": 10,
+    "own": 3
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 5
+   }
+  },
+  {
+   "task": "cattrs-compositional-changelog",
+   "claims": {
+    "superseded": 47,
+    "candidate": 20,
+    "accepted": 3
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 3
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 0
+   }
+  },
+  {
+   "task": "cookie-store-compositional-changelog",
+   "claims": {
+    "accepted": 46,
+    "candidate": 16,
+    "superseded": 10
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 5
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 2
+   },
+   "short": {
+    "returned": 10,
+    "own": 5
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 2
+   }
+  },
+  {
+   "task": "customer-delivery-contextual-preferences",
+   "claims": {
+    "accepted": 8,
+    "candidate": 52,
+    "superseded": 2
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 0
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 3
+   },
+   "short": {
+    "returned": 10,
+    "own": 0
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 3
+   }
+  },
+  {
+   "task": "dapt-intrusion-detection-workflow-learning",
+   "claims": {
+    "superseded": 105,
+    "candidate": 32,
+    "accepted": 46
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 10
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 10
+   },
+   "short": {
+    "returned": 10,
+    "own": 10
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 10
+   }
+  },
+  {
+   "task": "enterpriseops-csm-26d1b04a",
+   "claims": {
+    "superseded": 30,
+    "candidate": 36,
+    "accepted": 16
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 4
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 3
+   },
+   "short": {
+    "returned": 10,
+    "own": 5
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 7
+   }
+  },
+  {
+   "task": "enterpriseops-teams-2725d17f",
+   "claims": {
+    "superseded": 29,
+    "candidate": 24,
+    "accepted": 13
+   },
+   "instruction": {
+    "returned": 10,
+    "own": 10
+   },
+   "instruction+cand": {
+    "returned": 10,
+    "own": 10
+   },
+   "short": {
+    "returned": 10,
+    "own": 10
+   },
+   "short+cand": {
+    "returned": 10,
+    "own": 10
+   }
+  }
+ ]
+}
