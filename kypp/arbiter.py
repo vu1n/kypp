@@ -97,11 +97,12 @@ def _agreement_clusters(claims: list[Claim], tag_of, pair_judge,
     about one feature are still two lessons. A pair is joined only on an affirmative judgment;
     `None` (no model, failed call) joins nothing."""
     # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — only an affirmative agreement judgment plus independent recurrence accepts.
-    by_tag: dict[str, list[Claim]] = defaultdict(list)
+    # Tags subdivide arbitration groups, never cross them: scope, project and owner stay in the key.
+    by_tag: dict[tuple, list[Claim]] = defaultdict(list)
     for c in claims:
         t = tag_of(c) if c.status == "candidate" else None
         if t:
-            by_tag[t].append(c)
+            by_tag[(t, c.scope, c.project, c.user if c.scope == "user" else None)].append(c)
     pairs = []
     for members in by_tag.values():
         words = {c.id: _words(c) for c in members}
@@ -222,20 +223,27 @@ def consolidate(store: ClaimStore, *, project: str | None = None, subject: str |
                 plan.append({"subject": winner.subject, "survivor": winner.id, "superseded": retired})
 
     if accept_corroboration and tag_of and pair_judge:
-        alive = [c for c in claims if c.id not in superseded and c.id not in promoted]
+        # A candidate on a subject that already has an accepted answer is a pending update: the
+        # exact-subject pass owns it (it retires the old answer when the update wins), so it stays out.
+        answered = {(c.subject, c.scope, c.project) for c in claims
+                    if c.status == "accepted" and c.id not in superseded}
+        alive = [c for c in claims if c.id not in superseded and c.id not in promoted
+                 and (c.subject, c.scope, c.project) not in answered]
         clusters, agreed = _agreement_clusters(alive, tag_of, pair_judge, agree_at)
         for linked in clusters:
-            # Only claims the judge matched with the survivor itself count: A~B and B~C chain different
+            # Only claims the judge matched with the centre itself count: A~B and B~C chain different
             # lessons into one cluster (the eval saw clusters of 25), so a transitive link is not
-            # agreement. Peel the strongest claim and its direct matches off, then repeat on the rest.
-            rest = list(linked)
-            while len(rest) > 1:
-                survivor = _survivor(rest)
-                cluster = [survivor] + [m for m in rest if frozenset((m.id, survivor.id)) in agreed]
-                rest = [m for m in rest if m not in cluster]
-                if len(cluster) < 2 or survivor.status != "candidate" \
-                        or _corroboration(cluster) < accept_corroboration or held(cluster):
+            # agreement. Try each claim as centre, strongest first, with its direct matches not yet
+            # merged; a centre that fails merges nothing, so its matches stay free for a later centre.
+            merged: set[str] = set()
+            for survivor in sorted(linked, key=_rank, reverse=True):
+                if survivor.id in merged or survivor.status != "candidate":
                     continue
+                cluster = [survivor] + [m for m in linked if m.id not in merged
+                                        and frozenset((m.id, survivor.id)) in agreed]
+                if len(cluster) < 2 or _corroboration(cluster) < accept_corroboration or held(cluster):
+                    continue
+                merged |= {m.id for m in cluster}
                 promoted.append(survivor.id)
                 retired = [m.id for m in cluster if m.id != survivor.id and m.status == "candidate"]
                 superseded |= set(retired)

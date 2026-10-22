@@ -25,12 +25,13 @@ class AgreementGate(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def claim(self, subject, content, session):
+    def claim(self, subject, content, session, scope="project", project="p", accept=False):
         # One observation per session, as distill_session files it; corroboration counts those.
         if session not in self.obs:
             self.obs[session] = self.store.observe("distill", "trace", project="p", source=f"session:{session}")
         oid = self.obs[session]
-        return self.store.claim("pitfall", subject, content, scope="project", project="p", source_ids=[oid])
+        return self.store.claim("pitfall", subject, content, scope=scope, project=project, source_ids=[oid],
+                                accept=accept)
 
     def live(self):
         return {c.id for c in self.store.live_claims("p", None)}
@@ -77,6 +78,33 @@ class AgreementGate(unittest.TestCase):
         live = {x.id: x.status for x in self.store.live_claims("p", None)}
         self.assertEqual(sum(s == "accepted" for s in live.values()), 1)
         self.assertGreaterEqual(len(live), 2)  # the lesson that only linked through b survives
+
+    def test_a_failed_centre_leaves_its_matches_for_another(self):
+        # K=3: A matches only B, so an A-centred cluster fails; B matches C and D and still wins.
+        a = self.claim("A", EMPTY, "s1")
+        b = self.claim("B", EMPTY, "s2")
+        c = self.claim("C", EMPTY, "s3")
+        d = self.claim("D", EMPTY, "s4")
+        direct = {frozenset(p) for p in ((a, b), (b, c), (b, d))}
+        res = consolidate(self.store, project="p", tag_of=lambda x: "w2v", accept_corroboration=3,
+                          pair_judge=lambda pair: 0.95 if frozenset(x.id for x in pair) in direct else 0.1)
+        self.assertEqual(res["promoted"], 1)
+
+    def test_tags_never_cross_projects(self):
+        self.claim("Word2Vec crashes on empty corpus", EMPTY, "s1", project="p")
+        self.claim("Gensim Word2Vec on an empty corpus", EMPTY, "s2", project="q")
+        res = consolidate(self.store, project=None, tag_of=lambda c: "w2v", pair_judge=lambda pair: 0.99)
+        self.assertEqual(res["promoted"], 0)
+
+    def test_pending_updates_stay_with_the_exact_subject_pass(self):
+        # An accepted answer plus a later candidate on the same subject: the agreement phase must not
+        # accept the update alongside the old answer.
+        self.claim("Word2Vec empty corpus", "old answer", "s0", accept=True)
+        self.claim("Word2Vec empty corpus", EMPTY, "s1")
+        self.claim("Gensim Word2Vec on an empty corpus", EMPTY, "s2")
+        self.assertEqual(self.run_gate(lambda pair: 0.99)["promoted"], 0)
+        accepted = [c.content for c in self.store.live_claims("p", None) if c.status == "accepted"]
+        self.assertEqual(accepted, ["old answer"])
 
     def test_without_the_phase_behaviour_is_unchanged(self):
         self.claim("Word2Vec crashes on empty corpus", EMPTY, "s1")
