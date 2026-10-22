@@ -1,0 +1,18 @@
+{
+ "traces": 219,
+ "claims": 1042,
+ "failed": [],
+ "consolidate": {
+  "groups": 72,
+  "superseded": 102,
+  "promoted": 72,
+  "dry_run": false,
+  "semantic": null
+ },
+ "usage": {
+  "input_tokens": 703177,
+  "output_tokens": 295470,
+  "calls": 214,
+  "hits": 5
+ }
+}
