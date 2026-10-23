@@ -254,15 +254,29 @@ test("a claim's own session and a different content are never renamed", async ()
   assert.equal(live.n, 2);
 });
 
-test("a rename only withdraws claims older than the one it keeps", async () => {
+test("renaming an echo keeps it an echo", async () => {
+  const db = await setup();
+  const store = new D1Store(db);
+  await client(db, "kypp", "a")("claim", { subject: "heron", content: "heron cache goes stale on rename" });
+  const b = client(db, "kypp", "b");
+  await b("recall", { query: "heron" });
+  await b("claim", { subject: "heron", content: "heron cache goes stale on rename" });       // an echo
+  const renamed = (await b("claim", { subject: "heron cache", content: "heron cache goes stale on rename" })).split("\n")[0];
+  const row = await db.prepare("SELECT source_ids, metadata FROM memory_claims WHERE id = ?").bind(renamed).first() as any;
+  assert.equal(row.source_ids, "[]");
+  assert.equal(JSON.parse(row.metadata).echo_of.length, 1);
+  await client(db, "kypp", "c")("claim", { subject: "heron cache", content: "the heron cache is stale after renames" });
+  assert.deepEqual(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote), []);
+});
+
+test("a rename reports only the claims it actually withdrew", async () => {
   const db = await setup();
   const store = new D1Store(db);
   const a = client(db, "kypp", "a");
-  const older = (await a("claim", { subject: "heron cache", content: "heron cache goes stale on rename" })).split("\n")[0];
-  const newer = (await a("claim", { subject: "heron rename", content: "heron cache goes stale on rename" })).split("\n")[0];
-  // A concurrent request that kept the older row must not withdraw the newer one.
-  await db.prepare("UPDATE memory_claims SET status = 'candidate' WHERE id = ?").bind(older).run();
-  assert.deepEqual(await store.withdrawRenamed({ project: "kypp" }, older, "heron cache", "heron cache goes stale on rename", "a"), []);
-  const row = await db.prepare("SELECT status FROM memory_claims WHERE id = ?").bind(newer).first() as any;
-  assert.equal(row.status, "candidate");
+  await a("claim", { subject: "heron cache", content: "heron cache goes stale on rename" });
+  const prior = await store.renamedFrom({ project: "kypp" }, "heron rename", "heron cache goes stale on rename", "a");
+  assert.equal(prior.length, 1);
+  // A scheduled pass promotes it between the read and the withdrawal: it stays, and isn't reported.
+  await db.prepare("UPDATE memory_claims SET status = 'accepted' WHERE id = ?").bind(prior[0].id).run();
+  assert.deepEqual(await store.withdraw(prior, "f".repeat(32)), []);
 });

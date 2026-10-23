@@ -291,8 +291,9 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 - A `claim` reply names up to three nearby subjects in the same lane (`nearSubjects`, other
   sessions only). It records no usage on purpose: the content was written before the agent saw the
   subjects, so reusing one is not an echo. Re-claiming the same content (whitespace-normalized)
-  under another subject in the same session supersedes the earlier candidate (`withdrawRenamed`,
-  `metadata.renamed_to`). Grouping is still by exact subject; this only steers agents toward one.
+  under another subject in the same session supersedes the earlier candidate (`renamedFrom` read
+  before the insert, then `withdraw`; `metadata.renamed_to`). A rename of an echo stays an echo: it
+  inherits `echo_of` and gets no session stamp. Grouping is still by exact subject.
 - `correct` bypasses the S1 gate and the two-session rule. `KYPP_CORRECT=off` (set in
   `wrangler.jsonc`) hides and refuses it; `.dev.vars` turns it back on for the smoke test.
 - `wrangler.jsonc` must stay installable by the Deploy to Cloudflare button (README): no resource
