@@ -221,3 +221,35 @@ test("defrag judges claims written while the gate was down, and rejects control 
   assert.match(await client(db, "kypp", "b")("recall", { query: "indexer" }), /symlinks/);
   assert.deepEqual(await store.unjudged(10), [], "a late verdict is kept, so it isn't judged twice");
 });
+
+test("a claim names nearby subjects, and reusing one with the same content renames it", async () => {
+  const db = await setup();
+  const store = new D1Store(db);
+  await client(db, "kypp", "a")("claim", { subject: "research page html pipeline", content: "render research pages with markdown-it 14.3.2, html false" });
+  await client(db, "wade", "a")("claim", { subject: "wade html pipeline", content: "render research pages with markdown-it 14.3.2" });
+  const b = client(db, "kypp", "b");
+  const first = await b("claim", { subject: "research article render", content: "render research articles with markdown-it 14.3.2, linkify on" });
+  assert.match(first, /nearby subjects here: "research page html pipeline"\./);
+  assert.ok(!first.includes("wade html pipeline"), "only this lane's subjects");
+  const renamed = await b("claim", { subject: "research page html pipeline", content: "render research articles with  markdown-it 14.3.2, linkify on" });
+  assert.match(renamed, /renamed: your claim under "research article render" is withdrawn/);
+  const [newId] = renamed.split("\n");
+  const old = await db.prepare("SELECT status, metadata FROM memory_claims WHERE id = ?").bind(first.split("\n")[0]).first() as any;
+  assert.equal(old.status, "superseded");
+  assert.equal(JSON.parse(old.metadata).renamed_to, newId);
+  // Seeing only the subject after writing the content isn't an echo: the rename still recurs.
+  const row = await db.prepare("SELECT source_ids FROM memory_claims WHERE id = ?").bind(newId).first() as any;
+  assert.equal(row.source_ids, '["session:b"]');
+  assert.equal(planConsolidation(await store.liveClaims({ filed: true }), DEFAULT_POLICY).flatMap((p) => p.promote).length, 1);
+});
+
+test("a claim's own session and a different content are never renamed", async () => {
+  const db = await setup();
+  const a = client(db, "kypp", "a");
+  await a("claim", { subject: "heron cache", content: "heron cache goes stale on rename" });
+  const second = await a("claim", { subject: "heron rename", content: "heron cache goes stale on a move" });
+  assert.ok(!second.includes("nearby subjects"), "your own subjects aren't suggested");
+  assert.ok(!second.includes("renamed"));
+  const live = await db.prepare("SELECT COUNT(*) n FROM memory_claims WHERE status = 'candidate'").first() as any;
+  assert.equal(live.n, 2);
+});

@@ -313,3 +313,16 @@ test("a busy linked room's briefing still lists its org's rules", async () => {
   const out = (await (await roomClient(db, "room-a", ["huddles"]))("briefing")).text;
   assert.match(out, /^# how this org works\n.*draft PRs first/);
 });
+
+test("a room bot's claim names nearby subjects from the room's other sessions only", async () => {
+  const db = await setup();
+  const { body } = await register(db, "room-a");
+  const caller = await roomCaller(db, body.token, CONFIGURED);
+  assert.ok(caller);
+  await call(db, caller, "s1")("claim", { subject: "deploy freeze", content: "No deploys on Fridays after noon." });
+  const other = await roomClient(db, "room-b", [], "s3");
+  await other("claim", { subject: "friday deploys", content: "No deploys on Fridays." });
+  const reply = (await call(db, caller, "s2")("claim", { subject: "friday release rule", content: "Deploys stop on Fridays at noon." })).text;
+  assert.match(reply, /nearby subjects here: "deploy freeze"\./);
+  assert.ok(!reply.includes("friday deploys"), "another room's lane stays out");
+});
