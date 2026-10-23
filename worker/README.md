@@ -29,8 +29,11 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Groups** are rows in `project_parents` (a project and a group it belongs to; a group can have
   parents too, up to three levels). Only defrag places claims at a group; agents never write there:
   `npx wrangler d1 execute kypp --remote --command "INSERT INTO project_parents(project, parent, created_at) VALUES ('kypp', 'tools', datetime('now'))"`.
-- **Projects** are rows you add; `description` is what the filing model reads to tell them apart:
-  `npx wrangler d1 execute kypp --remote --command "INSERT INTO projects(name, description, created_at) VALUES ('myrepo', 'one line on what it is', datetime('now'))"`.
+- **Projects** are rows you add, named after the repo; `description` is what the filing model reads
+  to tell them apart. With `KYPP_URL` and `KYPP_OPERATOR_TOKEN` set, `kypp project add myrepo
+  --description "one line on what it is"` registers it and files the claims already waiting under
+  that origin (`vu1n/myrepo` included); `kypp project list` shows them. Until a repo is registered,
+  its claims stay unsorted and never promote.
 - **Categories:** the claim types (pitfall, decision, procedure, preference, fact, artifact,
   hypothesis). The briefing is grouped by type.
 - **Promotion:** a claim is accepted once it recurs in two sessions at least

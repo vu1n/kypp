@@ -1,5 +1,5 @@
 """remote.py — the CLI's hosted backend. With KYPP_URL set, `kypp recall | show | briefing | remember |
-correct | reject | verify` call the Worker's POST /v1/operator with KYPP_OPERATOR_TOKEN instead of
+correct | reject | verify | project` call the Worker's POST /v1/operator with KYPP_OPERATOR_TOKEN instead of
 opening the local store, so the operator's human and verified writes land in the hosted D1. Unset,
 the CLI uses the local store exactly as before. Pointing KYPP_URL at a Worker run locally under
 workerd (`wrangler dev`) is the documented offline fallback; the route and token are the same.

@@ -14,6 +14,7 @@ _COMMANDS = {
     "verify": "re-check verifier-carrying config/fact claims → mark verified/stale",
     "briefing": "session-start digest: strongest accepted memory, pitfalls first",
     "usage": "usage provenance: which claims a run saw / which runs saw a claim",
+    "project": "hosted projects: list, or add one so its waiting claims get filed",
     "capture": "capture one session's §0 log into memory (alias: wire)",
     "sweep": "autocapture: sweep completed sessions into memory (idempotent)",
     "seed": "bootstrap a repo's memory from its Claude Code / Codex transcript history",
@@ -50,6 +51,8 @@ def main():
         from .shell import briefing_main as run
     elif cmd == "usage":
         from .shell import usage_main as run
+    elif cmd == "project":
+        from .shell import project_main as run
     elif cmd in ("capture", "wire"):
         from .wire import main as run
     elif cmd == "sweep":

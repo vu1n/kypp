@@ -1,5 +1,5 @@
 // store.ts — the D1 side of kypp/store.py: claim, recall, get, usage, live claims, status writes.
-import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope, ftsQuery } from "./memory.ts";
+import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope, ftsQuery, resolveOrigin } from "./memory.ts";
 import { normalizedContent } from "./claim-machine.ts";
 import type { ProjectInfo } from "./s1.ts";
 
@@ -513,6 +513,23 @@ export class D1Store {
     const { results } = await this.db.prepare("SELECT name, description FROM projects ORDER BY name").all();
     return results as unknown as ProjectInfo[];
   }
+
+  // Registers a project the claims can be filed into (the operator's call, never an agent's). False if
+  // it was already registered; the description is then left as it was.
+  async registerProject(name: string, description: string): Promise<boolean> {
+    const r = await this.db.prepare("INSERT OR IGNORE INTO projects(name, description, created_at) VALUES(?,?,?)")
+      .bind(name, description, now()).run();
+    return r.meta.changes > 0;
+  }
+
+  // Unsorted claims whose origin resolves to `name` (`grokbot`, `vu1n/grokbot`), as filing by name would.
+  async unsortedFrom(name: string): Promise<Claim[]> {
+    const { results } = await this.db.prepare(
+      `SELECT * FROM memory_claims WHERE status IN ('candidate','accepted') AND ${UNSORTED} AND instr(origin, ?) > 0`,
+    ).bind(name).all();
+    return results.map(hydrate).filter((c) => resolveOrigin(c.origin, [name]) === name);
+  }
+
 
   // Never-tried first, then the ones tried longest ago, so claims the model can't place don't hold
   // up the rest of the queue.

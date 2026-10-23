@@ -214,3 +214,21 @@ test("project writes need a registered project; unknown ops write nothing", asyn
   const n = await db.prepare("SELECT COUNT(*) AS n FROM memory_claims").first() as { n: number };
   assert.equal(n.n, 0);
 });
+
+test("register adds a project once and files the claims already waiting under its origin", async () => {
+  const { db, call, row, logged } = await setup();
+  const store = new D1Store(db);
+  const waiting = await store.claim({ type: "fact", subject: "render", content: "markdown-it 14.3.2", scope: "project", project: null,
+    origin: "vu1n/grokbot", confidence: 0.7, sourceIds: [], codeRefs: [], accept: false, agent: "t", user: "owner" });
+  const other = await store.claim({ type: "fact", subject: "other", content: "x", scope: "project", project: null,
+    origin: "grokbot-extras", confidence: 0.7, sourceIds: [], codeRefs: [], accept: false, agent: "t", user: "owner" });
+  const res = await call({ op: "register", project: "grokbot", description: "research briefs" });
+  assert.deepEqual(res.body, { project: "grokbot", created: true, filed: 1 });
+  assert.equal((await row(waiting)).project, "grokbot");
+  assert.deepEqual(await logged(waiting), ["file"]);
+  assert.equal((await row(other)).project, null, "only an origin that resolves to the name");
+  assert.deepEqual((await call({ op: "register", project: "grokbot" })).body, { project: "grokbot", created: false, filed: 0 });
+  assert.deepEqual((await call({ op: "projects" })).body!.projects.map((p: any) => p.name), ["grokbot", "p"]);
+  assert.equal((await call({ op: "register", project: "vu1n/grokbot" })).status, 400);
+  assert.equal((await call({ op: "register", project: "" })).status, 400);
+});
