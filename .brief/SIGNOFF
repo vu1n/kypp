@@ -51,3 +51,4 @@ never-delete conforms: staged snapshot conversion retains every claim/event and 
 operator-only-verify conforms: MCP claim only renames caller-cited source_ids so they can't count as session stamps; no MCP tool gains a verify argument and kypp verify is untouched
 scope-keys-decay amend-proposed: legacy recurrence counts only the adapter-added session stamp, never MCP caller-cited source ids, before cutover; withholds acceptance only
 scope-keys-decay amend-proposed: let defrag promote an accepted, repo-general room claim to a linked origin as a hidden candidate, accepted only on independent recurrence there; explicit share stays the immediate path
+operator-only-verify conforms: kypp project only lists and registers hosted projects through the operator route; it attaches no verify command, adds no MCP verify argument and leaves kypp verify untouched

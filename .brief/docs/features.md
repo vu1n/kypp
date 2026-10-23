@@ -279,6 +279,9 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   proxy fills them when Workers AI leaves them out; the SDK always sends a model (`jev-latest` if
   `TYPESAFE_DEFAULT_MODEL` is unset), which this route refuses with 400.
 - `origin` is what the writer said and is never updated; `project` is where the claim is filed.
+- A claim from an unregistered repo stays unsorted, and consolidation skips unsorted claims, so it
+  never promotes. Register repos with the operator `register` op (`kypp project add`), which also
+  files the claims already waiting under that origin; an agent's call never creates a project.
   Change placement only through `store.file()`, which also writes `defrag_log`.
 - `apply()` guards each subject group with the count and newest `updated_at` read at plan time;
   a group that changed since is skipped (CHECK on `consolidation_guard` rolls its batch back).

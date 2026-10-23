@@ -216,6 +216,27 @@ def reject_main():
     print(f"{cid[:8]} [{status} {ctype}] {subject}" + (f" — {args.reason}" if args.reason else ""))
 
 
+def project_main():
+    ap = argparse.ArgumentParser(
+        description="the hosted store's projects (needs KYPP_URL): list them, or add one so claims under "
+                    "that origin are filed into it. Name a project after its repo (`grokbot`, not "
+                    "`vu1n/grokbot`); an origin like `vu1n/grokbot` still files into it.")
+    sub = ap.add_subparsers(dest="action", required=True)
+    sub.add_parser("list", help="the registered projects")
+    add = sub.add_parser("add", help="register a project and file the claims already waiting under it")
+    add.add_argument("name", help="the repo's name")
+    add.add_argument("--description", help="what the project is, for the filing model to tell projects apart")
+    args = ap.parse_args()
+    if not remote.remote_url():
+        raise SystemExit("kypp project: set KYPP_URL; the local store has no project registry")
+    if args.action == "list":
+        for p in remote.call("projects")["projects"]:
+            print(p["name"] + (f" — {p['description']}" if p.get("description") else ""))
+        return
+    res = remote.call("register", project=args.name, description=args.description)
+    print(f"{res['project']}: {'registered' if res['created'] else 'already registered'}, filed {res['filed']} waiting claim(s)")
+
+
 def usage_main():
     ap = argparse.ArgumentParser(
         description="memory usage provenance: RECORD that a run was shown claims (--record), or READ "

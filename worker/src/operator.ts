@@ -11,6 +11,8 @@ export const OPERATOR_PATH = "/v1/operator";
 // The operator is the deployment's owner: the same user the passphrase sign-in stamps, so the CLI and
 // the owner's MCP clients share one user scope.
 const OPERATOR_USER = "owner";
+// A repo's bare name, as `resolveOrigin` matches the last segment of an origin like `owner/repo`.
+const PROJECT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 type Args = Record<string, any>;
 export interface OperatorOptions { s1?: S1Client | null; policy?: Policy }
@@ -77,6 +79,21 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       const where = await project();
       if (!where) throw new Error(`unknown project ${JSON.stringify(a.project)}`);
       return { claims: (await store.verifiable(where, OPERATOR_USER, str(a.subject) || undefined)).map(({ id, subject, verify }) => ({ id, subject, verify })) };
+    }
+    case "projects":
+      return { projects: await store.projects() };
+    // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.
+    // Why: rows come only from the operator (an unknown name in an agent's call never creates one), and
+    // claims already waiting under that origin are filed now rather than over the next hourly passes.
+    case "register": {
+      const name = str(a.project).trim();
+      if (!PROJECT_NAME.test(name)) throw new Error(`bad project name ${JSON.stringify(a.project)}: use the repo's name, letters, digits, '.', '_' or '-'`);
+      const created = await store.registerProject(name, str(a.description));
+      let filed = 0;
+      for (const c of await store.unsortedFrom(name)) {
+        if (await store.file(c.id, name, null, "origin matches a registered project")) filed++;
+      }
+      return { project: name, created, filed };
     }
     case "mark_verified": {
       if (typeof a.passed !== "boolean") throw new Error("passed must be true or false");
