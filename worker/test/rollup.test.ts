@@ -253,3 +253,16 @@ test("a claim's own session and a different content are never renamed", async ()
   const live = await db.prepare("SELECT COUNT(*) n FROM memory_claims WHERE status = 'candidate'").first() as any;
   assert.equal(live.n, 2);
 });
+
+test("a rename only withdraws claims older than the one it keeps", async () => {
+  const db = await setup();
+  const store = new D1Store(db);
+  const a = client(db, "kypp", "a");
+  const older = (await a("claim", { subject: "heron cache", content: "heron cache goes stale on rename" })).split("\n")[0];
+  const newer = (await a("claim", { subject: "heron rename", content: "heron cache goes stale on rename" })).split("\n")[0];
+  // A concurrent request that kept the older row must not withdraw the newer one.
+  await db.prepare("UPDATE memory_claims SET status = 'candidate' WHERE id = ?").bind(older).run();
+  assert.deepEqual(await store.withdrawRenamed({ project: "kypp" }, older, "heron cache", "heron cache goes stale on rename", "a"), []);
+  const row = await db.prepare("SELECT status FROM memory_claims WHERE id = ?").bind(newer).first() as any;
+  assert.equal(row.status, "candidate");
+});

@@ -480,7 +480,8 @@ export class D1Store {
     const [level, key] = laneSql(at);
     const { results } = await this.db.prepare(
       `SELECT c.id, c.subject, c.content FROM memory_claims c WHERE ${level} AND c.status = 'candidate'`
-      + " AND c.session = ? AND c.subject != ? AND c.id != ?",
+      // Why: only claims older than `keep`, so two concurrent renames can't each supersede the other.
+      + " AND c.session = ? AND c.subject != ? AND c.created_at < (SELECT created_at FROM memory_claims WHERE id = ?)",
     ).bind(key, session, subject, keep).all();
     const same = results.filter((r) => normalizedContent(r.content as string) === normalizedContent(content));
     if (!same.length) return [];
