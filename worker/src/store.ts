@@ -1,5 +1,6 @@
 // store.ts — the D1 side of kypp/store.py: claim, recall, get, usage, live claims, status writes.
 import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope, ftsQuery } from "./memory.ts";
+import { normalizedContent } from "./claim-machine.ts";
 import type { ProjectInfo } from "./s1.ts";
 
 const MAX_CONTENT = 4000;
@@ -97,6 +98,13 @@ function hydrate(r: Record<string, unknown>): Claim {
 }
 
 const UNSORTED = "scope = 'project' AND project IS NULL";
+
+/** A claim's level, keyed the way its group is: a project, a person's own scope, or a room's lane. */
+export type Lane = { project: string } | { user: string } | { room: string };
+/** An earlier claim of this session's with the same content under another subject, and its provenance. */
+export interface Renamed { id: string; subject: string; stamped: boolean; echoOf: string[] }
+const laneSql = (at: Lane): [string, string] => "project" in at ? ["c.scope = 'project' AND c.project = ?", at.project]
+  : "room" in at ? ["c.scope = 'room' AND c.user = ?", at.room] : ["c.scope = 'user' AND c.user = ?", at.user];
 
 // Which unconfirmed (candidate) claims a read returns besides accepted memory: none (briefing),
 // other agents' claims in the caller's own project (the default), or candidates at every level.
@@ -441,15 +449,58 @@ export class D1Store {
   // Repeating what it was shown is not independent evidence, so such a claim doesn't count toward
   // accepting the subject.
   // `at` is the claim's level: a project, or the user's own scope.
-  async shownCandidate(session: string, subject: string, at: { project: string } | { user: string } | { room: string }): Promise<string[]> {
-    const [level, key] = "project" in at ? ["c.scope = 'project' AND c.project = ?", at.project]
-      : "room" in at ? ["c.scope = 'room' AND c.user = ?", at.room] : ["c.scope = 'user' AND c.user = ?", at.user];
+  async shownCandidate(session: string, subject: string, at: Lane): Promise<string[]> {
+    const [level, key] = laneSql(at);
     const { results } = await this.db.prepare(
       "SELECT DISTINCT c.id FROM claim_usages u JOIN memory_claims c ON c.id = u.claim_id"
       + ` WHERE u.consumer = ? AND c.subject = ? AND ${level} AND c.status = 'candidate'`
       + " AND c.session IS NOT ?",
     ).bind(session, subject, key, session).all();
     return results.map((r) => r.id as string);
+  }
+
+  // Other sessions' live subjects in this lane that read like `subject`/`content`, nearest first, for
+  // the claim reply. Only subjects are returned and no usage is recorded: the content was written
+  // before the agent saw them, so a reuse of one still counts as its own observation.
+  // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
+  async nearSubjects(at: Lane, subject: string, content: string, session: string | null, limit: number): Promise<string[]> {
+    const fts = ftsQuery(`${subject} ${content}`);
+    if (!fts) return [];
+    const [level, key] = laneSql(at);
+    const { results } = await this.db.prepare(
+      "SELECT c.subject FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id"
+      + ` WHERE claims_fts MATCH ? AND ${level} AND c.status IN ('candidate','accepted') AND c.subject != ?`
+      + " AND c.session IS NOT ? ORDER BY bm25(claims_fts) LIMIT ?",
+    ).bind(fts, key, subject, session, limit * 4).all();
+    return [...new Set(results.map((r) => r.subject as string))].slice(0, limit);
+  }
+
+  // A session that claims the same content again under another subject is renaming its claim. Read
+  // before the new row is written, so a concurrent rename can't pick up the other's replacement.
+  async renamedFrom(at: Lane, subject: string, content: string, session: string): Promise<Renamed[]> {
+    const [level, key] = laneSql(at);
+    const { results } = await this.db.prepare(
+      `SELECT c.id, c.subject, c.content, c.source_ids, c.metadata FROM memory_claims c WHERE ${level}`
+      + " AND c.status = 'candidate' AND c.session = ? AND c.subject != ?",
+    ).bind(key, session, subject).all();
+    return results.filter((r) => normalizedContent(r.content as string) === normalizedContent(content)).map((r) => ({
+      id: r.id as string, subject: r.subject as string,
+      stamped: (JSON.parse((r.source_ids as string) || "[]") as string[]).length > 0,
+      echoOf: (JSON.parse((r.metadata as string) || "{}").echo_of ?? []) as string[],
+    }));
+  }
+
+  // Supersedes renamed claims that are still candidates, pointing at `keep`; returns the subjects it
+  // actually withdrew (a pass may have promoted one meanwhile, and that one stays).
+  // Context: doc://kypp/append-only-history@0002#never-delete — change status; never DELETE a claim.
+  async withdraw(renamed: Renamed[], keep: string): Promise<string[]> {
+    if (!renamed.length) return [];
+    const ts = now();
+    const results = await this.db.batch(renamed.map((r) => this.db.prepare(
+      "UPDATE memory_claims SET status = 'superseded', updated_at = ?, metadata = json_set(metadata, '$.renamed_to', ?)"
+      + " WHERE id = ? AND status = 'candidate'",
+    ).bind(ts, keep, r.id)));
+    return renamed.filter((_, i) => results[i].meta.changes > 0).map((r) => r.subject);
   }
 
   /** The registered projects a room may read and share into (memory-scope-decay §11). */

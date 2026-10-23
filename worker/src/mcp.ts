@@ -5,7 +5,7 @@ import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, T
 import { consolidate } from "./consolidate.ts";
 import { fileClaim } from "./defrag.ts";
 import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, RERANK_POOL, type S1Client, judge, rankForQuery } from "./s1.ts";
-import { type RoomScope, D1Store } from "./store.ts";
+import { type Lane, type Renamed, type RoomScope, D1Store } from "./store.ts";
 import { roomIdentity } from "./rooms.ts";
 
 export interface Caller {
@@ -53,7 +53,7 @@ const TOOLS = [
   },
   {
     name: "claim",
-    description: "Record a durable, distilled lesson (not a transcript, not project status). `subject` is the claim's identity: reuse an existing subject to update it. Lands as a candidate; accepted once another session claims the same subject. Keep content model-agnostic. Returns the claim id.",
+    description: "Record a durable, distilled lesson (not a transcript, not project status). `subject` is the claim's identity: reuse an existing subject to update it. Lands as a candidate; accepted once another session claims the same subject. Keep content model-agnostic. Returns the claim id, plus nearby subjects to reuse if one is the same lesson.",
     inputSchema: {
       type: "object", required: ["subject", "content"],
       properties: {
@@ -113,7 +113,7 @@ const ROOM_TOOLS = [
   },
   {
     name: "claim",
-    description: "Record a durable lesson this room settled (not a transcript). `subject` is its identity: reuse one to update it. It stays in this room unless `share_to` names a linked repo, which you set only when someone in the room asked. Returns the claim id.",
+    description: "Record a durable lesson this room settled (not a transcript). `subject` is its identity: reuse one to update it. It stays in this room unless `share_to` names a linked repo, which you set only when someone in the room asked. Returns the claim id, plus nearby subjects to reuse if one is the same lesson.",
     inputSchema: {
       type: "object", required: ["subject", "content"],
       properties: {
@@ -177,6 +177,30 @@ const ORG_RULES = 8; // accepted claims at the caller's org, listed first in a b
 const RECENT_USER = 5; // the user's own unconfirmed process and preferences, from their other sessions
 const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
 
+const NEAR_SUBJECTS = 3;
+
+// Why: subjects are free text and the scheduled pass groups by exact subject, so the same lesson
+// under two names never recurs. The reply names nearby subjects; reusing one with the same content
+// renames this claim (the earlier one is withdrawn) instead of leaving a stray candidate.
+async function afterClaim(store: D1Store, at: Lane, id: string, subject: string, content: string, session: string | null,
+  prior: Renamed[]): Promise<string> {
+  const renamed = await store.withdraw(prior, id);
+  const near = await store.nearSubjects(at, subject, content, session, NEAR_SUBJECTS);
+  return (renamed.length ? `\nrenamed: your claim under ${renamed.map((r) => JSON.stringify(r)).join(", ")} is withdrawn in favour of this one.` : "")
+    + (near.length ? `\nnearby subjects here: ${near.map((n) => JSON.stringify(n)).join(", ")}. If one is the same lesson, claim it again with the same content under that subject; this claim is then withdrawn.` : "");
+}
+
+// What this claim counts as: an echo when the session was shown the subject, or when it renames a
+// claim that was itself an echo (a rename must not launder relayed content into recurrence).
+// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
+async function provenance(store: D1Store, at: Lane, subject: string, content: string, session: string | null) {
+  if (!session) return { prior: [] as Renamed[], echoOf: [] as string[], stamp: [] as string[] };
+  const [shown, prior] = await Promise.all([store.shownCandidate(session, subject, at), store.renamedFrom(at, subject, content, session)]);
+  const echoOf = [...new Set([...shown, ...prior.flatMap((r) => r.echoOf)])];
+  const stamp = echoOf.length || prior.some((r) => !r.stamped) ? [] : [`session:${session}`];
+  return { prior, echoOf, stamp };
+}
+
 // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a room's token pins its lane and links; the project and scope arguments and the header are ignored, and no project list is shown.
 async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key: string): Promise<string> {
   const identity = roomIdentity(key);
@@ -224,15 +248,16 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson (p_control=${v.control.toFixed(2)}).`;
       }
       const s1 = v.keep === null && v.control === null ? undefined : { keep: v.keep, general: v.general, type: v.type, control: v.control };
-      const at = share !== null ? { project: share } : { room: identity };
-      const echoOf = ctx.session ? await store.shownCandidate(ctx.session, subject, at) : [];
+      const at: Lane = share !== null ? { project: share } : { room: identity };
+      const { prior, echoOf, stamp } = await provenance(store, at, subject, content, ctx.session);
       const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}), ...(share !== null ? { shared_from: identity } : {}) };
-      return store.claim({
+      const id = await store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,
         scope: share !== null ? "project" : "room", project: share, origin: share ?? identity, session: ctx.session,
-        confidence: a.confidence ?? 0.7, sourceIds: ctx.session && !echoOf.length ? [`session:${ctx.session}`] : [], codeRefs: [],
+        confidence: a.confidence ?? 0.7, sourceIds: stamp, codeRefs: [],
         accept: false, agent: identity, user: identity, metadata, ...(share !== null ? { sharedFrom: key } : {}),
       });
+      return id + await afterClaim(store, at, id, subject, content, ctx.session, prior);
     }
     case "expand": {
       const c = await store.get(String(a.handle ?? ""), identity, ctx.session, room);
@@ -339,17 +364,18 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
       const scope: "project" | "user" = a.scope ?? "project";
       // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
       const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
-      const echoOf = ctx.session && at ? await store.shownCandidate(ctx.session, subject, at) : [];
+      const { prior, echoOf, stamp } = at ? await provenance(store, at, subject, content, ctx.session)
+        : { prior: [], echoOf: [], stamp: ctx.session ? [`session:${ctx.session}`] : [] };
       const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}) };
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement; an echo gets none.
       const id = await store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,
         scope, project, origin, session: ctx.session, confidence: a.confidence ?? 0.7,
-        sourceIds: ctx.session && !echoOf.length ? [`session:${ctx.session}`] : [], codeRefs: a.code_refs,
+        sourceIds: stamp, codeRefs: a.code_refs,
         accept: false, agent: ctx.caller.agent, user, metadata,
       });
       // Why: clients that can't send a header shouldn't wait an hour for defrag to file their claim.
-      if (scope === "user" || project) return id;
+      if (at) return id + await afterClaim(store, at, id, subject, content, ctx.session, prior);
       try {
         if (await fileClaim(store, ctx.s1, { id, subject, content, origin }, projects)) return id;
       } catch (e) {
