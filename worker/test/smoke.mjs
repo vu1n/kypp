@@ -76,7 +76,9 @@ assert.ok(after.includes("no retry") && !after.includes("then fail"), after);
 
 // gate: status is turned away; a defaulted type is relabelled when the model is sure
 assert.ok((await b("claim", { project: "smoke", subject: `${subject} status`, content: "PR 12 merged and shipped" })).startsWith("Not stored"));
-const typed = JSON.parse(await b("expand", { handle: await b("claim", { project: "smoke", subject: `${subject} ci`, content: "the flaky e2e job needs one rerun" }) }));
+// The claim reply's first line is the id; later lines are notes (nearby subjects, unsorted).
+const idOf = (reply) => reply.split("\n")[0];
+const typed = JSON.parse(await b("expand", { handle: idOf(await b("claim", { project: "smoke", subject: `${subject} ci`, content: "the flaky e2e job needs one rerun" })) }));
 assert.equal(typed.type, "pitfall");
 
 // an unknown project is not an error: the claim lands unsorted and only its own session reads it
@@ -86,13 +88,13 @@ assert.ok((await b("recall", { project: "smoke", query: "nowhere", include_candi
 assert.ok(!(await a("recall", { project: "smoke", query: "nowhere", include_candidates: true })).includes(stray.slice(0, 8)));
 
 // user scope: visible to its owner in any project, invisible to anyone else
-const mine = await b("claim", { scope: "user", subject: `${subject} asking`, content: "ask one question in prose, not an options menu" });
+const mine = idOf(await b("claim", { scope: "user", subject: `${subject} asking`, content: "ask one question in prose, not an options menu" }));
 assert.ok((await b("recall", { project: "other-repo", query: "options menu", include_candidates: true })).includes("prose"));
 
 // a forged session header earns no session stamp
 const forged = await rpc(TOKEN, "deadbeef0000.0000000000000000", "tools/call",
   { name: "claim", arguments: { project: "smoke", subject: `${subject} forged`, content: "a lesson with a made-up session" } });
-assert.deepEqual(JSON.parse(await b("expand", { handle: forged.body.result.content[0].text })).source_ids, []);
+assert.deepEqual(JSON.parse(await b("expand", { handle: idOf(forged.body.result.content[0].text) })).source_ids, []);
 
 // 2. no token → 401 with discovery pointer
 const anon = await fetch(`${BASE}/mcp`, { method: "POST", body: "{}" });
@@ -127,7 +129,7 @@ const tok = await (await fetch(`${BASE}/oauth/token`, {
 })).json();
 assert.ok(tok.access_token, JSON.stringify(tok));
 const o = await connect(tok.access_token);
-const cid = await o("claim", { project: "smoke", subject: `${subject} oauth`, content: "written through OAuth" });
+const cid = idOf(await o("claim", { project: "smoke", subject: `${subject} oauth`, content: "written through OAuth" }));
 const viaOauth = JSON.parse(await o("expand", { handle: cid }));
 assert.equal(viaOauth.user, "owner");
 assert.equal(viaOauth.agent, "smoke-client");
