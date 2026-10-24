@@ -3,7 +3,7 @@
 // what the integration shows, and the owner approves with the passphrase; the integration then
 // redeems its handle once for an issuer token that can only register and revoke its own rooms. The
 // owner may instead let it continue a revoked paired grant, whose rooms then work again.
-import { errorLine, escape, htmlResponse, icon, passphrase, render } from "./page.ts";
+import { escape, htmlResponse, icon, passphrase, render } from "./page.ts";
 import { digest, mintToken, now, pathSegment } from "./rooms.ts";
 
 export const PAIR_PATH = "/pair";
@@ -94,6 +94,12 @@ export async function handlePair(request: Request, db: D1Database, deps: Pairing
   if (path === `${PAIR_PATH}/token` && request.method === "POST") return redeem(request, db);
   const code = pathSegment(path.slice(PAIR_PATH.length + 1))?.toUpperCase() ?? "";
   if (CODE.test(code) && (request.method === "GET" || request.method === "POST")) return approve(request, db, deps, code);
+  // A person opening a cut-off or mistyped link gets a page; API callers get JSON.
+  if (request.method === "GET" && path.startsWith(`${PAIR_PATH}/`)) {
+    return page(deps.base, "Link not valid", `<h1>${icon.x}This pairing link isn't valid</h1>
+<p>Check that you opened the whole link the app showed.</p>
+<p class="lede">Otherwise, start linking again from the app.</p>`, 404);
+  }
   return json({ error: "not found" }, 404);
 }
 
@@ -170,8 +176,9 @@ async function redeem(request: Request, db: D1Database): Promise<Response> {
 async function approve(request: Request, db: D1Database, deps: PairingDeps, code: string): Promise<Response> {
   const p = await db.prepare("SELECT * FROM pairings WHERE user_code = ?").bind(code).first<Pairing>();
   if (!live(p) || p.approved_at) {
-    return page(deps.base, "Code expired", `<h1>${icon.clock}This code can't be used</h1>
-<p>It has expired or was already used. Start linking again from the app.</p>`, 410);
+    return page(deps.base, "Code expired", `<h1>${icon.x}This code can't be used</h1>
+<p>It has expired or was already used.</p>
+<p class="lede">Start linking again from the app.</p>`, 410);
   }
   const name = escape(p.name);
   let error = "";
@@ -209,7 +216,8 @@ its bots again. Only continue the same app you unlinked.</p>
 <ul class="choices"><li><label><input type="radio" name="resume" value="" checked><span>Start new, empty room memory</span></label></li>
 ${earlier.map((g) => `<li><label><input type="radio" name="resume" value="${escape(g.name)}"><span>Continue the memory of
 <strong>${escape(g.label)}</strong><small>paired ${day(g.created_at)}, unlinked ${day(g.revoked_at)}</small></span></label></li>`).join("")}</ul></fieldset>`;
-  const none = earlier && !earlier.length ? `<p class="lede">No unlinked apps to continue. Approving starts new, empty room memory.</p>` : "";
+  const none = earlier && !earlier.length
+    ? `<p class="note info" role="status">${icon.info}<span>No unlinked apps to continue. Approving starts new, empty room memory.</span></p>` : "";
   return page(deps.base, "Approve pairing", `<h1>Let “${name}” create room memory?</h1>
 <p>The app named itself; kypp can't verify the name.</p>
 <p>Check that this code matches the one the app shows. If it doesn't, choose Deny.</p>
@@ -217,10 +225,9 @@ ${earlier.map((g) => `<li><label><input type="radio" name="resume" value="${esca
 <p class="lede">Codes expire 10 minutes after the app asks to pair.</p>
 <p>Approving lets it create private memory for its chat rooms, which it can't link to your repos. It can't
 read or write any other memory, and you can unlink it on <a href="${PAIRS_PATH}">Paired apps</a>.</p>
-${none}${errorLine(error)}
 <form method="post">
-${choices}
-${passphrase({ error, hint: earlier?.length ? "Enter the passphrase again to approve." : "" })}
+${choices}${none}
+${passphrase({ error, hint: earlier ? "Enter the passphrase again to approve." : "" })}
 <div class="actions"><button class="primary" name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button></div>
 ${earlier ? "" : `<button class="quiet" name="decision" value="choose">Continue an earlier link…</button>`}
 </form>`);
@@ -231,7 +238,6 @@ ${earlier ? "" : `<button class="quiet" name="decision" value="choose">Continue 
 export async function handlePairs(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const form = (error = "") => page(deps.base, "Paired apps", `<h1>Paired apps</h1>
 <p class="lede">Apps you paired can create memory for their chat rooms. Enter the passphrase to see them or unlink one.</p>
-${errorLine(error)}
 <form method="post">${passphrase({ error, focus: true })}
 <div class="actions"><button class="primary">Show paired apps</button></div></form>`);
   if (request.method === "GET") return form();
@@ -257,5 +263,5 @@ ${unlinked}
 ${rows ? `<form method="post"><fieldset><legend>Choose an app to unlink</legend><ul class="choices">${rows}</ul></fieldset>
 ${passphrase()}
 <div class="actions"><button class="danger">Unlink</button></div></form>`
-    : `<p class="lede">No apps are paired. Pairing starts from the app: it shows a code and a link to approve it here.</p>`}`);
+    : `<p>No apps are paired. Pairing starts from the app: it shows a code and a link to approve it here.</p>`}`);
 }

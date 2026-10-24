@@ -14,7 +14,7 @@ import { sameSecret } from "./secret.ts";
 import { ROOMS_PATH, digest, handleRooms, roomCaller } from "./rooms.ts";
 import { type ApiToken, apiTokens, tokenPins } from "./tokens.ts";
 import { PAIRS_PATH, PAIR_PATH, type PairingDeps, handlePair, handlePairs, pairedGrant } from "./pairing.ts";
-import { errorLine, escape, htmlResponse, icon, passphrase, render } from "./page.ts";
+import { escape, htmlResponse, icon, passphrase, render } from "./page.ts";
 
 export interface Env extends S1Env {
   DB: D1Database;
@@ -55,10 +55,9 @@ function consentPage(base: string, d: ConsentDetails, handle: string, error = ""
   const name = escape(d.clientName);
   return render(base, "Allow app access", `<h1>Allow “${name}” to use your kypp memory?</h1>
 <p>${d.clientDomain ? `Published by <strong>${escape(d.clientDomain)}</strong>.` : "This app registered itself; its name is not verified."}</p>
-<dl class="facts"><dt>Access goes to</dt><dd class="mono">${escape(d.redirectHost)}</dd>
+<dl class="grant"><dt>Access goes to</dt><dd class="target">${escape(d.redirectHost)}</dd>
 <dt>It can</dt><dd>Read and write all of your memory, in every project</dd></dl>
 ${d.redirectIsLoopback ? `<p class="note" role="note">${icon.warning}<span><strong>This sends access to an app on your computer.</strong> Continue only if you just started signing in from it.</span></p>` : ""}
-${errorLine(error)}
 <form method="post">
 <input type="hidden" name="handle" value="${escape(handle)}">
 ${passphrase({ error })}
@@ -67,9 +66,10 @@ ${passphrase({ error })}
 }
 
 // A sign-in that can't go on: an expired or reused handle, a bad request, or a refused retry with no
-// request to show again.
+// request to show again. The OAuth library's handle errors end "; start again", which the last line
+// already says.
 const signInError = (base: string, message: string, status: number) => htmlResponse(render(base, "Sign-in stopped",
-  `<h1>${icon.alert}This sign-in can't continue</h1><p>${escape(message)}</p>
+  `<h1>${icon.x}This sign-in can't continue</h1><p>${escape(message.replace(/; start again$/, "").replace(/[^.!?]$/, "$&."))}</p>
 <p class="lede">Start signing in again from the app you came from.</p>`), status);
 
 async function showConsent(oauth: any, req: unknown, base: string, error = "", status = 200): Promise<Response> {

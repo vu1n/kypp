@@ -17,7 +17,7 @@ body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.5 system-ui,
 header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.25rem 1rem;padding:.25rem 0 .75rem;border-bottom:1px solid var(--line);margin-bottom:2.5rem}
 .brand{font-weight:750;font-size:1.0625rem;letter-spacing:-.01em}
 .host{font:.875rem/1.4 ${MONO};color:var(--muted);overflow-wrap:anywhere}
-h1{font-size:1.5rem;line-height:1.25;font-weight:700;letter-spacing:-.015em;margin:0 0 .75rem;text-wrap:balance}
+h1{font-size:1.375rem;line-height:1.3;font-weight:650;letter-spacing:-.015em;margin:0 0 .75rem;text-wrap:balance}
 h1 svg{vertical-align:-.15em;margin-right:.4rem}
 p{margin:0 0 1rem}
 p,dd,li{text-wrap:pretty}
@@ -27,15 +27,19 @@ a:hover{text-decoration-thickness:2px}
 .mono{font-family:${MONO}}
 .code{display:block;margin:0 0 .5rem;padding:.875rem 1rem;background:var(--raised);border:1px solid var(--line);border-radius:10px;
 font:600 2rem/1.2 ${MONO};letter-spacing:.14em;text-align:center;font-variant-numeric:tabular-nums}
-.facts{display:grid;grid-template-columns:max-content 1fr;gap:.5rem 1.25rem;margin:0 0 1.25rem;padding:1rem 1.125rem;background:var(--raised);border:1px solid var(--line);border-radius:10px}
-.facts dt{color:var(--muted)}
-.facts dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.grant{margin:0 0 1.25rem;padding:.875rem 1rem;background:var(--raised);border:1px solid var(--line);border-radius:10px}
+.grant dt{color:var(--muted);font-size:.875rem}
+.grant dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.grant dd+dt{margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--line)}
+.grant .target{font:600 1.5rem/1.25 ${MONO};letter-spacing:.01em}
 .note{display:flex;gap:.625rem;align-items:flex-start;margin:0 0 1.25rem;padding:.75rem .875rem;background:var(--note);border:1px solid var(--note-line);border-radius:10px;color:var(--note-ink)}
 .note.ok{background:color-mix(in srgb,var(--accent) 9%,var(--raised));border-color:color-mix(in srgb,var(--accent) 45%,var(--line));color:var(--ink)}
-.note.ok svg{color:var(--accent)}
+.note.info{background:var(--raised);border-color:var(--line);color:var(--ink)}
+.i-ok{color:var(--accent)}
+.i-idle{color:var(--muted)}
 .note svg,.err svg{flex:none;margin-top:.2em}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.err{display:flex;gap:.5rem;align-items:flex-start;color:var(--danger);font-weight:600}
+.err{display:flex;gap:.5rem;align-items:flex-start;margin:.375rem 0 0;color:var(--danger);font-weight:600}
 .field{display:block;font-weight:600;margin:1.75rem 0 0}
 .field input{display:block;margin-top:.375rem}
 .hint{color:var(--muted);font-size:.875rem;margin:.375rem 0 0}
@@ -59,23 +63,23 @@ legend{font-weight:600;padding:0;margin-bottom:.5rem}
 .choices small{display:block;color:var(--muted);font-size:.875rem}`;
 
 // Drawn, not glyphs: one 20px, 2px-stroke family.
-const svg = (paths: string) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const svg = (paths: string, tone = "") => `<svg${tone ? ` class="${tone}"` : ""} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 export const icon = {
   warning: svg(`<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>`),
   alert: svg(`<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>`),
-  check: svg(`<circle cx="12" cy="12" r="10"/><path d="m8 12.5 2.5 2.5L16 9.5"/>`),
-  x: svg(`<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>`),
-  clock: svg(`<circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/>`),
+  check: svg(`<circle cx="12" cy="12" r="10"/><path d="m8 12.5 2.5 2.5L16 9.5"/>`, "i-ok"),
+  x: svg(`<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>`, "i-idle"),
+  info: svg(`<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>`, "i-idle"),
 };
 
-/** The error line a form shows above its passphrase field; the field points at it by id. */
-export const errorLine = (message: string) => message
-  ? `<p class="err" id="err" role="alert">${icon.alert}<span>${escape(message)}</span></p>` : "";
-
-/** The owner passphrase field. After an error it is marked invalid and takes focus. */
+/**
+ * The owner passphrase field. A form's error is shown right under it (every refusal is about the
+ * passphrase or what it unlocks); the field is then marked invalid, points at it, and takes focus.
+ */
 export const passphrase = (o: { error?: string; focus?: boolean; hint?: string } = {}) =>
   `<label class="field">Owner passphrase<input type="password" name="secret" autocomplete="current-password" required${
     o.error ? ` aria-invalid="true" aria-describedby="err"` : ""}${o.error || o.focus ? " autofocus" : ""}></label>${
+    o.error ? `<p class="err" id="err" role="alert">${icon.alert}<span>${escape(o.error)}</span></p>` : ""}${
     o.hint ? `<p class="hint">${o.hint}</p>` : ""}`;
 
 /** A whole page: `title` is the tab's name, `body` the main column's HTML (already escaped). */

@@ -21,15 +21,19 @@ typography:
     lineHeight: 1.5
   headline:
     fontFamily: "system-ui"
-    fontSize: "1.5rem"
-    fontWeight: 700
-    lineHeight: 1.25
+    fontSize: "1.375rem"
+    fontWeight: 650
+    lineHeight: 1.3
     letterSpacing: "-0.015em"
   code:
     fontFamily: "ui-monospace, SF Mono, Menlo, Consolas, monospace"
     fontSize: "2rem"
     fontWeight: 600
     letterSpacing: "0.14em"
+  target:
+    fontFamily: "ui-monospace, SF Mono, Menlo, Consolas, monospace"
+    fontSize: "1.5rem"
+    fontWeight: 600
   label:
     fontFamily: "system-ui"
     fontSize: "1rem"
@@ -85,18 +89,24 @@ the owner's system, since these pages open from whatever app they were in.
 
 ### Neutral
 - **Ground** and **Raised**: a faintly green-grey page with white (or lifted dark) panels for facts, the code, choices and fields.
-- **Ink** and **Muted**: text, and secondary text (dates, hints, the instance host). Muted stays ≥6.8:1.
+- **Ink** and **Muted**: text, and secondary text (dates, hints, fact labels, the instance host). Muted
+  stays ≥6.8:1. A page's main message is always ink, even when it says there is nothing to show.
 - **Line** for panel borders; **Field** (≥3:1) for the passphrase field's border.
 
 ### Named Rules
 - **Danger** is for errors and Unlink only. **Note** (amber) is for warnings the owner must read
-  before acting, such as access going to a local app. A success note tints from Gate green.
+  before acting, such as access going to a local app. A success note tints from Gate green; a status
+  note (nothing to choose, so approving does the default) is raised and neutral.
+- Outcome icons take their meaning's colour: the check is Gate green; x and info are Muted. Two pages
+  that report the same kind of outcome look the same: every dead end (an expired code, a cut-off
+  link, a sign-in that can't continue) shows the muted x, never Danger.
 
 ## Typography
 
-One family, `system-ui`. The h1 is a fixed 1.5rem, balanced, and asks the page's question. The
-pairing code is the one large element: 2rem monospace, tracked, in its own panel, spelled out to
-screen readers. Hostnames are monospace because they are data.
+One family, `system-ui`. The h1 is a fixed 1.375rem at weight 650, balanced, and asks the page's
+question. On pairing the code is the one large element: 2rem monospace, tracked, in its own panel,
+spelled out to screen readers. On consent the redirect host is: 1.5rem monospace in the facts panel,
+larger than the h1's self-asserted name. Hostnames are monospace because they are data.
 
 ## Layout
 
@@ -120,17 +130,28 @@ action comes first and is the only filled button (Enter submits it). Deny is the
 and skips validation. Rare paths ("Continue an earlier link…") are underlined text buttons below the row.
 
 ### Inputs / Fields
-One field, "Owner passphrase": a block label above a full-width 44px input. After an error the
-field is `aria-invalid`, points at the error line (`role="alert"`, drawn icon) and takes focus.
+One field, "Owner passphrase": a block label above a full-width 44px input. Every refusal is shown
+directly under the field (`passphrase({ error })` in `src/page.ts`), never at the top of the form:
+the field is `aria-invalid`, points at the error line (`role="alert"`, drawn icon) and takes focus.
+A muted hint can follow ("Enter the passphrase again to approve.").
 
 ### Facts
-Consent states what can be checked as a two-column list on a raised panel: where access goes and what it allows.
+Consent states what can be checked as a stacked list on one raised panel: a muted label over each
+value, divided by a hairline. "Access goes to" (the host, large monospace) comes first, then what it
+allows. Stacking keeps it the same at 390px and 1440px.
 
 ### Choice lists
 Radio rows inside one bordered panel, divided by hairlines, label first and a muted detail line below.
 
 ### Icons
-Drawn inline SVG, 20px, 2px round strokes, `currentColor`: warning, alert, check, x, clock.
+Drawn inline SVG, 20px, 2px round strokes: warning, alert, check, x, info. The outcome icons carry
+their tone class (`i-ok`, `i-idle`); notes and error lines colour theirs from the text.
+
+### Outcome pages
+A drawn icon and an h1 that names what happened, then one sentence of what it means. A dead end adds
+its next step as its own muted line ("Start linking again from the app."); an outcome the owner chose
+(Paired, Pairing denied) needs none. Dead ends a person can reach from a link (a sign-in that can't
+continue, a cut-off pairing link) are pages like these, never plain text or JSON.
 
 ## Do's and Don'ts
 
