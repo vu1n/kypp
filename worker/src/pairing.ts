@@ -3,6 +3,7 @@
 // what the integration shows, and the owner approves with the passphrase; the integration then
 // redeems its handle once for an issuer token that can only register and revoke its own rooms. The
 // owner may instead let it continue a revoked paired grant, whose rooms then work again.
+import { errorLine, escape, htmlResponse, icon, passphrase, render } from "./page.ts";
 import { digest, mintToken, now, pathSegment } from "./rooms.ts";
 
 export const PAIR_PATH = "/pair";
@@ -22,16 +23,13 @@ export interface PairingDeps {
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
-const escape = (v: string) => v.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
-const page = (title: string, body: string, status = 200) =>
-  new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>${escape(title)}</title>
-<style>body{font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem}input{font:inherit;padding:.4rem;width:100%}button{font:inherit;padding:.4rem 1rem;margin-right:.5rem}code{font-size:1.4rem;letter-spacing:.1em}.err{color:#b00}li{margin:.5rem 0}</style>
-${body}`, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+const page = (base: string, title: string, body: string, status = 200) => htmlResponse(render(base, title, body), status);
 
-const PASSPHRASE = `<p><label>Owner passphrase<br><input type="password" name="secret" autocomplete="current-password" required></label></p>`;
 const ownerError = (check: "wrong" | "limited") =>
   check === "limited" ? "Too many attempts. Wait a minute and try again." : "Wrong passphrase.";
+const day = (iso: string) => escape(iso.slice(0, 10));
+/** The code spelled out for a screen reader, which would otherwise read it as a word. */
+const spoken = (code: string) => code.split("-").map((half) => [...half].join(" ")).join(", ");
 
 function userCode(): string {
   const b = crypto.getRandomValues(new Uint8Array(8));
@@ -172,8 +170,10 @@ async function redeem(request: Request, db: D1Database): Promise<Response> {
 async function approve(request: Request, db: D1Database, deps: PairingDeps, code: string): Promise<Response> {
   const p = await db.prepare("SELECT * FROM pairings WHERE user_code = ?").bind(code).first<Pairing>();
   if (!live(p) || p.approved_at) {
-    return page("kypp pairing", "<h1>This code has expired or was already used.</h1><p>Start linking again from the app.</p>", 410);
+    return page(deps.base, "Code expired", `<h1>${icon.clock}This code can't be used</h1>
+<p>It has expired or was already used. Start linking again from the app.</p>`, 410);
   }
+  const name = escape(p.name);
   let error = "";
   // Unlinked grants are listed only after the passphrase, so a code alone doesn't reveal them.
   let earlier: Revoked[] | null = null;
@@ -182,53 +182,58 @@ async function approve(request: Request, db: D1Database, deps: PairingDeps, code
     const decision = form.get("decision");
     if (decision !== "approve" && decision !== "choose") {
       await db.prepare("UPDATE pairings SET denied_at = ? WHERE user_code = ?").bind(now(), code).run();
-      return page("kypp pairing", "<h1>Pairing denied.</h1><p>The app can't create rooms with this code.</p>");
+      return page(deps.base, "Pairing denied", `<h1>${icon.x}Pairing denied</h1><p>${name} can't create rooms with this code.</p>`);
     }
     const check = await deps.checkOwner(String(form.get("secret") ?? ""));
     const chosen = String(form.get("resume") ?? "");
-    if (check !== "ok") error = ownerError(check);
-    else if (decision === "choose") earlier = await revokedGrants(db);
+    if (check !== "ok") {
+      error = ownerError(check);
+      if (check === "wrong" && chosen) error += " Choose “Continue an earlier link…” again to pick it.";
+    } else if (decision === "choose") earlier = await revokedGrants(db);
     else {
-      const resume = chosen ? (await revokedGrants(db)).find((g) => g.name === chosen)?.name ?? null : null;
+      const resume = chosen ? (await revokedGrants(db)).find((g) => g.name === chosen) ?? null : null;
       if (chosen && !resume) error = "That earlier link can't be continued any more.";
       else {
-        await db.prepare("UPDATE pairings SET approved_at = ?, resume = ? WHERE user_code = ? AND approved_at IS NULL").bind(now(), resume, code).run();
-        return page("kypp pairing", `<h1>Paired.</h1><p>Go back to ${escape(p.name)}; it finishes linking on its own.</p>`);
+        await db.prepare("UPDATE pairings SET approved_at = ?, resume = ? WHERE user_code = ? AND approved_at IS NULL").bind(now(), resume?.name ?? null, code).run();
+        return page(deps.base, "Paired", `<h1>${icon.check}Paired</h1>
+<p>${resume ? `${name} continues the room memory of <strong>${escape(resume.label)}</strong>.` : `${name} starts with new, empty room memory.`}
+Go back to ${name}; it finishes linking on its own.</p>
+<p class="lede">You can unlink it on <a href="${PAIRS_PATH}">Paired apps</a>.</p>`);
       }
     }
   }
   // Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — only a revoked paired grant can be continued, and the page says it hands over that grant's room memory.
-  const choices = earlier === null ? "" : `<fieldset><legend>Room memory</legend>
-<p><label><input type="radio" name="resume" value="" checked style="width:auto"> Start new, empty room memory</label></p>
-${earlier.map((g) => `<p><label><input type="radio" name="resume" value="${escape(g.name)}" style="width:auto"> Continue the memory of
-<strong>${escape(g.label)}</strong> (paired ${escape(g.created_at.slice(0, 10))}, unlinked ${escape(g.revoked_at.slice(0, 10))})</label></p>`).join("")}
-${earlier.length ? "" : "<p>No unlinked apps to continue.</p>"}
+  const choices = !earlier?.length ? "" : `<fieldset><legend>Room memory</legend>
 <p>Continuing gives this app every room that earlier link made and the memory in them; the app seats
-its bots again. Only continue the same app you unlinked. Enter the passphrase again to approve.</p></fieldset>`;
-  const buttons = earlier === null
-    ? `<button name="decision" value="approve">Approve</button><button name="decision" value="choose">Continue an earlier link…</button><button name="decision" value="deny" formnovalidate>Deny</button>`
-    : `<button name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button>`;
-  return page("kypp pairing", `<h1>Let ${escape(p.name)} create room memory?</h1>
-<p>Check that this code matches the one the app shows:</p>
-<p><code>${escape(code)}</code></p>
-<p>The app named itself; kypp can't verify the name. Approving lets it create private memory lanes
-for its chat rooms, which it can't link to your repos. It can't read or write any other memory, and you can unlink it at
-<a href="${escape(deps.base)}${PAIRS_PATH}">${escape(deps.base)}${PAIRS_PATH}</a>.</p>
-${error ? `<p class="err">${escape(error)}</p>` : ""}
+its bots again. Only continue the same app you unlinked.</p>
+<ul class="choices"><li><label><input type="radio" name="resume" value="" checked><span>Start new, empty room memory</span></label></li>
+${earlier.map((g) => `<li><label><input type="radio" name="resume" value="${escape(g.name)}"><span>Continue the memory of
+<strong>${escape(g.label)}</strong><small>paired ${day(g.created_at)}, unlinked ${day(g.revoked_at)}</small></span></label></li>`).join("")}</ul></fieldset>`;
+  const none = earlier && !earlier.length ? `<p class="lede">No unlinked apps to continue. Approving starts new, empty room memory.</p>` : "";
+  return page(deps.base, "Approve pairing", `<h1>Let “${name}” create room memory?</h1>
+<p>The app named itself; kypp can't verify the name.</p>
+<p>Check that this code matches the one the app shows. If it doesn't, choose Deny.</p>
+<p class="code"><span aria-hidden="true">${escape(code)}</span><span class="sr">${spoken(code)}</span></p>
+<p class="lede">Codes expire 10 minutes after the app asks to pair.</p>
+<p>Approving lets it create private memory for its chat rooms, which it can't link to your repos. It can't
+read or write any other memory, and you can unlink it on <a href="${PAIRS_PATH}">Paired apps</a>.</p>
+${none}${errorLine(error)}
 <form method="post">
 ${choices}
-${PASSPHRASE}
-<p>${buttons}</p>
+${passphrase({ error, hint: earlier?.length ? "Enter the passphrase again to approve." : "" })}
+<div class="actions"><button class="primary" name="decision" value="approve">Approve</button><button name="decision" value="deny" formnovalidate>Deny</button></div>
+${earlier ? "" : `<button class="quiet" name="decision" value="choose">Continue an earlier link…</button>`}
 </form>`);
 }
 
 /** `GET /pairs` asks for the passphrase; `POST /pairs` lists paired grants and revokes one if asked. */
 // Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — the owner can revoke any paired grant, which pauses every room it issued.
 export async function handlePairs(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
-  const form = (error = "") => page("kypp paired apps", `<h1>Paired apps</h1>
-${error ? `<p class="err">${escape(error)}</p>` : ""}
-<form method="post">${PASSPHRASE}
-<p><button>Show paired apps</button></p></form>`);
+  const form = (error = "") => page(deps.base, "Paired apps", `<h1>Paired apps</h1>
+<p class="lede">Apps you paired can create memory for their chat rooms. Enter the passphrase to see them or unlink one.</p>
+${errorLine(error)}
+<form method="post">${passphrase({ error, focus: true })}
+<div class="actions"><button class="primary">Show paired apps</button></div></form>`);
   if (request.method === "GET") return form();
   if (request.method !== "POST") return json({ error: "GET or POST" }, 405);
   const data = await request.formData();
@@ -236,15 +241,21 @@ ${error ? `<p class="err">${escape(error)}</p>` : ""}
   const check = await deps.checkOwner(secret);
   if (check !== "ok") return form(ownerError(check));
   const revoke = data.get("revoke");
-  if (typeof revoke === "string" && revoke) await revokeIssuer(db, revoke);
+  let unlinked = "";
+  if (typeof revoke === "string" && revoke) {
+    await revokeIssuer(db, revoke);
+    const row = await db.prepare("SELECT label FROM room_issuers WHERE name = ?").bind(revoke).first<{ label: string }>();
+    unlinked = `<p class="note ok" role="status">${icon.check}<span>Unlinked <strong>${escape(row?.label ?? "the app")}</strong>. Its rooms' memory is kept; a later pairing can continue it.</span></p>`;
+  }
   const { results } = await db.prepare("SELECT name, label, created_at FROM room_issuers WHERE revoked_at IS NULL ORDER BY created_at")
     .all<{ name: string; label: string; created_at: string }>();
   // The passphrase is asked again to unlink, never echoed back into the page.
-  const rows = results.map((r) => `<li><label><input type="radio" name="revoke" value="${escape(r.name)}" required style="width:auto">
-<strong>${escape(r.label)}</strong>, paired ${escape(r.created_at.slice(0, 10))}</label></li>`).join("");
-  return page("kypp paired apps", `<h1>Paired apps</h1>
-${typeof revoke === "string" && revoke ? "<p>Unlinked. Its rooms' memory is kept; a later pairing can continue it.</p>" : ""}
-${rows ? `<form method="post"><ul>${rows}</ul>
-${PASSPHRASE}
-<p><button>Unlink</button></p></form>` : "<p>No apps are paired.</p>"}`);
+  const rows = results.map((r) => `<li><label><input type="radio" name="revoke" value="${escape(r.name)}" required><span>
+<strong>${escape(r.label)}</strong><small>paired ${day(r.created_at)}</small></span></label></li>`).join("");
+  return page(deps.base, "Paired apps", `<h1>Paired apps</h1>
+${unlinked}
+${rows ? `<form method="post"><fieldset><legend>Choose an app to unlink</legend><ul class="choices">${rows}</ul></fieldset>
+${passphrase()}
+<div class="actions"><button class="danger">Unlink</button></div></form>`
+    : `<p class="lede">No apps are paired. Pairing starts from the app: it shows a code and a link to approve it here.</p>`}`);
 }

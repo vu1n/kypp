@@ -120,6 +120,14 @@ const post = (secret) => fetch(`${BASE}/authorize`, {
   body: new URLSearchParams({ handle, secret, decision: "approve" }),
 });
 assert.equal((await post("wrong")).status, 403);
+// A browser posts back to the same /authorize?… URL, so a wrong passphrase shows the form again.
+const retry = await fetch(`${BASE}/authorize?${q}`, {
+  method: "POST", redirect: "manual", headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" },
+  body: new URLSearchParams({ handle, secret: "wrong", decision: "approve" }),
+});
+assert.equal(retry.status, 403);
+const retried = await retry.text();
+assert.ok(retried.includes('name="handle"') && retried.includes("Wrong passphrase"), "a wrong passphrase must show the form again");
 const ok = await post(SECRET);
 assert.equal(ok.status, 302, await ok.clone().text());
 const code = new URL(ok.headers.get("location")).searchParams.get("code");

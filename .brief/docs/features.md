@@ -233,6 +233,11 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 - A `group` claim stores the group's name in `project`, so any query keyed on `project` alone must
   also check `scope`. Groups come from `project_parents` (`store.ancestors`, recursive, depth < 4,
   cycles stop); nothing writes `scope='group'` until step 2 widening, so group reads are empty until then.
+- Every HTML page renders through `src/page.ts` (`render`, `htmlResponse`): one stylesheet
+  (`worker/DESIGN.md`), `no-store`, and no framing. A refused consent (wrong passphrase, rate limit)
+  re-parses the request from the POST's `/authorize?…` query and begins a fresh consent handle, so
+  the page always stands for what it shows; a POST without that query gets the error page alone,
+  with the same status. Don't round-trip consent details through hidden fields.
 - Recall shows other sessions' candidates in the caller's project by default (`candidates: "origin"`).
   The echo guard (`store.shownCandidate`) relies on `claim_usages` rows for what a session was shown,
   so every read path that renders claims must keep calling `recordUsage`.
