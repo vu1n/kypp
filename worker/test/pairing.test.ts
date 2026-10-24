@@ -56,6 +56,17 @@ test("kypp's pages are never cached or framed", async () => {
   }
 });
 
+test("a cut-off pairing link opens a page, while API calls keep JSON", async () => {
+  const db = memoryD1();
+  const res = await handlePair(new Request(`${base}/pair/bcdf`), db, deps);
+  assert.equal(res.status, 404);
+  assert.match(res.headers.get("Content-Type") ?? "", /text\/html/);
+  assert.match(await res.text(), /This pairing link isn't valid/);
+  const api = await post(db, "/pair/bcdf", {});
+  assert.equal(api.status, 404);
+  assert.deepEqual(await api.json(), { error: "not found" });
+});
+
 test("names are escaped on the approval page and must be printable", async () => {
   const db = memoryD1();
   const p = await start(db, "<script>x</script>");
