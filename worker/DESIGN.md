@@ -97,8 +97,9 @@ the owner's system, since these pages open from whatever app they were in.
 - **Danger** is for errors and Unlink only. **Note** (amber) is for warnings the owner must read
   before acting, such as access going to a local app. A success note tints from Gate green; a status
   note (nothing to choose, so approving does the default) is raised and neutral.
-- Outcome icons take their meaning's colour: the check is Gate green, the stop is Danger, and x,
-  clock and info are Muted. Two pages that report the same kind of outcome look the same.
+- Outcome icons take their meaning's colour: the check is Gate green; x and info are Muted. Two pages
+  that report the same kind of outcome look the same: every dead end (an expired code, a cut-off
+  link, a sign-in that can't continue) shows the muted x, never Danger.
 
 ## Typography
 
@@ -143,13 +144,14 @@ allows. Stacking keeps it the same at 390px and 1440px.
 Radio rows inside one bordered panel, divided by hairlines, label first and a muted detail line below.
 
 ### Icons
-Drawn inline SVG, 20px, 2px round strokes: warning, alert, stop, check, x, clock, info. Each icon
-carries its tone class (`i-ok`, `i-bad`, `i-idle`); notes and error lines colour theirs from the text.
+Drawn inline SVG, 20px, 2px round strokes: warning, alert, check, x, info. The outcome icons carry
+their tone class (`i-ok`, `i-idle`); notes and error lines colour theirs from the text.
 
 ### Outcome pages
-A drawn icon and an h1 that names what happened, one sentence of what it means, and a muted next step.
-Dead ends a person can reach from a link (a sign-in that can't continue, a cut-off pairing link) are
-pages like these, never plain text or JSON.
+A drawn icon and an h1 that names what happened, then one sentence of what it means. A dead end adds
+its next step as its own muted line ("Start linking again from the app."); an outcome the owner chose
+(Paired, Pairing denied) needs none. Dead ends a person can reach from a link (a sign-in that can't
+continue, a cut-off pairing link) are pages like these, never plain text or JSON.
 
 ## Do's and Don'ts
 

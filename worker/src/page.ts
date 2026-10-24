@@ -37,7 +37,6 @@ font:600 2rem/1.2 ${MONO};letter-spacing:.14em;text-align:center;font-variant-nu
 .note.info{background:var(--raised);border-color:var(--line);color:var(--ink)}
 .i-ok{color:var(--accent)}
 .i-idle{color:var(--muted)}
-.i-bad{color:var(--danger)}
 .note svg,.err svg{flex:none;margin-top:.2em}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .err{display:flex;gap:.5rem;align-items:flex-start;margin:.375rem 0 0;color:var(--danger);font-weight:600}
@@ -68,10 +67,8 @@ const svg = (paths: string, tone = "") => `<svg${tone ? ` class="${tone}"` : ""}
 export const icon = {
   warning: svg(`<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>`),
   alert: svg(`<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>`),
-  stop: svg(`<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>`, "i-bad"),
   check: svg(`<circle cx="12" cy="12" r="10"/><path d="m8 12.5 2.5 2.5L16 9.5"/>`, "i-ok"),
   x: svg(`<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>`, "i-idle"),
-  clock: svg(`<circle cx="12" cy="12" r="10"/><path d="M12 7v5l3 2"/>`, "i-idle"),
   info: svg(`<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>`, "i-idle"),
 };
 

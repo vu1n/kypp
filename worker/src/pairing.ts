@@ -97,7 +97,8 @@ export async function handlePair(request: Request, db: D1Database, deps: Pairing
   // A person opening a cut-off or mistyped link gets a page; API callers get JSON.
   if (request.method === "GET" && path.startsWith(`${PAIR_PATH}/`)) {
     return page(deps.base, "Link not valid", `<h1>${icon.x}This pairing link isn't valid</h1>
-<p>Check that you opened the whole link the app showed, or start linking again from the app.</p>`, 404);
+<p>Check that you opened the whole link the app showed.</p>
+<p class="lede">Otherwise, start linking again from the app.</p>`, 404);
   }
   return json({ error: "not found" }, 404);
 }
@@ -175,8 +176,9 @@ async function redeem(request: Request, db: D1Database): Promise<Response> {
 async function approve(request: Request, db: D1Database, deps: PairingDeps, code: string): Promise<Response> {
   const p = await db.prepare("SELECT * FROM pairings WHERE user_code = ?").bind(code).first<Pairing>();
   if (!live(p) || p.approved_at) {
-    return page(deps.base, "Code expired", `<h1>${icon.clock}This code can't be used</h1>
-<p>It has expired or was already used. Start linking again from the app.</p>`, 410);
+    return page(deps.base, "Code expired", `<h1>${icon.x}This code can't be used</h1>
+<p>It has expired or was already used.</p>
+<p class="lede">Start linking again from the app.</p>`, 410);
   }
   const name = escape(p.name);
   let error = "";

@@ -69,7 +69,7 @@ ${passphrase({ error })}
 // request to show again. The OAuth library's handle errors end "; start again", which the last line
 // already says.
 const signInError = (base: string, message: string, status: number) => htmlResponse(render(base, "Sign-in stopped",
-  `<h1>${icon.stop}This sign-in can't continue</h1><p>${escape(message.replace(/; start again$/, "").replace(/[^.!?]$/, "$&."))}</p>
+  `<h1>${icon.x}This sign-in can't continue</h1><p>${escape(message.replace(/; start again$/, "").replace(/[^.!?]$/, "$&."))}</p>
 <p class="lede">Start signing in again from the app you came from.</p>`), status);
 
 async function showConsent(oauth: any, req: unknown, base: string, error = "", status = 200): Promise<Response> {
