@@ -14,6 +14,7 @@ import { sameSecret } from "./secret.ts";
 import { ROOMS_PATH, digest, handleRooms, roomCaller } from "./rooms.ts";
 import { type ApiToken, apiTokens, tokenPins } from "./tokens.ts";
 import { PAIRS_PATH, PAIR_PATH, type PairingDeps, handlePair, handlePairs, pairedGrant } from "./pairing.ts";
+import { errorLine, escape, htmlResponse, icon, passphrase, render } from "./page.ts";
 
 export interface Env extends S1Env {
   DB: D1Database;
@@ -48,49 +49,61 @@ async function allowAttempt(request: Request, env: Env, limiter = env.AUTH_LIMIT
 }
 const tooMany = () => new Response("Too many attempts. Wait a minute and try again.", { status: 429 });
 
-const escape = (v: string) => v.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+interface ConsentDetails { clientName: string; clientDomain?: string; redirectHost: string; redirectIsLoopback: boolean }
 
-function consentPage(d: { clientName: string; clientDomain?: string; redirectHost: string; redirectIsLoopback: boolean }, handle: string, error = ""): string {
+function consentPage(base: string, d: ConsentDetails, handle: string, error = ""): string {
   const name = escape(d.clientName);
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>kypp sign-in</title>
-<style>body{font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem}input{font:inherit;padding:.4rem;width:100%}button{font:inherit;padding:.4rem 1rem;margin-right:.5rem}.err{color:#b00}</style>
-<h1>Allow ${name} to use your kypp memory?</h1>
-<p>${d.clientDomain ? `Published by <strong>${escape(d.clientDomain)}</strong>.` : "This app registered itself; its name is not verified."}
-Access goes to <strong>${escape(d.redirectHost)}</strong>.</p>
-${d.redirectIsLoopback ? "<p><strong>This sends access to an app on your computer.</strong> Continue only if you just started signing in from it.</p>" : ""}
-${error ? `<p class="err">${escape(error)}</p>` : ""}
+  return render(base, "Allow app access", `<h1>Allow “${name}” to use your kypp memory?</h1>
+<p>${d.clientDomain ? `Published by <strong>${escape(d.clientDomain)}</strong>.` : "This app registered itself; its name is not verified."}</p>
+<dl class="facts"><dt>Access goes to</dt><dd class="mono">${escape(d.redirectHost)}</dd>
+<dt>It can</dt><dd>Read and write all of your memory, in every project</dd></dl>
+${d.redirectIsLoopback ? `<p class="note" role="note">${icon.warning}<span><strong>This sends access to an app on your computer.</strong> Continue only if you just started signing in from it.</span></p>` : ""}
+${errorLine(error)}
 <form method="post">
 <input type="hidden" name="handle" value="${escape(handle)}">
-<p><label>Owner passphrase<br><input type="password" name="secret" autocomplete="current-password" required></label></p>
-<p><button name="decision" value="approve">Allow</button><button name="decision" value="deny" formnovalidate>Deny</button></p>
-</form>`;
+${passphrase({ error })}
+<div class="actions"><button class="primary" name="decision" value="approve">Allow</button><button name="decision" value="deny" formnovalidate>Deny</button></div>
+</form>`);
 }
 
-const html = (body: string, headers: Headers, status = 200) => {
-  headers.set("Content-Type", "text/html; charset=utf-8");
-  return new Response(body, { status, headers });
-};
+// A sign-in that can't go on: an expired or reused handle, a bad request, or a refused retry with no
+// request to show again.
+const signInError = (base: string, message: string, status: number) => htmlResponse(render(base, "Sign-in stopped",
+  `<h1>${icon.alert}This sign-in can't continue</h1><p>${escape(message)}</p>
+<p class="lede">Start signing in again from the app you came from.</p>`), status);
 
-async function authorize(request: Request, env: Env): Promise<Response> {
+async function showConsent(oauth: any, req: unknown, base: string, error = "", status = 200): Promise<Response> {
+  const details = await oauth.describeConsent(req);
+  const consent = await oauth.beginConsent(req);
+  return htmlResponse(consentPage(base, details, consent.handle, error), status, consent.headers);
+}
+
+// A refused Allow shows the form again with the error. The browser posts back to the same
+// /authorize?… URL, so the request is parsed again and the page gets a fresh handle that stands for
+// exactly what it shows; a post without that query gets the error alone.
+async function retryConsent(oauth: any, request: Request, base: string, error: string, status: number): Promise<Response> {
+  let req: unknown;
+  try {
+    req = await oauth.parseAuthRequest(request);
+  } catch {
+    return signInError(base, error, status);
+  }
+  return showConsent(oauth, req, base, error, status);
+}
+
+async function authorize(request: Request, env: Env, base: string): Promise<Response> {
   const oauth = env.OAUTH_PROVIDER;
   try {
-    if (request.method === "GET") {
-      const req = await oauth.parseAuthRequest(request);
-      const details = await oauth.describeConsent(req);
-      const consent = await oauth.beginConsent(req);
-      return html(consentPage(details, consent.handle), consent.headers);
-    }
+    if (request.method === "GET") return await showConsent(oauth, await oauth.parseAuthRequest(request), base);
     const form = await request.formData();
     const handle = String(form.get("handle"));
     if (form.get("decision") !== "approve") {
       const denied = await oauth.denyConsent(request, handle);
       return new Response(null, { status: 302, headers: denied.headers });
     }
-    if (!(await allowAttempt(request, env))) return tooMany();
+    if (!(await allowAttempt(request, env))) return await retryConsent(oauth, request, base, "Too many attempts. Wait a minute and try again.", 429);
     if (!env.KYPP_OWNER_SECRET || !(await sameSecret(String(form.get("secret") ?? ""), env.KYPP_OWNER_SECRET))) {
-      // The handle is single-use only once approved/denied, so the same page can be retried.
-      return new Response("Wrong passphrase. Go back and try again.", { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return await retryConsent(oauth, request, base, "Wrong passphrase.", 403);
     }
     const approved = await oauth.approveConsent(request, handle, { scope: ["mcp"] });
     const client = await oauth.lookupClient(approved.request.clientId);
@@ -105,7 +118,7 @@ async function authorize(request: Request, env: Env): Promise<Response> {
     return new Response(null, { status: 302, headers: approved.headers });
   } catch (error) {
     if (error instanceof AuthorizationError && (error as any).redirectTo) return Response.redirect((error as any).redirectTo, 302);
-    if (error instanceof AuthorizationError) return new Response(escape((error as any).description ?? "authorization failed"), { status: 400 });
+    if (error instanceof AuthorizationError) return signInError(base, (error as any).description ?? "The sign-in request isn't valid.", 400);
     throw error;
   }
 }
@@ -187,7 +200,7 @@ function oauthProvider(base: string): OAuthProvider<Env> {
     defaultHandler: {
       fetch: (request: Request, env: Env) => {
         const path = new URL(request.url).pathname;
-        if (path === "/authorize") return authorize(request, env);
+        if (path === "/authorize") return authorize(request, env, base);
         if (path === "/") return new Response("kypp memory server. Add <this URL>/mcp to your coding agent as a remote MCP server.\n");
         return new Response("not found", { status: 404 });
       },

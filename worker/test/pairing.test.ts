@@ -40,8 +40,20 @@ test("a pairing starts with a secret handle, a readable code and the page that s
   assert.match(page, /Huddles workspace Launch/);
   assert.match(page, new RegExp(p.user_code));
   assert.match(page, /can't verify the name/);
+  // The code is spelled out for screen readers, which would read it as a word.
+  assert.match(page, /class="sr">[A-Z2-9]( [A-Z2-9]){3}, [A-Z2-9]( [A-Z2-9]){3}</);
   const stored = (await db.prepare("SELECT * FROM pairings").all()).results[0] as Record<string, string>;
   assert.notEqual(stored.handle_digest, p.handle);
+});
+
+test("kypp's pages are never cached or framed", async () => {
+  const db = memoryD1();
+  const p = await start(db);
+  for (const res of [await handlePair(new Request(p.verification_uri), db, deps), await handlePairs(new Request(`${base}/pairs`), db, deps)]) {
+    assert.equal(res.headers.get("Cache-Control"), "no-store");
+    assert.equal(res.headers.get("Content-Security-Policy"), "frame-ancestors 'none'");
+    assert.equal(res.headers.get("X-Frame-Options"), "DENY");
+  }
 });
 
 test("names are escaped on the approval page and must be printable", async () => {
@@ -119,7 +131,8 @@ test("the owner lists paired apps and unlinks one with the passphrase", async ()
   assert.match(list, /Workspace A/);
   assert.match(list, /Workspace B/);
   assert.doesNotMatch(list, /owner-pass/);
-  await form(db, "/pairs", { secret: "owner-pass", revoke: a.issuer }, handlePairs);
+  const after = await (await form(db, "/pairs", { secret: "owner-pass", revoke: a.issuer }, handlePairs)).text();
+  assert.match(after, /Unlinked <strong>Workspace A<\/strong>/);
   assert.equal(await pairedIssuer(db, a.token), null);
   assert.equal(await pairedIssuer(db, b.token), b.issuer);
 });
@@ -171,7 +184,8 @@ test("a new pairing can continue an unlinked grant: its rooms come back, its old
   const pageText = await (await form(db, `/pair/${p.user_code}`, { decision: "choose", secret: "owner-pass" })).text();
   assert.match(pageText, /Continue the memory of/);
   assert.match(pageText, /gives this app every room that earlier link made/);
-  await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: old.issuer });
+  const done = await (await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: old.issuer })).text();
+  assert.match(done, /continues the room memory of <strong>Huddles workspace Launch<\/strong>/);
   const again = (await redeem(db, p.handle)).body;
   assert.equal(again.issuer, old.issuer);
   assert.equal(again.resumed, true);
@@ -190,7 +204,7 @@ test("only an unlinked grant can be continued, and a fresh pairing starts empty"
   const refused = await (await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass", resume: live.issuer })).text();
   assert.match(refused, /be continued any more/);
   assert.equal((await redeem(db, p.handle)).body.error, "authorization_pending");
-  await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass" });
+  assert.match(await (await form(db, `/pair/${p.user_code}`, { decision: "approve", secret: "owner-pass" })).text(), /new, empty room memory/);
   const fresh = (await redeem(db, p.handle)).body;
   assert.notEqual(fresh.issuer, live.issuer);
   assert.equal(await pairedIssuer(db, live.token), live.issuer);
