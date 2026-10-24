@@ -60,7 +60,29 @@ Recall, top 10, number of results from the task's own trajectories (`recall_chec
 The `briefing` digest gives 10 of its 12 lines to one task (network intrusion), because that task
 has the most accepted claims.
 
-## Reproduce
+## Release corpus (v1.1) and the task run
+
+Letta has since published the harness ([letta-ai/frontiermemory](https://github.com/letta-ai/frontiermemory)),
+the 674-trajectory corpus (gated on Hugging Face) and the 15 tasks on Harbor Hub. `fm_corpus.py` reads
+the corpus as a memory agent sees it: opaque ATIF, Claude Code, Codex, OpenCode and ACP logs that each
+end with `# Verifier result` PASS or FAIL, with no map to tasks. `export_memory.py` renders the dreamed
+store as the memory folder the fixed task agents load: kypp's briefing, then every live claim filed
+under the prompt of the trajectory it came from, accepted first.
+
+```sh
+tumbler run -- frontier-memory fetch-corpus --out /tmp/fm/joint-674   # from the frontiermemory repo
+uv run python eval/frontiermemory/fm_corpus.py --corpus /tmp/fm/joint-674 --out /tmp/fm/events
+tumbler run -- uv run --with anthropic python eval/frontiermemory/dream.py \
+  --logs /tmp/fm/events --db /tmp/fm/kypp.db --cache /tmp/fm/dream_cache.json --live --workers 12
+uv run python eval/frontiermemory/export_memory.py --db /tmp/fm/kypp.db --logs /tmp/fm/events --out /tmp/fm/memory
+tumbler run -- frontier-memory run-tasks --harness claude-code -m anthropic/claude-opus-5-5 --effort max \
+  --memory /tmp/fm/memory -k 1
+```
+
+The dream runs on the host, not as Harbor's memory-generation task, so it is screening evidence, not
+a submission. It never sees the target tasks: grouping uses each trajectory's own prompt.
+
+## Reproduce (pilot)
 
 ```sh
 python eval/frontiermemory/fm_traces.py fetch  --cache /tmp/fm/cache
