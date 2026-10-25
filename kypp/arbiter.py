@@ -158,9 +158,9 @@ def consolidate(store: ClaimStore, *, project: str | None = None, subject: str |
     briefing/default recall without a manual --accept. `judge` (s1.agreement_judge) may hold a
     promotion back when the supporting claims look conflicted; it never causes one. Phase 4 (when
     `tag_of` and `pair_judge` are given): candidates the exact-subject pass left alone are compared
-    pairwise within a tag, and pairs `pair_judge` rates >= `agree_at` count as one lesson; the
-    survivor plus the claims matched with it directly, backed by >= K sessions, is promoted and those
-    restatements superseded.
+    pairwise within a tag, and pairs `pair_judge` rates >= `agree_at` corroborate each other; a centre
+    plus the claims matched with it directly, backed by >= K sessions, are all promoted and none is
+    superseded, so a misjudged pair costs an extra accepted claim, not a lost one.
     dry_run returns the plan without writing.
     Returns {groups, superseded, promoted, dry_run, plan:[{subject, survivor, superseded:[ids]}]}."""
     claims = store.live_claims(project, subject)
@@ -244,11 +244,12 @@ def consolidate(store: ClaimStore, *, project: str | None = None, subject: str |
                 if len(cluster) < 2 or _corroboration(cluster) < accept_corroboration or held(cluster):
                     continue
                 merged |= {m.id for m in cluster}
-                promoted.append(survivor.id)
-                retired = [m.id for m in cluster if m.id != survivor.id and m.status == "candidate"]
-                superseded |= set(retired)
-                plan.append({"subject": survivor.subject, "survivor": survivor.id, "superseded": retired,
-                             "agreement": True})
+                # Promote every claim in the cluster, retire none: about 1 in 12 judged-agreeing pairs
+                # are different lessons that happen to fit together, and superseding one would hide it.
+                agreed_ids = [m.id for m in cluster if m.status == "candidate"]
+                promoted += agreed_ids
+                plan.append({"subject": survivor.subject, "survivor": survivor.id, "superseded": [],
+                             "agreed": agreed_ids, "agreement": True})
 
     if not dry_run:
         for cid in superseded:

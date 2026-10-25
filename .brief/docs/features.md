@@ -452,9 +452,11 @@ the weaker claims. It also promotes corroborated candidates.
 - The S1 agreement judge only holds a promotion; `None` (no model, failed call) never blocks one.
   A held group still supersedes its weaker duplicates, so the subject waits for a fresh session.
 - The agreement phase (`tag_of` + `pair_judge`, off unless both are passed) is the one place a model
-  answer can cause a promotion. It joins two claims only on an affirmative judgment, and only the
-  survivor's direct matches merge: union-find over A~B, B~C chained different lessons into clusters
-  of 25 on the FrontierMemory store. A shared tag is never agreement by itself. The hosted Worker's
+  answer can cause a promotion. It joins two claims only on an affirmative judgment, and only a
+  centre's direct matches count: union-find over A~B, B~C chained different lessons into clusters
+  of 25 on the FrontierMemory store. It promotes every claim in a cluster and supersedes none, since
+  about 1 in 12 pairs judged >= 0.9 are distinct lessons; a misjudgment costs an extra accepted
+  claim, never a lost one. A shared tag is never agreement by itself. The hosted Worker's
   `memory.ts` does not have this phase yet, so turning it on locally makes local and hosted promote
   differently. Cutoff and its eval: `eval/agreement/`.
 

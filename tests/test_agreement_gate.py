@@ -39,14 +39,20 @@ class AgreementGate(unittest.TestCase):
     def run_gate(self, judge, tag=lambda c: "w2v"):
         return consolidate(self.store, project="p", tag_of=tag, pair_judge=judge)
 
-    def test_agreeing_restatements_from_two_sessions_promote_one(self):
+    def test_agreeing_restatements_from_two_sessions_promote_both_and_retire_neither(self):
         a = self.claim("Word2Vec crashes on empty corpus", EMPTY, "s1")
         b = self.claim("Gensim Word2Vec on an empty corpus", EMPTY + " (gensim 4)", "s2")
         res = self.run_gate(lambda pair: 0.95)
-        self.assertEqual(res["promoted"], 1)
+        self.assertEqual((res["promoted"], res["superseded"]), (2, 0))
         statuses = {c.id: c.status for c in self.store.live_claims("p", None)}
-        self.assertEqual(sorted(statuses.values()), ["accepted"])
-        self.assertTrue(set(statuses) <= {a, b})
+        self.assertEqual(statuses, {a: "accepted", b: "accepted"})
+
+    def test_a_second_pass_changes_nothing(self):
+        self.claim("Word2Vec crashes on empty corpus", EMPTY, "s1")
+        self.claim("Gensim Word2Vec on an empty corpus", EMPTY, "s2")
+        self.run_gate(lambda pair: 0.95)
+        res = self.run_gate(lambda pair: 0.95)
+        self.assertEqual((res["promoted"], res["superseded"]), (0, 0))
 
     def test_a_shared_tag_alone_never_corroborates(self):
         self.claim("Word2Vec crashes on empty corpus", EMPTY, "s1")
@@ -69,15 +75,18 @@ class AgreementGate(unittest.TestCase):
         self.assertEqual(self.run_gate(lambda pair: 0.99, tag=lambda c: None)["promoted"], 0)
 
     def test_a_transitive_link_is_not_agreement(self):
-        # A~B and B~C, but A and C are different lessons: only the survivor's direct matches merge.
+        # A~B and B~C, but A and C are different lessons: only the centre's direct matches count.
         a = self.claim("Word2Vec crashes on empty corpus", EMPTY, "s1")
         b = self.claim("Word2Vec edge cases", EMPTY + "; also pass min_count=1", "s2")
         c = self.claim("Word2Vec min_count drops rare words", "Pass min_count=1", "s3")
         direct = {frozenset((a, b)), frozenset((b, c))}
-        self.run_gate(lambda pair: 0.95 if frozenset(x.id for x in pair) in direct else 0.1)
+        res = self.run_gate(lambda pair: 0.95 if frozenset(x.id for x in pair) in direct else 0.1)
         live = {x.id: x.status for x in self.store.live_claims("p", None)}
-        self.assertEqual(sum(s == "accepted" for s in live.values()), 1)
-        self.assertGreaterEqual(len(live), 2)  # the lesson that only linked through b survives
+        self.assertEqual(len(live), 3)  # nothing is retired
+        # a and c only link through b, so they are accepted together only in a b-centred cluster.
+        for p in res["plan"]:
+            if {a, c} <= set(p["agreed"]):
+                self.assertEqual(p["survivor"], b)
 
     def test_a_failed_centre_leaves_its_matches_for_another(self):
         # K=3: A matches only B, so an A-centred cluster fails; B matches C and D and still wins.
@@ -88,7 +97,7 @@ class AgreementGate(unittest.TestCase):
         direct = {frozenset(p) for p in ((a, b), (b, c), (b, d))}
         res = consolidate(self.store, project="p", tag_of=lambda x: "w2v", accept_corroboration=3,
                           pair_judge=lambda pair: 0.95 if frozenset(x.id for x in pair) in direct else 0.1)
-        self.assertEqual(res["promoted"], 1)
+        self.assertEqual([(p["survivor"], sorted(p["agreed"])) for p in res["plan"]], [(b, sorted((a, b, c, d)))])
 
     def test_tags_never_cross_projects(self):
         self.claim("Word2Vec crashes on empty corpus", EMPTY, "s1", project="p")
