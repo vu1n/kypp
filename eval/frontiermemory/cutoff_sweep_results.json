@@ -1,0 +1,92 @@
+{
+ "pairs_judged": 15165,
+ "pairs_scored": 15151,
+ "sweep": [
+  {
+   "cutoff": 0.5,
+   "pairs_at_or_above": 3715,
+   "accepted": 685,
+   "superseded": 1302
+  },
+  {
+   "cutoff": 0.6,
+   "pairs_at_or_above": 3344,
+   "accepted": 672,
+   "superseded": 1220
+  },
+  {
+   "cutoff": 0.7,
+   "pairs_at_or_above": 2947,
+   "accepted": 635,
+   "superseded": 1119
+  },
+  {
+   "cutoff": 0.8,
+   "pairs_at_or_above": 2400,
+   "accepted": 575,
+   "superseded": 963
+  },
+  {
+   "cutoff": 0.85,
+   "pairs_at_or_above": 2017,
+   "accepted": 524,
+   "superseded": 841
+  },
+  {
+   "cutoff": 0.9,
+   "pairs_at_or_above": 1492,
+   "accepted": 444,
+   "superseded": 658
+  },
+  {
+   "cutoff": 0.95,
+   "pairs_at_or_above": 452,
+   "accepted": 232,
+   "superseded": 240
+  }
+ ],
+ "labels_by_bin": [
+  {
+   "bin": "0.0-0.5",
+   "n": 30,
+   "same": 0,
+   "conflict": 0
+  },
+  {
+   "bin": "0.5-0.7",
+   "n": 30,
+   "same": 13,
+   "conflict": 0
+  },
+  {
+   "bin": "0.7-0.8",
+   "n": 30,
+   "same": 22,
+   "conflict": 0
+  },
+  {
+   "bin": "0.8-0.85",
+   "n": 30,
+   "same": 19,
+   "conflict": 2
+  },
+  {
+   "bin": "0.85-0.9",
+   "n": 30,
+   "same": 21,
+   "conflict": 3
+  },
+  {
+   "bin": "0.9-0.95",
+   "n": 30,
+   "same": 27,
+   "conflict": 0
+  },
+  {
+   "bin": "0.95-1.0",
+   "n": 30,
+   "same": 29,
+   "conflict": 0
+  }
+ ]
+}
