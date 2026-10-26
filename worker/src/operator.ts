@@ -1,6 +1,6 @@
 // operator.ts — POST /v1/operator: the operator's `kypp` CLI against the hosted store (KYPP_URL).
 // One bearer secret, KYPP_OPERATOR_TOKEN, apart from OAuth grants, KYPP_API_TOKENS and the S1 tokens.
-// Context: doc://kypp/authority-order@0008#authority-dominates — kypp correct/verify write human and verified only here; unset token = 404, never on /mcp, every write in defrag_log.
+// kypp correct/verify write human and verified only here; unset token = 404, never on /mcp, every write in defrag_log.
 import { type Caller, type ToolCtx, callTool } from "./mcp.ts";
 import { DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, type Scope, resolveOrigin } from "./memory.ts";
 import type { S1Client } from "./s1.ts";
@@ -82,7 +82,7 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
     }
     case "projects":
       return { projects: await store.projects() };
-    // Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.
+    // Filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.
     // Why: rows come only from the operator (an unknown name in an agent's call never creates one), and
     // claims already waiting under that origin are filed now rather than over the next hourly passes.
     case "register": {

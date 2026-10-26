@@ -1,8 +1,8 @@
 # Recall rerank eval (Clef)
 
 Does recall's System One rerank (`worker/src/s1.ts`, `relevance()` + `RELEVANT_FLOOR`) put the
-claims that answer a query on top and drop the rest, and where should its floor sit on Clef? This is
-the rerank in `memory-scope-decay` §8: keyword search pulls a wide pool, the model scores each pooled
+claims that answer a query on top and drop the rest, and where should its floor sit on Clef? The rerank:
+keyword search pulls a wide pool, the model scores each pooled
 claim, claims under the floor are dropped rather than padding to `limit`. Same method as
 `eval/write_gate`: minimums and costs come first, and the floor is chosen on training folds and
 reported on held-out folds.

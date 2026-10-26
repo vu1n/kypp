@@ -15,7 +15,7 @@ from .claim_machine import (
     fingerprint, require, transition,
 )
 
-# Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — all group changes, events and receipts commit atomically at the expected revision.
+# All group changes, events and receipts commit atomically at the expected revision.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS claim_command_groups (
   group_key TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL

@@ -1,4 +1,4 @@
-// Placement (memory-scope-decay §8, step 0): a write records its origin and never fails for lack of
+// Placement: a write records its origin and never fails for lack of
 // a project; unknown or missing origins land unsorted; defrag files them; reads label the level.
 import assert from "node:assert/strict";
 import { test } from "node:test";

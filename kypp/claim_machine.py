@@ -4,9 +4,9 @@ One already-authorized arbitration group; adapters own authentication, routing,
 source/exposure stamps, clocks, SQL and shell execution. See docs/claim-state-machine.md.
 No side effects or database dependencies. All rejected commands leave State intact.
 """
-# Context: doc://kypp/append-only-history@0002#never-delete — retirement is terminal; assertions and transition history are retained.
-# Context: doc://kypp/verify-operator-only@0003#operator-only-verify — only the trusted operator role attaches a verifier or completes a fenced check.
-# Context: doc://kypp/authority-order@0008#authority-dominates — acceptance never implies authority; replacement cannot lower the current answer's tier.
+# Retirement is terminal; assertions and transition history are retained.
+# Only the trusted operator role attaches a verifier or completes a fenced check.
+# Acceptance never implies authority; replacement cannot lower the current answer's tier.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace

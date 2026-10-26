@@ -365,7 +365,7 @@ class MemoryStore:
         return self.claim(type, subject, content, scope, **kwargs)
 
     # --- set_status = the arbiter's write (supersede / accept / reject) -----
-    # Context: doc://kypp/append-only-history@0002#never-delete — change status; never DELETE a claim or observation.
+    # Change status; never DELETE a claim or observation.
     def set_status(self, claim_id: str, status: str) -> None:
         """Transition a claim's lifecycle status. NEVER deletes — superseded/rejected rows stay
         (recall already excludes them) so history is preserved. The arbiter's only write."""
@@ -401,7 +401,7 @@ class MemoryStore:
         it, and since recency breaks ties between equal human claims, a sweep landing between
         `kypp correct`'s insert and its consolidate must not make the old answer look newest. The
         verifier's only write."""
-        # Context: doc://kypp/authority-order@0008#authority-dominates — verify raises agent → verified, never lowers human.
+        # Verify raises agent → verified, never lowers human.
         if passed:
             self._write([("UPDATE memory_claims SET "
                           "status=CASE WHEN authority='human' AND status='superseded' THEN status ELSE 'accepted' END, "
@@ -525,7 +525,7 @@ class MemoryStore:
     def _native_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
         """Backend ranking before pointer boost. Turso: cosine when an embedder is wired, else LIKE."""
         if self.embed and query.strip() and self.capabilities.semantic:
-            # Why: a linear scan holds to ~1e4-1e5 claims (eval: .brief/docs/turboquant-deferred.md); next step is in-DB DiskANN.
+            # Why: a linear scan holds to ~1e4-1e5 claims; next step is in-DB DiskANN.
             return self._vector_ids(query, where, params, limit)
         return self._like_ids(query, where, params, limit)
 
@@ -657,7 +657,7 @@ class MemoryStore:
         return self.similar_pairs(project, max_distance=max_distance)
 
     # --- code ↔ entry pointers ----------------------------------------------
-    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
+    # A claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
     def link_pointer(self, entry_ref: str, path: str, *, symbol: str | None = None,
                      claim_id: str | None = None, kind: str = "context") -> str:
         """Index one edge. Idempotent on (kind, entry ref, path, symbol, claim)."""

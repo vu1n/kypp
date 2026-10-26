@@ -24,7 +24,7 @@ export interface Env extends S1Env {
   KYPP_OWNER_SECRET: string;
   CONSENT_SECRET: string;
   KYPP_API_TOKENS?: string;
-  KYPP_ROOM_ISSUERS?: string; // "huddles,...": KYPP_API_TOKENS names that may register chat rooms (memory-scope-decay §11); unset refuses all
+  KYPP_ROOM_ISSUERS?: string; // "huddles,...": KYPP_API_TOKENS names that may register chat rooms; unset refuses all
   KYPP_S1_TOKENS?: string; // "name:token,..." for /v1/systemone only; never accepted on /mcp
   KYPP_OPERATOR_TOKEN?: string; // the operator's kypp CLI on /v1/operator only; unset = that route is 404
   KYPP_OIDC_OWNERS?: string; // "owner,owner": GitHub owners whose Actions OIDC tokens may call /v1/systemone; unset refuses OIDC
@@ -134,7 +134,7 @@ async function tokenName(token: string, list: string | undefined): Promise<strin
 
 const oidc = oidcVerifier();
 
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
+// Only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
 // The caller's issuer name: its paired grant, or its KYPP_API_TOKENS name when that is listed in
 // KYPP_ROOM_ISSUERS. Only a configured issuer may link rooms to repos.
 async function roomIssuer(request: Request, env: Env): Promise<{ name: string; grant?: string; credential?: string; projects?: string[] } | null> {

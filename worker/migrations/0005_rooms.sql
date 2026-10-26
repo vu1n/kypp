@@ -1,4 +1,4 @@
--- Room lanes (memory-scope-decay §11): a chat room is its own principal. A room is registered by an
+-- Room lanes: a chat room is its own principal. A room is registered by an
 -- issuer (an operator-configured integration or a paired grant). `key` is "<integration>:<id>", so two
 -- issuers can't collide. Revoking keeps the row (and the lane's claims) as history.
 CREATE TABLE IF NOT EXISTS rooms (

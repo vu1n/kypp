@@ -1,4 +1,4 @@
-// Reads across levels (memory-scope-decay §8, step 1): the roll-up table decides which group claims a
+// Reads across levels: the roll-up table decides which group claims a
 // project reads; other agents' unconfirmed claims show in the caller's own project; an agent that was
 // shown a candidate and repeats it doesn't count toward accepting it.
 import assert from "node:assert/strict";

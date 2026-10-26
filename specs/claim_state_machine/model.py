@@ -1,4 +1,4 @@
-"""Compatibility import for the ratified pure kernel, now shared by local adapters.
+"""Compatibility import for the pure kernel, now shared by local adapters.
 
 The portable vectors specify outcomes independently. Database conformance and the
 Worker port are tested separately; these imports are not an independent oracle.

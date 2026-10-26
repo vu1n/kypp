@@ -5,7 +5,7 @@ import { type Claim, type Policy, resolveOrigin } from "./memory.ts";
 import { CONTROL_ABOVE, type ProjectInfo, type S1Client, fileUnder, judge } from "./s1.ts";
 import type { D1Store } from "./store.ts";
 
-// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.
+// Filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.
 export async function fileClaim(store: D1Store, s1: S1Client | null, c: Pick<Claim, "id" | "subject" | "content" | "origin">,
   projects: ProjectInfo[]): Promise<string | null> {
   // A project registered after the claim was written files it by name, with no model.
@@ -19,7 +19,7 @@ export async function fileClaim(store: D1Store, s1: S1Client | null, c: Pick<Cla
 // Each unfiled claim can cost one model call, so a pass takes a bounded batch and rotates through the rest.
 const BATCH = 25;
 
-// Context: doc://kypp/memory-scope-decay@0004#scope-keys-decay — reads are a channel between agents, so control text the gate missed at write time is held back late.
+// Reads are a channel between agents, so control text the gate missed at write time is held back late.
 // The gate fails open, so a claim written while S1 was down got no verdict. Judge it now; control text
 // aimed at agents is rejected, anything else just keeps its verdict.
 export async function judgeLate(store: D1Store, s1: S1Client | null): Promise<number> {
@@ -36,7 +36,7 @@ export async function judgeLate(store: D1Store, s1: S1Client | null): Promise<nu
   return rejected;
 }
 
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — a claim a pinned static token wrote is filed only into a project inside its pin.
+// A claim a pinned static token wrote is filed only into a project inside its pin.
 // `pins` maps a pinned KYPP_API_TOKENS name to its projects. Such a token writes as user = agent = its
 // name (an OAuth grant's agent is its client), so that pair marks its claims.
 const within = (projects: ProjectInfo[], c: Pick<Claim, "user" | "agent">, pins: Map<string, string[]>) => {

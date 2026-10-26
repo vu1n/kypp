@@ -1,4 +1,4 @@
-// rooms.ts — room lanes (memory-scope-decay §11): registering a chat room's bot as its own principal,
+// rooms.ts — room lanes: registering a chat room's bot as its own principal,
 // and recognising its bearer token on /mcp. The lane rules themselves live in mcp.ts and store.ts.
 import type { Caller } from "./mcp.ts";
 
@@ -32,7 +32,7 @@ export function pathSegment(raw: string): string | null {
   }
 }
 
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — a member token names its room; kypp keeps only the digest, and a revoked member or room, or one whose issuer grant is revoked, never signs in.
+// A member token names its room; kypp keeps only the digest, and a revoked member or room, or one whose issuer grant is revoked, never signs in.
 /**
  * The caller a member token stands for: its room's lane. `configured` maps the operator's live
  * issuer names to the digests of their current secrets, and a configured issuer's seat signs in
@@ -47,7 +47,7 @@ export async function roomCaller(db: D1Database, token: string, configured: Read
       AND (m.expires_at IS NULL OR m.expires_at > ?)`)
     .bind(await digest(token), now()).first<{ key: string; integration: string; issuer_digest: string | null; paired: string | null; grant_revoked: string | null }>();
   if (!row) return null;
-  // Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — a configured issuer's seat dies with the secret that made it, so re-enabling the name under a new secret never revives old seats.
+  // A configured issuer's seat dies with the secret that made it, so re-enabling the name under a new secret never revives old seats.
   const live = row.paired !== null ? row.grant_revoked === null
     : row.issuer_digest !== null && !!configured.get(row.integration)?.has(row.issuer_digest);
   return live ? { user: roomIdentity(row.key), agent: roomIdentity(row.key), room: row.key } : null;
@@ -63,14 +63,14 @@ const revoke = (db: D1Database, sql: string, ...keys: string[]) => db.prepare(sq
  * `links` is given. Seating a member again rotates its token. `DELETE /rooms/<id>/members/<member>`
  * removes one bot; `DELETE /rooms/<id>` closes the room for good, so re-registering it is refused.
  */
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — the integration that manages the room sets its links; the bot never does.
+// The integration that manages the room sets its links; the bot never does.
 /** `credential` is the digest of a configured issuer's secret, recorded on each seat it makes. */
 export async function handleRooms(request: Request, db: D1Database, issuer: string, opts: { canLink: boolean; grant?: string; credential?: string; linkable?: string[] }): Promise<Response> {
   const path = new URL(request.url).pathname;
   // Why: a paired caller was authenticated before its body was read, and an unlink and a continue
   // can land in between. Every write re-checks, in the same statement, that the grant still holds
   // the credential generation (token digest) the caller signed in with.
-  // Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — a revoked or continued grant's old token can't seat bots, even mid-request.
+  // A revoked or continued grant's old token can't seat bots, even mid-request.
   const held = opts.grant === undefined ? { sql: "", args: [] as string[] }
     : { sql: " AND EXISTS (SELECT 1 FROM room_issuers WHERE name = ? AND token_digest = ? AND revoked_at IS NULL)", args: [issuer, opts.grant] };
   if (request.method === "DELETE" && path.startsWith(`${ROOMS_PATH}/`)) {

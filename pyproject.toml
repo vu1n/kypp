@@ -11,16 +11,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-speccheck = ["tree-sitter>=0.25,<0.26", "tree-sitter-typescript>=0.23,<0.24"]
 # System One write gate (optional): any TypeSafe-API endpoint, e.g. Jev via OpenRouter.
 s1 = ["typesafe-sdk>=0.7"]
 
 [project.scripts]
 kypp = "kypp.cli:main"
-speccheck = "speccheck.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["kypp", "speccheck"]
+packages = ["kypp"]
 
 [build-system]
 requires = ["hatchling"]

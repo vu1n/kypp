@@ -11,7 +11,7 @@ import { roomIdentity } from "./rooms.ts";
 export interface Caller {
   user: string | null;    // who signed in (OAuth props) or the API token's name
   agent: string | null;   // the client that holds the token
-  room?: string | null;   // a room lane's key (memory-scope-decay §11); user and agent are then its identity
+  room?: string | null;   // a room lane's key; user and agent are then its identity
   projects?: string[];    // a pinned static token's projects: it may read and write only these
 }
 
@@ -81,7 +81,7 @@ const TOOLS = [
   },
 ];
 
-// A room bot sees no projects: its lane and its links are fixed by its token (memory-scope-decay §11).
+// A room bot sees no projects: its lane and its links are fixed by its token.
 const ROOM_INSTRUCTIONS = `kypp is this chat room's memory: durable lessons that carry from one conversation to the next.
 Only this room's bot reads it, plus the repos the room's manager linked.
 1. START OF A CONVERSATION — call \`briefing\` once.
@@ -135,7 +135,7 @@ function claimDict(c: Claim) {
   return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
 }
 
-// Context: doc://kypp/memory-scope-decay@0013#scope-keys-decay — search pulls a wide pool and System One reranks it; ranking never changes what a caller may see.
+// Search pulls a wide pool and System One reranks it; ranking never changes what a caller may see.
 // With a model, recall searches a wider pool than it returns, so the reranker can lift a relevant
 // claim the keyword order put past `limit`; without one, the pool is the answer. The model scores at
 // most RERANK_POOL claims, so a reranked recall returns at most that many.
@@ -192,7 +192,7 @@ async function afterClaim(store: D1Store, at: Lane, id: string, subject: string,
 
 // What this claim counts as: an echo when the session was shown the subject, or when it renames a
 // claim that was itself an echo (a rename must not launder relayed content into recurrence).
-// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
+// A session shown another session's candidate on this subject doesn't count toward accepting it.
 async function provenance(store: D1Store, at: Lane, subject: string, content: string, session: string | null) {
   if (!session) return { prior: [] as Renamed[], echoOf: [] as string[], stamp: [] as string[] };
   const [shown, prior] = await Promise.all([store.shownCandidate(session, subject, at), store.renamedFrom(at, subject, content, session)]);
@@ -201,7 +201,7 @@ async function provenance(store: D1Store, at: Lane, subject: string, content: st
   return { prior, echoOf, stamp };
 }
 
-// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a room's token pins its lane and links; the project and scope arguments and the header are ignored, and no project list is shown.
+// A room's token pins its lane and links; the project and scope arguments and the header are ignored, and no project list is shown.
 async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key: string): Promise<string> {
   const identity = roomIdentity(key);
   const links = await store.roomLinks(key);
@@ -236,7 +236,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
       const share = a.share_to === undefined || a.share_to === null || a.share_to === "" ? null : String(a.share_to);
-      // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a lesson leaves the room only by an explicit share into a linked origin.
+      // A lesson leaves the room only by an explicit share into a linked origin.
       if (share !== null && !links.includes(share)) {
         throw new Error(links.length ? `share_to must be one of this room's linked repos: ${links.join(", ")}` : "this room is linked to no repo, so lessons stay in the room");
       }
@@ -271,7 +271,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
 
 export async function callTool(store: D1Store, name: string, a: Args, ctx: ToolCtx): Promise<string> {
   if (ctx.caller.room) return roomTool(store, name, a, ctx, ctx.caller.room);
-  // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — the caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
+  // The caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
   const pin = ctx.caller.projects;
   if (pin) return pinnedTool(store, name, a, ctx, pin);
   const origin: string | null = a.project || ctx.project || null;
@@ -283,7 +283,7 @@ export async function callTool(store: D1Store, name: string, a: Args, ctx: ToolC
   return repoTool(store, name, a, ctx, { project, origin, projects, note });
 }
 
-// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a pinned token's project comes only from its pin; a name outside it is refused, never remapped, and no project list is shown.
+// A pinned token's project comes only from its pin; a name outside it is refused, never remapped, and no project list is shown.
 async function pinnedTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, pin: string[]): Promise<string> {
   const allowed = (await store.projects()).filter((p) => pin.includes(p.name));
   const names = allowed.map((p) => p.name);
@@ -323,10 +323,10 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         store.orgs(groups),
         // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
         project ? store.recentCandidates(project, ctx.session, RECENT) : [],
-        // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — user scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
+        // User scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
         user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
       ]);
-      // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — an org's rules apply to every contributor, so they come first under their own heading.
+      // An org's rules apply to every contributor, so they come first under their own heading.
       // Why a read of its own: recall ranks the org (the farthest group) last, so a busy repo's capped list would crowd it out.
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const org = orgs.size
@@ -347,12 +347,12 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     }
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
-      // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
+      // A cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
       const v = await judge(ctx.s1, { subject, content, project });
       if (v.keep !== null && v.keep < (ctx.s1?.dropBelow ?? DROP_BELOW)) {
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
       }
-      // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — reads are a channel between agents, so the gate holds back control text aimed at them.
+      // Reads are a channel between agents, so the gate holds back control text aimed at them.
       if (v.control !== null && v.control > CONTROL_ABOVE) {
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson about the code or the person (p_control=${v.control.toFixed(2)}).`;
       }
@@ -362,7 +362,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
       }
       const scope: "project" | "user" = a.scope ?? "project";
-      // Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — a session shown another session's candidate on this subject doesn't count toward accepting it.
+      // A session shown another session's candidate on this subject doesn't count toward accepting it.
       const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
       const { prior, echoOf, stamp } = at ? await provenance(store, at, subject, content, ctx.session)
         : { prior: [], echoOf: [], stamp: ctx.session ? [`session:${ctx.session}`] : [] };

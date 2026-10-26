@@ -206,7 +206,7 @@ export async function fileUnder(client: S1Client | null, claim: { subject: strin
   }
 }
 
-// Recall's rerank (memory-scope-decay §8): for each claim the keyword search found, ask whether it
+// Recall's rerank: for each claim the keyword search found, ask whether it
 // bears on the query. Claims go out in chunks of RERANK_CHUNK, one question per claim over a shared
 // state, at most RERANK_IN_FLIGHT at a time. On eval/recall_rerank, chunks of 5 to 40 cost fewer
 // requests but scored two relevant claims under 0.2 that scored over 0.4 on their own.

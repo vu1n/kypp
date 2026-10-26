@@ -1,4 +1,4 @@
-"""Survivor selection against an oracle taken from the authority-order bullets.
+"""Survivor selection against an oracle for the authority order (agent < verified < human).
 
 Authority beats conflicting confidence, status, evidence, and recency. Argument
 order does not change a strict winner. A confidence-only early return does not

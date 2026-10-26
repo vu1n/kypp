@@ -2,7 +2,7 @@
 
 Status: retrieval adapters implemented; claim-command persistence staged, not activated. Vu rejected
 the earlier pick (move local kypp onto sqlite3 and drop vectors, or move both sides onto one engine).
-Each backend keeps the search it can actually run. See [the ratified state-machine contract and
+Each backend keeps the search it can actually run. See [the state-machine contract and
 cutover checklist](claim-state-machine.md) before changing mutation semantics.
 
 Measurements below are from 2026-10-14, not claims about today's latest package releases. Adapter
@@ -51,14 +51,14 @@ When `semantic` is false, `find_similar` raises `SemanticUnavailable`. `consolid
 
 ## Pointers
 
-Brief leaves `doc://<project>/<doc>@<rev>#<anchor>` in a code comment, pointing from a file back at an entry. `code_pointers` stores that as columns, not as a JSON blob:
+A code comment can carry a `doc://<project>/<doc>@<rev>#<anchor>` ref, pointing from a file back at an entry. `code_pointers` stores that as columns, not as a JSON blob:
 
 - `entry_ref`, `project`, `doc_id`, `anchor`, `revision` identify the entry. A lookup by full ref, by the same anchor at another revision, or by the bare anchor hits the same rows.
 - `path` and `symbol` identify the code. `entries_for_path` is code → entries. `paths_for_entry` is entries → code.
 - `claim_id` is set when the edge belongs to a claim (a `code_ref`, or a doc ref written in the claim). A scanned comment can exist with an empty `claim_id`.
 - `kind` is `context` or `code_ref`.
 
-Line numbers are not a column. `memory-scope-decay` says a path is a hint and lines are not stored; recall still resolves a live `path:line` when it renders a claim. Search treats a path, an anchor, or a doc:// ref in the query as an identity hit and ranks those claims ahead of BM25 or cosine.
+Line numbers are not a column. A path is a hint and lines are not stored; recall still resolves a live `path:line` when it renders a claim. Search treats a path, an anchor, or a doc:// ref in the query as an identity hit and ranks those claims ahead of BM25 or cosine.
 
 Worker migration `0009_code_pointers.sql` follows the room/operator migrations already on main.
 Python and `D1Store.recall` quote Unicode letter/mark/number/underscore tokens before `MATCH` — a `/`

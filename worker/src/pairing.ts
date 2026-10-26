@@ -1,4 +1,4 @@
-// pairing.ts — paired room issuers (memory-scope-decay §11.7). An integration asks to pair and gets a
+// pairing.ts — paired room issuers. An integration asks to pair and gets a
 // secret handle plus a short user code; a person opens kypp's page for that code, checks it matches
 // what the integration shows, and the owner approves with the passphrase; the integration then
 // redeems its handle once for an issuer token that can only register and revoke its own rooms. The
@@ -45,7 +45,7 @@ interface Pairing {
 const live = (p: Pairing | null): p is Pairing =>
   !!p && !p.denied_at && !p.redeemed_at && p.expires_at > now();
 
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — an issuer token only registers and revokes its own rooms; it never reads or writes memory.
+// An issuer token only registers and revokes its own rooms; it never reads or writes memory.
 /**
  * The live paired grant a token stands for: its issuer name and the credential generation (the
  * token's digest) that writes must still find, or null (unknown, revoked, or not one).
@@ -63,7 +63,7 @@ export async function pairedIssuer(db: D1Database, token: string): Promise<strin
   return (await pairedGrant(db, token))?.name ?? null;
 }
 
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — revoking a paired grant stops every token under it but keeps its rooms, so the owner can continue it later.
+// Revoking a paired grant stops every token under it but keeps its rooms, so the owner can continue it later.
 /** Revokes a paired grant. Its rooms stay; `roomCaller` refuses their tokens while it is revoked. */
 async function revokeIssuer(db: D1Database, name: string): Promise<void> {
   await db.prepare("UPDATE room_issuers SET revoked_at = ? WHERE name = ? AND revoked_at IS NULL").bind(now(), name).run();
@@ -80,7 +80,7 @@ const revokedGrants = (db: D1Database) =>
  * /pair/<code>` is the owner's approval page; `DELETE /pair` (Bearer: the issuer token) unlinks.
  * The caller rate-limits `POST /pair`, which anyone can reach.
  */
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — pairing needs both the owner's approval on kypp and the integration's secret handle; codes expire in 10 minutes and redeem once.
+// Pairing needs both the owner's approval on kypp and the integration's secret handle; codes expire in 10 minutes and redeem once.
 export async function handlePair(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (path === PAIR_PATH && request.method === "POST") return start(request, db, deps);
@@ -209,7 +209,7 @@ Go back to ${name}; it finishes linking on its own.</p>
       }
     }
   }
-  // Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — only a revoked paired grant can be continued, and the page says it hands over that grant's room memory.
+  // Only a revoked paired grant can be continued, and the page says it hands over that grant's room memory.
   const choices = !earlier?.length ? "" : `<fieldset><legend>Room memory</legend>
 <p>Continuing gives this app every room that earlier link made and the memory in them; the app seats
 its bots again. Only continue the same app you unlinked.</p>
@@ -234,7 +234,7 @@ ${earlier ? "" : `<button class="quiet" name="decision" value="choose">Continue 
 }
 
 /** `GET /pairs` asks for the passphrase; `POST /pairs` lists paired grants and revokes one if asked. */
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — the owner can revoke any paired grant, which pauses every room it issued.
+// The owner can revoke any paired grant, which pauses every room it issued.
 export async function handlePairs(request: Request, db: D1Database, deps: PairingDeps): Promise<Response> {
   const form = (error = "") => page(deps.base, "Paired apps", `<h1>Paired apps</h1>
 <p class="lede">Apps you paired can create memory for their chat rooms. Enter the passphrase to see them or unlink one.</p>

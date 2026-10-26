@@ -81,5 +81,5 @@ class OperatorStore:
         return [SimpleNamespace(**c) for c in call("verifiable", project=project, subject=subject)["claims"]]
 
     def mark_verified(self, claim_id: str, passed: bool) -> None:
-        # Context: doc://kypp/authority-order@0007#authority-dominates — kypp verify's verdicts reach the hosted store only through POST /v1/operator.
+        # kypp verify's verdicts reach the hosted store only through POST /v1/operator.
         call("mark_verified", id=claim_id, passed=passed)

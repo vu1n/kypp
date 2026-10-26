@@ -1,8 +1,6 @@
-# Claim state machine: ratified contract and staged adapters
+# Claim state machine: contract and staged adapters
 
-Status: ratified by [#43](https://github.com/vu1n/kypp/pull/43), published on 2026-10-17:
-append-only-history@0002, authority-order@0008, verify-operator-only@0003,
-memory-scope-decay@0011 and agent-mcp-surface-compose@0003. Runtime activation is still pending.
+Status: adopted in [#43](https://github.com/vu1n/kypp/pull/43). Runtime activation is still pending.
 
 The pure Python kernel now lives in `kypp/claim_machine.py`; the former reference-model path is a
 compatibility import. `LocalClaimCommands` runs it over sqlite3, libsql or pyturso. The Worker has
@@ -16,7 +14,7 @@ receipt-miss/planning race, synthetic canonical-group/preservation tests, the un
 intake/File command boundary, and every writer/reader/projection's activation prerequisite.
 It is not a live migration or permission to switch one route independently.
 
-Ratification and activation are separate: merging adopts the target contract and the explicit staged
+Adoption and activation are separate: merging adopts the target contract and the explicit staged
 activation clauses in each amended anchor. The new runtime transition rules bind a store only after
 its migrations, readers, all writers and verification protocol complete cutover together. The stated
 legacy behavior remains permitted before that boundary; retention, authorization and operator-only
@@ -177,8 +175,8 @@ public HTTP command dialect. `v1.json` is a portable trace format, not that futu
    before cutover; the source remains recoverable. No destructive in-place conversion.
 5. Align every writer before enabling revision-only CAS: local/hosted remember, correct, reject,
    both MCP servers, distillation/seed/sweep/batch, arbitration/cron, late S1 rejection, filing, and
-   local/hosted verification. PR #33's adapters share this boundary. A future Brief sync uses its own
-   authenticated import command with ratifier provenance, never an ordinary MCP write.
+   local/hosted verification. PR #33's adapters share this boundary. A future sync of externally reviewed
+   content uses its own authenticated import command with reviewer provenance, never an ordinary MCP write.
 6. Hosted verification must reject old ID/boolean-only callbacks with an upgrade-required error.
    Existing MCP tool names can stay, but descriptions/results must explain candidate corrections.
    Old local binaries cannot safely write an upgraded store: coordinate writer shutdown/upgrade or
@@ -197,7 +195,7 @@ reference covers claim-to-claim supersession only, not a completed docs-promotio
 The original draft stored all claims, events and receipts in one group JSON value. Review of #44
 demonstrated that ordinary repeated checks eventually exceed
 [D1's 2,000,000-byte string/row limit](https://developers.cloudflare.com/d1/platform/limits/).
-The revised storage is normalized without changing the pure kernel or ratified domain semantics:
+The revised storage is normalized without changing the pure kernel or adopted domain semantics:
 
 - `claim_command_groups` holds the group revision and a small `state` value containing only
   `storage_version`, `head` and `head_revision`. The column name is retained, not its old snapshot shape.
@@ -260,8 +258,8 @@ length limit; the D1 stand-in checks UTF-8 bound values and command-table row pa
 prove the harness rejects oversized writes. Event/receipt failures, staged-format conversion and
 multi-query read races are also covered. These are local checks, not live D1 validation.
 
-`uv.lock` now includes the declared libsql dependency, pyturso minimum, MCP bound and speccheck extras.
-Use `uv sync --locked --extra speccheck` and `uv run --locked --no-sync ...` for the locked test path;
+`uv.lock` now includes the declared libsql dependency, pyturso minimum, MCP bound.
+Use `uv sync --locked` and `uv run --locked --no-sync ...` for the locked test path;
 CI checks lock freshness as well as the separate installed-wheel smoke.
 
 ### Landed adapter checkpoint

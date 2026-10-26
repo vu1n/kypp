@@ -1,4 +1,4 @@
-// Recall's System One rerank (memory-scope-decay §8): keyword search pulls a wide pool, the model
+// Recall's System One rerank: keyword search pulls a wide pool, the model
 // scores each pooled claim for relevance, claims under the floor drop, and the model can never add a
 // claim or widen what a caller sees. Any failure keeps the keyword order.
 import assert from "node:assert/strict";

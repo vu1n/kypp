@@ -1,4 +1,4 @@
--- Placement (memory-scope-decay §8). `origin` is what the writer said and never changes; `project` is
+-- Placement. `origin` is what the writer said and never changes; `project` is
 -- where the claim is filed. A project-scope claim with no project is unsorted until defrag files it.
 ALTER TABLE memory_claims ADD COLUMN origin TEXT;
 ALTER TABLE memory_claims ADD COLUMN session TEXT;

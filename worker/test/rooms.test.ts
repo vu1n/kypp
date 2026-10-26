@@ -1,4 +1,4 @@
-// Room lanes (memory-scope-decay §11): a chat room's bot reads and writes only its own lane and the
+// Room lanes: a chat room's bot reads and writes only its own lane and the
 // repos its room is linked to; nothing leaves the lane except an explicit share into a linked repo.
 import assert from "node:assert/strict";
 import { test } from "node:test";

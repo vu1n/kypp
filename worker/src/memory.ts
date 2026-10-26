@@ -9,12 +9,12 @@ export type Authority = (typeof AUTHORITIES)[number];
 // Scopes: this repo, the signed-in user across repos, everyone. The agent is a label, not a scope.
 // `group` is a level in the roll-up table (a group or org several projects share); its claims carry the
 // group's name in `project`. Only defrag widens a claim into one; agents never write it.
-// `room` is a chat room's private lane (memory-scope-decay §11), keyed by the room's identity in `user`
+// `room` is a chat room's private lane, keyed by the room's identity in `user`
 // like a person's scope; it is an audience, not a level, so nothing widens out of it.
 export const SCOPES = ["project", "group", "user", "global", "room"] as const;
 export type Scope = (typeof SCOPES)[number];
 
-// Context: doc://kypp/memory-scope-decay@0010#scope-keys-decay — an origin only files into a project the operator registered; an unknown name never creates one.
+// An origin only files into a project the operator registered; an unknown name never creates one.
 // An exact name wins; then a registered path the origin ends with ("https://github.com/vu1n/kypp.git"
 // → "vu1n/kypp"); then the last path segment, so "vu1n/Kypp" resolves to "kypp". Each fallback
 // counts only when it names exactly one project: two registered "foo"s leave the claim unsorted.
@@ -62,7 +62,7 @@ export interface Claim {
   pointer?: boolean;      // set by recall when a path, anchor or doc:// ref in the query matched the claim, not its words
 }
 
-// Context: doc://kypp/authority-order@0007#authority-dominates — rank survivors by authority first; agent < verified < human.
+// Rank survivors by authority first; agent < verified < human.
 export function rank(c: Claim): [number, number, number, number, string] {
   return [AUTHORITIES.indexOf(c.authority), c.status === "accepted" ? 1 : 0, c.confidence ?? 0,
     c.source_ids.length, c.updated_at];
