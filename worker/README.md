@@ -25,7 +25,7 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   written while the model was down is judged by the next defrag pass instead.
 - **Orgs** are groups at the top of the roll-up (no parent of their own), such as the GitHub owner
   above all its repos. The briefing lists an org's accepted claims first, under "how this org
-  works". Agents never write there (memory-scope-decay §9).
+  works". Agents never write there.
 - **Groups** are rows in `project_parents` (a project and a group it belongs to; a group can have
   parents too, up to three levels). Only defrag places claims at a group; agents never write there:
   `npx wrangler d1 execute kypp --remote --command "INSERT INTO project_parents(project, parent, created_at) VALUES ('kypp', 'tools', datetime('now'))"`.
@@ -54,7 +54,7 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   content go to Workers AI in your Cloudflare account, or to the TypeSafe API when a key is set.
 - **System One for other tools:** `POST /v1/systemone` speaks the TypeSafe API's System One
   route and answers with Clef on the same `AI` binding, so a TypeSafe client works unchanged against
-  this Worker. `brief triage` in CI sets `TYPESAFE_BASE_URL=https://<worker>` and
+  this Worker. A CI caller sets `TYPESAFE_BASE_URL=https://<worker>` and
   `TYPESAFE_DEFAULT_MODEL=clef` (or `clef-flash`; other models get 400), and sends a GitHub Actions
   OIDC token as `TYPESAFE_API_KEY`, so the calling repo needs no secret. The Worker checks the
   token's RS256 signature against GitHub's JWKS (cached, refetched on an unknown `kid`), `iss`
@@ -67,9 +67,9 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Sessions:** each MCP session gets an id at `initialize`; claims are stamped with it and usage is
   logged per session. A subject two sessions claim is promoted by the hourly cleanup pass.
 - **Authority:** the Worker only writes agent authority. Human authority stays with the local
-  operator's `kypp correct` (authority-order@0004 also allows a ratified-decision `POST /sync`, not
-  built yet).
-- **Rooms** (memory-scope-decay §11): a chat room is its own principal with a private lane, shared
+  operator's `kypp correct` (an authenticated `POST /sync` of reviewed content would be the
+  other path; not built yet).
+- **Rooms**: a chat room is its own principal with a private lane, shared
   by every bot the integration seats there. An integration whose `KYPP_API_TOKENS` name is listed in
   `KYPP_ROOM_ISSUERS` seats a bot with `POST /rooms {"id": "<room>", "member": "<bot>", "links":
   ["<registered project>", ...]}` (Bearer: its API token) and gets that member's `kypr_` token once;
@@ -81,7 +81,7 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
   settled memory (and their groups), never user scope, global or the project list, and its claims
   stay in the lane. A claim leaves only with `share_to` naming a linked project; it lands there as a
   candidate marked `shared_from`. Defrag promotes inside a lane and never moves a claim out of it.
-- **Pairing** (memory-scope-decay §11.7): an app can earn the right to register rooms without any
+- **Pairing**: an app can earn the right to register rooms without any
   operator config. It calls `POST /pair {"name": "<who is asking>"}` and gets a secret `handle`, a
   `user_code` like `KQ7M-4TZ2` and a `verification_uri`. It shows the code and link, and polls `POST
   /pair/token {"handle"}` every `interval` seconds. Until the owner approves, the poll answers

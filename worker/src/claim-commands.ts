@@ -18,7 +18,7 @@ export interface ClaimCommands {
   execute(group: Group, actor: Actor, command: Command, stamp?: Stamp, k?: number): Promise<Receipt>;
 }
 
-// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — the revision guard and all aggregate history commit in one D1 batch.
+// The revision guard and all aggregate history commit in one D1 batch.
 export class D1ClaimCommands implements ClaimCommands {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }

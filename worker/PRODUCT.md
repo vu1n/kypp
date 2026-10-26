@@ -48,7 +48,7 @@ app's name can't prove.
 - Pages are server-rendered strings from a Cloudflare Worker (`src/index.ts`, `src/pairing.ts`):
   no client JavaScript, no build step, no static assets, no external hosts. Forms post back to the
   same URL.
-- Ratified decision text the pages must keep (`.brief/docs/memory-scope-decay.md` §11.7): the
+- Text the pages must keep: the
   pairing page says the display name is self-asserted, and continuing an earlier link says it hands
   the app that grant's room memory.
 - The passphrase is never echoed back into a page.

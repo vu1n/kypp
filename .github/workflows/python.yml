@@ -1,0 +1,76 @@
+name: python
+on:
+  pull_request:
+    paths:
+      - "kypp/**"
+      - "tests/**"
+      - "worker/src/**"
+      - "worker/test/**"
+      - "worker/migrations/**"
+      - "docs/features/**"
+      - "scripts/featuremap.py"
+      - ".github/workflows/python.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+concurrency:
+  group: python-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ${{ vars.RUNNER_LABEL == 'netcup' && fromJSON('["self-hosted","netcup"]') || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - name: project lockfile matches the declared dependencies
+        run: uv lock --check
+      - name: install the package as declared
+        run: |
+          # One clean install uses only the wheel's declared dependencies. build_mcp()
+          # imports FastMCP lazily, so constructing the server is the compatibility check.
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir /tmp/kypp-dist
+          python -m venv /tmp/kypp-clean
+          /tmp/kypp-clean/bin/pip install --upgrade pip
+          /tmp/kypp-clean/bin/pip install /tmp/kypp-dist/*.whl
+          # -I ignores PYTHONPATH and the user site, so the import has to come from
+          # the wheel installed in this venv. The printed __file__ is that proof.
+          /tmp/kypp-clean/bin/python -I - <<'PY'
+          import tempfile
+          from pathlib import Path
+          import kypp
+          import kypp.mcp_server as mcp_server
+          from kypp.mcp_server import build_mcp
+          from kypp.store import MemoryStore
+          installed = "/tmp/kypp-clean/"
+          for label, location in (("kypp", kypp.__file__), ("mcp_server", mcp_server.__file__)):
+              print(label, location)
+              if not location.startswith(installed):
+                  raise SystemExit(f"{label} was not imported from the installed wheel: {location}")
+          path = Path(tempfile.mkdtemp()) / "smoke.db"
+          server = build_mcp(MemoryStore(str(path)), "pillbox")
+          if server is None:
+              raise SystemExit("build_mcp() did not construct a server")
+          print("constructed", type(server).__name__)
+          PY
+          python -m pip install .
+          # The mcp_server self-test grounds a temp file with ripgrep. ubuntu-24.04
+          # runner images do not ship rg, so grounding comes back empty without it.
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+      - name: record runtime versions
+        run: |
+          python -c "import sys, importlib.metadata as m; print('python', sys.version); print('mcp', m.version('mcp')); print('pyturso', m.version('pyturso'))"
+          rg --version | head -n 1
+      - name: feature map pointers resolve
+        run: python3 scripts/featuremap.py check
+      - name: contract tests
+        run: |
+          python -m unittest discover -s tests -v
+          python -m kypp.verify
+          python -m kypp.mcp_server

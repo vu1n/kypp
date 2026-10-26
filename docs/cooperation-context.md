@@ -5,16 +5,16 @@ Frozen wire contract for portable handoffs and evidence references. Python
 this document. The golden corpus is `worker/test/fixtures/cooperation/v1.json`.
 
 This slice is the schema, validators, repository seam, and fixture. It does not
-store rows, register MCP tools, rank with a model, or change `authority-order@0008`.
+store rows, register MCP tools, rank with a model, or change the authority order (agent < verified < human).
 The claim-command adapters landed separately in #44 and remain staged; cooperation
 records do not activate them or depend on live-store cutover.
 
-Governing decisions, pinned:
+Rules:
 
-- `doc://kypp/memory-scope-decay@0011#scope-keys-decay` — these records are not
+- These records are not
   claims. Wall-clock expiry does not delete, promote, widen, or corroborate them,
   and it does not revive a wall-clock TTL for durable claims.
-- `doc://kypp/agent-mcp-surface-compose@0003#compose-surface` — `append_context`
+- `append_context`
   and `query_context` are a bounded memory contribution. They take no authority
   parameter. The caller keeps task authority.
 
@@ -155,7 +155,7 @@ ascending, then id, and returns at most the window plus one. The exact statement
 returns at most the window plus one ids, ordered by id. The merge keeps exact
 matches first (their `bm25()` when they also matched, otherwise id), then the
 other hits by `bm25()` ascending, then id ascending, and keeps the window. The
-ratified maximum is still 100 authorized candidates. That window is the top 100
+maximum is still 100 authorized candidates. That window is the top 100
 by this order, not the 100 newest, so an older relevant row stays findable. A
 better-scoring row the caller cannot see is not in either statement, so it never
 appears and never takes a slot. A capped window sets `window_capped` and clears

@@ -1,4 +1,4 @@
-// Paired room issuers (memory-scope-decay §11.7): the owner approves a user code on kypp, the
+// Paired room issuers: the owner approves a user code on kypp, the
 // integration redeems its secret handle once, and the issuer token can only manage its own rooms.
 import assert from "node:assert/strict";
 import { test } from "node:test";

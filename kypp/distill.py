@@ -155,7 +155,7 @@ class HeuristicDistiller:
     def distill(self, trace: Trace) -> list[ClaimDraft]:
         drafts: list[ClaimDraft] = []
         if trace.verdict and trace.verdict.failed_criteria:
-            # Context: doc://kypp/no-grader-leak@0001#signal-only-rubric — never put grader criterion names or feedback in a claim.
+            # Never put grader criterion names or feedback in a claim.
             # ONE signal-grade pitfall: the COUNT, never the grader's verbatim criterion names or
             # feedback. Those are grader-internal — hidden test identities, tmp paths — and they stay
             # in the OBSERVATION layer (wire.observe_events) for the offline reflector. Echoing them
@@ -373,7 +373,7 @@ class GatedDistiller:
             return drafts
         kept = []
         for d in drafts:
-            # Context: doc://kypp/memory-scope-decay@0001#scope-keys-decay — a cheap model gates writes; no model keeps today's behavior
+            # A cheap model gates writes; no model keeps today's behavior
             p = s1.noul({"task": trace.task, "type": d.type, "subject": d.subject, "lesson": d.content},
                         s1.keep_question(), via=self.via)
             if p is not None and p < self.drop_below:

@@ -177,7 +177,7 @@ def correct_main():
     if remote.remote_url():
         if args.semantic is not None:
             _local_only("--semantic")
-        # Context: doc://kypp/authority-order@0007#authority-dominates — the operator's human writer; with KYPP_URL it writes through POST /v1/operator.
+        # The operator's human writer; with KYPP_URL it writes through POST /v1/operator.
         res = remote.call("correct", type=args.type, subject=args.subject, content=args.content, scope=args.scope,
                           project=args.project, confidence=args.confidence, verify=args.verify, agent=args.agent)
         print(f"{res['id'][:8]} [human {args.type}] {args.subject} — corrected; "
@@ -185,7 +185,7 @@ def correct_main():
         return
     from .arbiter import consolidate
     store = store_from_env()
-    # Context: doc://kypp/authority-order@0007#authority-dominates — the operator's human writer; without KYPP_URL it writes the local store.
+    # The operator's human writer; without KYPP_URL it writes the local store.
     cid = store.claim(args.type, args.subject, args.content, scope=args.scope, project=args.project,
                       confidence=args.confidence, authority="human", verify=args.verify,
                       user=args.user, agent=args.agent)

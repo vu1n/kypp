@@ -11,8 +11,7 @@ held-out folds, and calibration is checked before reading `p_keep` as a probabil
 - `corpus.jsonl` — 198 hand-written drafts in the shape agents send to `claim`: 99 `keep` (pitfall,
   procedure, preference, decision, fact, artifact, hypothesis) and 99 `drop` (status, play-by-play,
   a fact the code states, one-run detail, chit-chat, and `hard`: status or one-off detail dressed up
-  as a lesson). Labels follow the keep question's own criteria and §2 of the `memory-scope-decay`
-  decision. One author wrote and labeled them, so treat the set as a floor check, not ground truth.
+  as a lesson). Labels follow the keep question's own criteria. One author wrote and labeled them, so treat the set as a floor check, not ground truth.
 - `scores.jsonl` — `id, label, kind, model, p_keep, p_control` per draft, from the gate's real
   request (all four questions in one call, `state = {subject, content, project}`).
 - `cache.json` — every Clef response by request hash, so a rerun is offline.

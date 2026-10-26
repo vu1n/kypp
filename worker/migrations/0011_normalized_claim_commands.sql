@@ -1,6 +1,6 @@
 -- Normalize only the earlier, unactivated claim_command_* representation.
 -- Legacy memory_claims and the live-store cutover are deliberately untouched.
--- Context: doc://kypp/append-only-history@0002#never-delete — retain every staged claim/event and original receipt while changing only storage shape.
+-- Retain every staged claim/event and original receipt while changing only storage shape.
 ALTER TABLE claim_command_ids ADD COLUMN ordinal INTEGER DEFAULT 0;
 ALTER TABLE claim_command_ids ADD COLUMN claim TEXT;
 CREATE INDEX IF NOT EXISTS claim_command_ids_group ON claim_command_ids(group_key,ordinal);

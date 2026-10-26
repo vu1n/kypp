@@ -1,4 +1,4 @@
--- Paired room issuers (memory-scope-decay §11.7): an integration asks to pair, a person checks the
+-- Paired room issuers: an integration asks to pair, a person checks the
 -- user code on kypp's page, the owner approves with the passphrase, and the integration redeems its
 -- secret handle once for an issuer token. Only digests of the handle and the token are kept.
 CREATE TABLE IF NOT EXISTS pairings (

@@ -9,7 +9,7 @@ pairs by hand. Treat it as a dev set, not ground truth.
 The corroboration gate promotes a candidate once two sessions agree, and today it groups on the
 exact subject. LLM distillation names each lesson its own way, so on the FrontierMemory store 7% of
 claims were ever promoted. Word2Vec's 32 claims stayed candidates, though 11 of them state the same
-empty-corpus pitfall. `memory-scope-decay` (active) allows automatic acceptance on "an affirmative
+empty-corpus pitfall. kypp allows automatic acceptance on "an affirmative
 agreement judgment plus distinct non-echo recurrence". This eval tests Clef as that judgment, with a
 closed set of tags narrowing which claims get compared.
 

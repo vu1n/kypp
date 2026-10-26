@@ -1,7 +1,7 @@
 """Frozen v1 portable-cooperation contract, shared with worker/src/cooperation.ts.
 
-# Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — cooperation records are not claims; wall-clock expiry never deletes, promotes, or corroborates them.
-# Context: doc://kypp/agent-mcp-surface-compose@0003#compose-surface — append_context and query_context take no authority parameter and return a bounded memory contribution.
+# Cooperation records are not claims; wall-clock expiry never deletes, promotes, or corroborates them.
+# `append_context` and `query_context` take no authority parameter and return a bounded memory contribution.
 
 No MCP registration and no model call. Repository method names are append,
 get_by_ids, and search, the Python spellings of the Worker CooperationRepository

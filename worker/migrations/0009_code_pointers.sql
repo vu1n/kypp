@@ -1,6 +1,6 @@
 -- Code ↔ entry edges. entry_ref is the doc:// pin or a symbol:/path: key.
 -- path is indexed on its own. Line numbers are not stored: they drift, and recall re-resolves them.
--- Context: doc://kypp/memory-scope-decay@0005#scope-keys-decay — a claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
+-- A claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
 CREATE TABLE IF NOT EXISTS code_pointers (
   id TEXT PRIMARY KEY,
   claim_id TEXT NOT NULL DEFAULT '',

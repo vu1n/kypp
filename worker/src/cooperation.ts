@@ -1,5 +1,5 @@
-// Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — cooperation records are not claims; wall-clock expiry never deletes, promotes, or corroborates them.
-// Context: doc://kypp/agent-mcp-surface-compose@0003#compose-surface — append_context and query_context take no authority parameter and return a bounded memory contribution.
+// Cooperation records are not claims; wall-clock expiry never deletes, promotes, or corroborates them.
+// `append_context` and `query_context` take no authority parameter and return a bounded memory contribution.
 // Frozen v1 contract shared with kypp/cooperation.py. No storage, no MCP registration, no model call.
 
 export const SCHEMA_VERSION = 1 as const;
@@ -274,7 +274,7 @@ export interface SearchWindow {
 // read materializes the rest of the population. The extra row only tells the merge
 // that the window is capped. Exact work-ref matches on whichever of repository and
 // candidate_revision the caller supplied. Order is exact work-ref, then bm25()
-// ascending, then id ascending, capped at the ratified 100-record authorized
+// ascending, then id ascending, capped at the 100-record authorized
 // window. That window is the top 100, not the 100 newest. An empty token list is
 // browse, not MATCH *. getByIds keeps expired rows and does not hide superseded
 // rows. Neither method calls a model or returns another principal's ids. append

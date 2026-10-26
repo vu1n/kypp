@@ -21,7 +21,7 @@ from .store import Claim, MemoryStore, project_from_env, store_from_env
 from .vocab import AUTHORITY_RANK
 
 
-# Context: doc://kypp/authority-order@0008#authority-dominates — rank survivors by authority first.
+# Rank survivors by authority first.
 def _rank(c: Claim) -> tuple:
     """Sort key, higher = stronger survivor: AUTHORITY first (a human correction outranks any agent
     claim and any amount of agent corroboration), then accepted, confidence, evidence, recency."""
@@ -38,7 +38,7 @@ def _corroboration(members: list[Claim]) -> int:
     caller's own `source_ids` stay as provenance but can't add weight, or one session promotes its own
     guess by citing invented ids or observations it filed itself. `cited:` ids (an MCP caller's, when
     the server had no session to stamp) never count."""
-    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — recurrence counts trusted source stamps, never caller-supplied ids.
+    # Recurrence counts trusted source stamps, never caller-supplied ids.
     return len({s for m in members for s in _sources(m)})
 
 
@@ -96,7 +96,7 @@ def _agreement_clusters(claims: list[Claim], tag_of, pair_judge,
     O(n) pairs, not O(n²). A tag narrows the comparison and never counts as agreement: two lessons
     about one feature are still two lessons. A pair is joined only on an affirmative judgment;
     `None` (no model, failed call) joins nothing."""
-    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — only an affirmative agreement judgment plus independent recurrence accepts.
+    # Only an affirmative agreement judgment plus independent recurrence accepts.
     # Tags subdivide arbitration groups, never cross them: scope, project and owner stay in the key.
     by_tag: dict[tuple, list[Claim]] = defaultdict(list)
     for c in claims:
@@ -144,7 +144,7 @@ def _semantic_clusters(pairs: list[tuple[str, str]], alive: dict[str, Claim]) ->
     return [c for c in clusters.values() if len(c) > 1]
 
 
-# Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
+# Claims leave by event-clock decay to suspect/dormant, never a timer delete (not yet built)
 def consolidate(store: ClaimStore, *, project: str | None = None, subject: str | None = None,
                 dry_run: bool = False, semantic: float | None = None,
                 accept_corroboration: int | None = 2, judge=None,
@@ -194,7 +194,7 @@ def consolidate(store: ClaimStore, *, project: str | None = None, subject: str |
     # Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
     # Promote the survivor of each exact-subject group once enough independent sessions corroborate it.
     # Exact-subject only — semantic (different-subject) merges are too fuzzy to auto-accept on.
-    # Context: doc://kypp/memory-scope-decay@0011#scope-keys-decay — the model can only hold a promotion back; recurrence is what accepts.
+    # The model can only hold a promotion back; recurrence is what accepts.
     def held(support: list[Claim]) -> bool:
         p = judge(support) if judge else None
         return p is not None and p < HOLD_BELOW

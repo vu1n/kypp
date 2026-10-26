@@ -1,7 +1,7 @@
 // Pure port of kypp/claim_machine.py. Trusted in-process commands, not an HTTP/MCP dialect.
-// Context: doc://kypp/authority-order@0008#authority-dominates — authority bounds replacement; a blocked check records evidence without granting privilege.
-// Context: doc://kypp/append-only-history@0002#never-delete — rejected/superseded assertions never revive and history is retained.
-// Context: doc://kypp/verify-operator-only@0003#operator-only-verify — shell configuration and check tokens are operator capabilities, never client-selected roles.
+// Authority bounds replacement; a blocked check records evidence without granting privilege.
+// Rejected/superseded assertions never revive and history is retained.
+// Shell configuration and check tokens are operator capabilities, never client-selected roles.
 import { AUTHORITIES, type Authority } from "./memory.ts";
 export interface Actor { principal: string; role: "agent" | "operator" | "maintenance" }
 export interface Stamp { source?: string | null; echo?: boolean }
