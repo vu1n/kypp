@@ -188,6 +188,16 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), edit,
                                _bash("uv run python app.py", "ok")), [])
 
+    def test_a_shell_edit_in_between_may_have_changed_the_script(self):
+        for edit in ("sed -i '/turso/d' app.py", "python - <<'EOF'\nPath('app.py').write_text('')\nEOF",
+                     "echo 'print(1)' > app.py"):
+            self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), _bash(edit, ""),
+                                   _bash("uv run python app.py", "ok")), [], edit)
+
+    def test_a_url_or_user_in_the_working_form_is_never_written(self):
+        self.assertEqual(_mine(_bash("mycli", "mycli: command not found", "error"),
+                               _bash("npx https://user:TOKEN@packages.example/mycli", "ok")), [])
+
     def test_a_different_subcommand_is_not_the_same_run(self):
         fail = _bash("python manage.py migrate", "No module named 'psycopg'", "error")
         self.assertEqual(_mine(fail, _bash("uv run python manage.py check", "ok")), [])

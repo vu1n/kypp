@@ -288,17 +288,21 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
             if _probes(rest) or not _same(rest, args):
                 break
             form = toks[:j + 1]
-            return None if _ABS.search(" " + " ".join(form)) else form
+            # a host path, URL or `user@` may carry a home dir or a token; none belongs in shared memory
+            return None if _ABS.search(" " + " ".join(form)) or any("://" in t or "@" in t for t in form) else form
     return None
 
 
 _EDIT_TOOL = re.compile(r"edit|write|patch|replace", re.I)
+# A shell command that writes files: sed/perl -i, tee, a `>` into a file, apply_patch, write_text.
+_SHELL_EDIT = re.compile(r"\b(?:sed|perl)\s+-i|\btee\b|apply_patch|write_text|(?<![0-9&])>>?\s*(?!/dev/null|&)[\w./]")
 
 
 def _edited_between(trace: Trace, a: _Run, b: _Run) -> bool:
     """A file edit between the runs may have changed the script itself (dropped the import), so the
     later run no longer tests what failed."""
-    return any(_EDIT_TOOL.search(x.name or "") for x in trace.actions[a.i + 1:b.i])
+    return any(_EDIT_TOOL.search(x.name or "") or _SHELL_EDIT.search(_command_of(x) or "")
+               for x in trace.actions[a.i + 1:b.i])
 
 
 def _same_place(a: _Run, b: _Run) -> bool:
