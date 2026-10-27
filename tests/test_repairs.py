@@ -215,8 +215,15 @@ class EnvMissing(unittest.TestCase):
                                _bash("API_BASE=x node build.js --help", "ok")), [])
 
     def test_a_fix_with_other_setup_in_the_run_is_not_recorded(self):
-        self.assertEqual(_mine(_bash("python app.py", "Error: API_BASE is not set", "error"),
-                               _bash("export PYTHONPATH=src && API_BASE=x python app.py", "ok")), [])
+        for later in ("export PYTHONPATH=src && API_BASE=x python app.py", "source .env && API_BASE=x python app.py"):
+            self.assertEqual(_mine(_bash("python app.py", "Error: API_BASE is not set", "error"),
+                                   _bash(later, "ok")), [], later)
+
+    def test_a_later_bare_run_after_an_export_is_not_unchanged(self):
+        [d] = _mine(_bash("node build.js", "Error: API_BASE is not set", "error"),
+                    _bash("API_BASE=http://localhost:8787 node build.js", "built"),
+                    _bash("export API_BASE=x && node build.js", "built"))
+        self.assertEqual(d.subject, "`node` needs `API_BASE` set")
 
     def test_a_fix_with_other_variables_too_is_not_recorded(self):
         self.assertEqual(_mine(_bash("python app.py", "API_BASE is not set", "error"),

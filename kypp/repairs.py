@@ -268,9 +268,9 @@ def _probes(args: list[str]) -> bool:
 def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], same_place: bool) -> bool:
     """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
-        if r.i > a.i and r.ok and (not same_place or r.where == a.where):
+        if r.i > a.i and r.ok and (not same_place or r.where == a.where) and not _changes_env(r.segments):
             for env, toks in map(_split_env, r.proven):
-                # unchanged: no env either, and a probe (`--help`) doesn't prove the real run works
+                # unchanged: no env anywhere in the run, and a probe (`--help`) doesn't prove the real run works
                 if toks[:1] == [head] and toks[1:1 + len(args)] == args and not env and not _probes(toks[1:]):
                     return True
     return False
