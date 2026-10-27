@@ -383,7 +383,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         missing_env = None if missing_cmd or missing_mod else _first(_ENV_MISSING, a.output)
         if not (missing_cmd or missing_mod or missing_env):
             continue
-        seg = _target(a.segments, missing_cmd)
+        seg = _target([t for t, _, _ in _chain(a.command)], missing_cmd)  # every stage: `a | b` may fail in b
         _, toks = _split_env(seg or [])
         if _changes_env(a.segments):  # `PATH=/x pytest` failing says nothing about this environment
             continue

@@ -194,6 +194,10 @@ class ModuleMissing(unittest.TestCase):
             self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), _bash(edit, ""),
                                    _bash("uv run python app.py", "ok")), [], edit)
 
+    def test_an_error_from_a_pipeline_is_not_attributed(self):
+        self.assertEqual(_mine(_bash("python producer.py | python consumer.py", "No module named 'turso'"),
+                               _bash("uv run python producer.py", "ok")), [])
+
     def test_an_edit_in_the_working_run_itself_counts(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
                                _bash("sed -i '/import turso/d' app.py && uv run python app.py", "ok")), [])
