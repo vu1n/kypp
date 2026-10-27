@@ -81,6 +81,12 @@ class CommandMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("rg \"No module named 'turso'\" errors.log", "No module named 'turso'"),
                                _bash("uv run rg \"No module named 'turso'\" errors.log", "No module named 'turso'")), [])
 
+    def test_a_number_before_a_spaced_redirection_is_an_argument(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("uv run python app.py 2 >out", "ok")), [])
+        self.assertEqual(_mine(_bash("python app.py 2 > /dev/null", "No module named 'turso'", "error"),
+                               _bash("uv run python app.py", "ok")), [])
+
     def test_redirections_are_not_arguments(self):
         [d] = _mine(_bash("python app.py", "No module named 'turso'", "error"),
                     _bash("uv run python app.py >out 2>&1", "ok"))
@@ -199,8 +205,9 @@ class ModuleMissing(unittest.TestCase):
                                _bash("uv run python producer.py", "ok")), [])
 
     def test_an_edit_in_the_working_run_itself_counts(self):
-        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
-                               _bash("sed -i '/import turso/d' app.py && uv run python app.py", "ok")), [])
+        for later in ("sed -i '/import turso/d' app.py && uv run python app.py",
+                      "echo 'print(1)' > app.py && uv run python app.py", "echo x | tee app.py; uv run python app.py"):
+            self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), _bash(later, "ok")), [], later)
 
     def test_a_quoted_angle_bracket_is_an_argument(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),

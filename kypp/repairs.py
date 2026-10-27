@@ -114,6 +114,12 @@ def _mask(command: str) -> str:
         elif not quote and c == "#" and (not out or out[-1] in " \t\n;&|()"):
             comment = True
             continue
+        elif not quote and c in "<>" and out and out[-1].isdigit():
+            fd = len(out)
+            while fd and out[fd - 1].isdigit():
+                fd -= 1
+            if fd == 0 or out[fd - 1] in " \t;&|":  # `2>` names a descriptor; `2 >` keeps 2 as an argument
+                del out[fd:]
         elif not quote and c == "\n":  # ends a command, unless the line ended on an operator
             c = " " if "".join(out).rstrip()[-1:] in ("", ";", "&", "|", "(") else ";"
         out.append(c)
@@ -127,8 +133,6 @@ def _strip_redirects(toks: list[str]) -> list[str]:
         if skip:
             skip = False
         elif t and set(t) <= set("<>&") and set(t) & set("<>"):
-            if out and out[-1].isdigit():  # the `2` of `2>`
-                out.pop()
             skip = True
         else:
             out.append(t)
@@ -300,12 +304,16 @@ _IN_PLACE = re.compile(r"\b(?:sed|perl)\s+-i|apply_patch|write_text")
 _SHELL_EDIT = re.compile(r"\b(?:sed|perl)\s+-i|\btee\b|apply_patch|write_text|(?<![0-9&])>>?\s*(?!/dev/null|&)[\w./]")
 
 
-def _edited_between(trace: Trace, a: _Run, b: _Run) -> bool:
-    """A file edit between the runs may have changed the script itself (dropped the import), so the
-    later run no longer tests what failed."""
-    between = any(_EDIT_TOOL.search(x.name or "") or _SHELL_EDIT.search(_command_of(x) or "")
-                  for x in trace.actions[a.i + 1:b.i])
-    return between or bool(_IN_PLACE.search(b.command))  # `sed -i … && uv run …`; its `> log` is no edit
+def _edited_between(trace: Trace, a: _Run, b: _Run, head: str) -> bool:
+    """A file edit between the runs, or before the invocation in the working run, may have changed
+    the script itself (dropped the import), so the later run no longer tests what failed."""
+    if any(_EDIT_TOOL.search(x.name or "") or _SHELL_EDIT.search(_command_of(x) or "")
+           for x in trace.actions[a.i + 1:b.i]):
+        return True
+    runs_head = re.compile(rf"(?<![\w./-]){re.escape(head)}\b")
+    # The invocation's own `> log` is output, not an edit; any other segment's write may be one.
+    return any(_IN_PLACE.search(seg) if runs_head.search(seg) else _SHELL_EDIT.search(seg)
+               for seg in re.split(r"[;&|]", _mask(b.command)))
 
 
 def _same_place(a: _Run, b: _Run) -> bool:
@@ -406,7 +414,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         # Each failure needs its own repair to count as explained; the first one found writes the claim.
         # A script or module is only the same one run from the same place.
         for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or _same_place(a, r))):
-            if _installed_between(runs, a, b) or (not missing_cmd and _edited_between(trace, a, b)):
+            if _installed_between(runs, a, b) or (not missing_cmd and _edited_between(trace, a, b, head)):
                 fix = None
             elif missing_env:
                 fix = _env_fix(missing_env, head, args, b)
