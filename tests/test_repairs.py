@@ -186,6 +186,15 @@ class ModuleMissing(unittest.TestCase):
                     _bash("export API_BASE=x", "ok"), _bash("node build.js", "ok"))
         self.assertIn("`API_BASE", d.content)
 
+    def test_a_cd_that_may_not_have_run_leaves_the_place_unknown(self):
+        for cd, status in (("false && cd /other", "error"), ("cd /other || true", "completed"), ("cd /other; ls", "completed")):
+            self.assertEqual(_mine(_bash(cd, "", status), _bash("python app.py", "No module named 'project'", "error"),
+                                   _bash("cd /other && uv run python app.py", "ok")), [], cd)
+
+    def test_an_export_runs_nothing(self):
+        self.assertEqual(_mine(_bash("python app", "API_BASE is not set", "error"),
+                               _bash("export API_BASE=x python app", "ok")), [])
+
     def test_a_piped_cd_leaves_the_place_unknown(self):
         self.assertEqual(_mine(_bash("cd /other | cat", "ok"), _bash("python app.py", "No module named 'project'", "error"),
                                _bash("cd /other && uv run python app.py", "ok")), [])

@@ -228,9 +228,10 @@ def _runs(trace: Trace) -> list[_Run]:
             base = shell or ("", "") if persists else ("", wd)
             where = None if any(moves[first_cmd:]) else _walk(base, segs[:first_cmd], unknown)
             if any(moves) and persists:
-                shell = _walk(base, [t for t, m in zip(segs, moves) if m], unknown)
-                if any(o in ("|", "&") for _, before, after in _chain(cmd) for o in (before, after)):
-                    shell = _walk(base, [["popd"]], unknown)  # a piped or backgrounded `cd` may run in a subshell
+                # Follow the `cd`s only when the run proves they all ran: it succeeded, chained only by `&&`.
+                # Otherwise one may have been skipped, failed, or run in a subshell (`| cat`, `&`).
+                sure = _succeeded(a) and all(op in ("", "&&") for _, _, op in _chain(cmd))
+                shell = _walk(base, [t for t, m in zip(segs, moves) if m] if sure else [["popd"]], unknown)
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where,
                              any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), _persists_env(segs), "<" in _mask(cmd)))
@@ -248,7 +249,8 @@ def _split_env(toks: list[str]) -> tuple[dict[str, str], list[str]]:
     while k < len(toks) and (m := _ASSIGN.match(toks[k])):
         env[m.group(1)] = m.group(2)
         k += 1
-    return env, toks[k:]
+    # `export A=1 python app` only exports names; it runs nothing
+    return env, [] if toks[:1] == ["export"] else toks[k:]
 
 
 def _base(tok: str) -> str:
