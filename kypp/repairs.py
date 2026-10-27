@@ -71,6 +71,7 @@ class _Run:
     proven: list[list[str]]  # the segments the run's success proves ran and succeeded
     output: str
     ok: bool  # confirmed to have succeeded; a run with no recorded outcome is neither
+    where: tuple  # the tool's workdir and every `cd` target: a script name means nothing without it
 
 
 def _command_of(a: Action) -> str | None:
@@ -133,7 +134,10 @@ def _runs(trace: Trace) -> list[_Run]:
         cmd = _command_of(a)
         if cmd and "<<" not in cmd:  # a heredoc body isn't commands
             flat = cmd.replace("\n", "; ")
-            runs.append(_Run(i, cmd, _segments(flat), _proven(flat), a.output or "", _succeeded(a)))
+            segs = _segments(flat)
+            where = (str(a.input.get("workdir") or a.input.get("cwd") or ""),
+                     *(" ".join(t[1:]) for t in segs if t[0] in ("cd", "pushd")))
+            runs.append(_Run(i, cmd, segs, _proven(flat), a.output or "", _succeeded(a), where))
     return runs
 
 
@@ -283,7 +287,8 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         else:
             continue
         if subject not in drafts:
-            for b in (r for r in runs if r.i > a.i and r.ok):
+            # A script or module is only the same one run from the same place.
+            for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or r.where == a.where)):
                 if missing_env:
                     fix = _env_fix(missing_env, head, args, b)
                 elif (form := _working_form(head, args, b)) and not _installed_between(runs, a, b, missing_mod or head):
