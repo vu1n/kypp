@@ -74,6 +74,9 @@ class _Run:
     ok: bool  # confirmed to have succeeded; a run with no recorded outcome is neither
     may_fail: bool  # failed, or its exit status could hide a failure (`pytest | tail`, `pytest; echo`)
     where: tuple | None  # workdir and `cd` targets; None when a `cd` follows a command, so the place is unclear
+    installs: bool  # runs an install or sync
+    sets_env: bool  # sets, exports, unsets or sources something, which a persistent shell keeps
+    reads_input: bool  # a `<` input may choose what the script does, so two runs of it can differ
 
 
 def _command_of(a: Action) -> str | None:
@@ -213,7 +216,8 @@ def _runs(trace: Trace) -> list[_Run]:
                 *(" ".join(t[1:]) for t in segs[:first_cmd]))
             moved += any(t[0] != "cd" or not t[1:] or not all(x.startswith("/") for x in t[1:]) for t in segs if t[0] in ("cd", "pushd", "popd"))
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
-            runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where))
+            runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where,
+                             any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), _changes_env(segs), "<" in _mask(cmd)))
     return runs
 
 
@@ -335,8 +339,7 @@ def _installed_between(runs: list[_Run], a: _Run, b: _Run) -> bool:
     """Any install or sync after the failure, up to and including the run that worked (`uv sync` and
     `pip install -r` don't name what they install), may be why it worked: the fact won't hold. So may
     an `export` or `source` between them, which persists in the shell."""
-    return any(a.i < r.i <= b.i and any(_INSTALLS & set(t) for t, _, _ in _chain(r.command)) or a.i < r.i < b.i
-               and _changes_env(r.segments) for r in runs)
+    return any(a.i < r.i <= b.i and r.installs or a.i < r.i < b.i and r.sets_env for r in runs)
 
 
 def _probes(args: list[str]) -> bool:
@@ -397,7 +400,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
     for a in runs:
         # Error text counts only from a run that failed, or one whose status could hide it (`… | tail`):
         # a successful `rg "No module named"` just printed it.
-        if not a.may_fail:
+        if not a.may_fail or a.reads_input:
             continue
         missing_cmd = _first(_CMD_MISSING, a.output)
         missing_mod = None if missing_cmd else _first(_MOD_MISSING, a.output)
@@ -425,10 +428,8 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
             continue
         # Each failure needs its own repair to count as explained; the first one found writes the claim.
         # A script or module is only the same one run from the same place.
-        for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or _same_place(a, r))):
-            if _installed_between(runs, a, b) or (not missing_cmd and _edited_between(trace, a, b, head)):
-                fix = None
-            elif missing_env:
+        for b in (r for r in runs if r.i > a.i and r.ok and not r.reads_input and (missing_cmd or _same_place(a, r))):
+            if missing_env:
                 fix = _env_fix(missing_env, head, args, b)
             else:
                 form = _working_form(head, args, b)
@@ -436,6 +437,9 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
                 if form and "/" in form[-1] and not _same_place(a, b):
                     form = None
                 fix = form and f"`{shlex.join(form)} …`"
+            # checked only for a candidate fix: each scans every run in between
+            if fix and (_installed_between(runs, a, b) or (not missing_cmd and _edited_between(trace, a, b, head))):
+                fix = None
             if fix:
                 shown = 1 + (2 if args[:1] == ["-m"] else len(args[:1]))  # the command and script, never its arguments
                 drafts.setdefault(subject, ClaimDraft("pitfall", subject, f"{_render(_redact(toks), shown)} {why}; {fix} works.", 0.6))

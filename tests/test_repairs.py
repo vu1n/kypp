@@ -169,6 +169,18 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("cd server && python app.py", "No module named 'project'", "error"),
                                _bash("cd server && uv run python app.py", "ok")), [])
 
+    def test_a_run_reading_stdin_may_take_another_path(self):
+        self.assertEqual(_mine(_bash("python app.py < deploy.txt", "No module named 'boto3'", "error"),
+                               _bash("uv run python app.py < status.txt", "ok")), [])
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'boto3'", "error"),
+                               _bash("uv run python app.py < status.txt", "ok")), [])
+
+    def test_unrelated_successes_stay_cheap(self):
+        import time
+        t = time.monotonic()
+        _mine(_bash("pytest", "pytest: command not found", "error"), *[_bash(f"ls d{i} && pip install x{i}", "ok") for i in range(400)])
+        self.assertLess(time.monotonic() - t, 1.0)
+
     def test_a_cd_inside_a_compound_command_moves_the_shell(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
                                _bash("cd other && ls", "ok"), _bash("uv run python app.py", "ok")), [])
