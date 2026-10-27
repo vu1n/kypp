@@ -4,6 +4,7 @@ paths:
   - "kypp/distill.py"
   - "kypp/batch_distill.py"
   - "kypp/episodes.py"
+  - "kypp/repairs.py"
   - "scripts/eval_episodes.py"
   - "eval/episodes/*"
   - "docs/episode-extraction-evaluation.md"
@@ -12,6 +13,7 @@ entry:
   - "kypp/batch_distill.py"
 tests:
   - "tests/test_episodes.py"
+  - "tests/test_repairs.py"
 ---
 # Distillation
 
@@ -20,6 +22,15 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
 
 ## Gotchas
 - Without `KYPP_DISTILL_MODEL` you only get heuristic, failure-mined pitfalls.
+- Repair pitfalls (`kypp/repairs.py`) run with or without a model: a shell command that fails
+  with command-not-found, a missing module or a missing env var, followed in the same session by a
+  form that works (`uv run pytest`, `.venv/bin/python`, `V=x cmd`). The subject names only what
+  failed, so a second session's repair lands on the same subject and the K=2 gate accepts it; a
+  one-session quirk stays a candidate. A repair suppresses the generic "`<tool>` repeatedly
+  failed" pitfall for the failures it explains.
+- A repair is skipped when the bare form works later in the session, when the thing was installed
+  in between, or when the working form is a host path. A secret-looking env var's value is never
+  written.
 - If the LLM distiller fails, it falls back to the heuristic distiller rather than raising.
 - With `TYPESAFE_API_KEY` or `KYPP_DECIDER_URL` (a local strands-decider) set, and `kypp[s1]`
   installed, a System One gate drops drafts scoring
