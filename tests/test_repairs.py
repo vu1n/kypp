@@ -24,7 +24,7 @@ class CommandMissing(unittest.TestCase):
         [d] = _mine(_bash("pytest -q tests", "bash: line 1: pytest: command not found", "error"),
                     _bash("uv run pytest -q tests", "3 passed"))
         self.assertEqual((d.type, d.subject), ("pitfall", "`pytest` is not on PATH"))
-        self.assertIn("`pytest -q …` fails here (command not found)", d.content)
+        self.assertIn("`pytest …` fails here (command not found)", d.content)
         self.assertIn("`uv run pytest …` works", d.content)
 
     def test_subject_names_only_what_failed_so_sessions_agree(self):
@@ -52,7 +52,8 @@ class CommandMissing(unittest.TestCase):
                                _bash("uv pip install pytest", "ok"), _bash("python -m pytest", "ok")), [])
 
     def test_probes_and_installs_are_not_repairs(self):
-        for later in ("which pytest", "pip install pytest", "uv add pytest", "pytest --version"):
+        for later in ("which pytest", "pip install pytest", "uv add pytest", "pytest --version",
+                      "test -x .venv/bin/pytest", "test .venv/bin/pytest", "ls .venv/bin/pytest"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
                              [], later)
 
@@ -63,7 +64,14 @@ class CommandMissing(unittest.TestCase):
 
     def test_a_piped_run_fails_by_its_output(self):
         [d] = _mine(_bash("pytest -q | tail -3", "bash: pytest: command not found"),
-                    _bash("env -u CI uv run pytest -q | tail -3", "3 passed"))
+                    _bash("env -u CI uv run pytest -q", "3 passed"))
+        self.assertIn("`uv run pytest …` works", d.content)
+
+    def test_success_proves_only_segments_it_ran(self):
+        for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3"):
+            self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
+                             [], later)
+        [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("cd x; uv run pytest && echo ok", "ok"))
         self.assertIn("`uv run pytest …` works", d.content)
 
     def test_a_multiline_command_is_read_line_by_line(self):
@@ -82,11 +90,12 @@ class CommandMissing(unittest.TestCase):
                                    _bash("uv run pytest", out, status)), [], status)
 
     def test_credentials_in_the_working_form_are_redacted(self):
-        [d] = _mine(_bash("pytest", "pytest: command not found", "error"),
-                    _bash("docker run -e OPENAI_API_KEY=sk-live-123 --token=abc img pytest -q", "ok"))
-        self.assertNotIn("sk-live-123", d.content)
-        self.assertNotIn("abc", d.content)
-        self.assertIn("OPENAI_API_KEY=…", d.content)
+        for later in ("docker run -e OPENAI_API_KEY=sk-live-123 img pytest -q",
+                      "docker --config x run --token SECRET image pytest"):
+            self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
+                             [], later)
+        [d] = _mine(_bash("mycli --token=sk-1 sync", "mycli: command not found", "error"), _bash("npx mycli --token=sk-1", "ok"))
+        self.assertNotIn("sk-1", d.content)
 
 
 class ModuleMissing(unittest.TestCase):
@@ -102,6 +111,10 @@ class ModuleMissing(unittest.TestCase):
         for later in ("uv run python -c 'print(1)'", "uv run python unrelated.py", "uv run python -m other"):
             self.assertEqual(_mine(_bash("python -m kypp.distill", "No module named 'turso'", "error"),
                                    _bash(later, "ok")), [], later)
+
+    def test_inline_code_is_not_compared_so_yields_nothing(self):
+        self.assertEqual(_mine(_bash("python -c 'import turso'", "No module named 'turso'", "error"),
+                               _bash("uv run python -c 'print(1)'", "ok")), [])
 
     def test_no_fact_when_the_bare_form_works_later(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
@@ -121,6 +134,9 @@ class EnvMissing(unittest.TestCase):
         self.assertNotIn("pw", d.content)
         [d] = _mine(_bash("python -m app", "KeyError: 'PYTHONPATH'", "error"), _bash("PYTHONPATH=src python -m app", "ok"))
         self.assertIn("`PYTHONPATH=src python …` works", d.content)
+        [d] = _mine(_bash("python app.py", "HOST is required", "error"),
+                    _bash("HOST=https://u:pw@example.com python app.py", "ok"))
+        self.assertNotIn("pw", d.content)
 
     def test_the_later_run_must_run_the_same_script(self):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),

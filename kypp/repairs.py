@@ -44,7 +44,7 @@ _ENV_MISSING = [re.compile(p) for p in (
     r"[Mm]issing (?:required )?(?:environment variable|env var) '?([A-Z][A-Z0-9_]{2,})'?",
 )]
 # A later command led by one of these is looking or installing, not running the thing another way.
-_NOT_A_REPAIR = {"which", "type", "command", "whereis", "hash", "echo", "printf", "ls", "cat", "man",
+_NOT_A_REPAIR = {"which", "type", "command", "test", "[", "whereis", "hash", "echo", "printf", "ls", "cat", "man",
                  "file", "stat", "find", "fd", "rg", "grep", "sudo", "apt", "apt-get", "brew", "pip",
                  "pip3", "pipx", "conda", "cargo", "go", "gem", "npm", "pnpm", "yarn"}
 _INSTALL_WORDS = {"install", "add", "i", "sync", "-v", "--version", "--help", "-h"}
@@ -55,6 +55,9 @@ _PROBE_ARGS = {"--version", "-V", "version", "--help", "-h", "help"}
 _SAFE_ENV = {"PYTHONPATH", "NODE_ENV", "CI", "TZ", "LANG", "LC_ALL", "RUST_BACKTRACE", "RUST_LOG",
              "DEBUG", "PORT", "HOST", "FORCE_COLOR", "NO_COLOR", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"}
 _USERINFO = re.compile(r"://[^/\s]*@")
+# A wrapper word in a recorded fix (`uv run`, `python -m`, `npx`): no flags or values, which could
+# carry a credential (`--token SECRET`, `-e KEY=…`).
+_PLAIN = re.compile(r"^(?:-m|[A-Za-z0-9._+][A-Za-z0-9._+/-]*)$")
 _EXIT_CODE = re.compile(r"(?:Exit code:?|\"exit_code\":)\s*(-?\d+)")
 _ABS = re.compile(r"(?:^|\s)/(?:var|tmp|private|Users|home|root)/")
 
@@ -64,6 +67,7 @@ class _Run:
     i: int
     command: str
     segments: list[list[str]]  # each shell segment, tokenized, env assignments kept as leading tokens
+    proven: list[list[str]]  # the segments the run's success proves ran and succeeded
     output: str
     ok: bool  # confirmed to have succeeded; a run with no recorded outcome is neither
 
@@ -77,16 +81,35 @@ def _command_of(a: Action) -> str | None:
     return c.strip() if isinstance(c, str) and c.strip() else None
 
 
+def _tokens(seg: str) -> list[str] | None:
+    try:
+        return shlex.split(seg)
+    except ValueError:  # unbalanced quotes: a heredoc or a script, not one command
+        return None
+
+
 def _segments(command: str) -> list[list[str]]:
-    """Each command in a `&&`/`;` chain, tokenized; only the first stage of a pipeline is kept."""
+    """Each command in a `&&`/`||`/`;` chain, tokenized; only the first stage of a pipeline is kept."""
     out = []
     for seg in _SEGMENT_SPLIT.split(command):
-        try:
-            toks = shlex.split(seg)
-        except ValueError:  # unbalanced quotes: a heredoc or a script, not one command
-            continue
+        toks = _tokens(seg) or []
         toks = toks[:toks.index("|")] if "|" in toks else toks
         if toks:
+            out.append(toks)
+    return out
+
+
+def _proven(command: str) -> list[list[str]]:
+    """The segments a successful run proves succeeded. A chain's exit status is its last command's,
+    so only a segment followed by nothing but `&&` counts; `||` may skip a segment, and a pipeline
+    exits with its last stage, so neither proves anything."""
+    if "||" in command:
+        return []
+    parts = re.split(r"\s*(&&|;)\s*", command)
+    out = []
+    for k in range(0, len(parts), 2):
+        toks = _tokens(parts[k])
+        if toks and "|" not in toks and all(sep == "&&" for sep in parts[k + 1::2]):
             out.append(toks)
     return out
 
@@ -105,7 +128,8 @@ def _runs(trace: Trace) -> list[_Run]:
     for i, a in enumerate(trace.actions):
         cmd = _command_of(a)
         if cmd and "<<" not in cmd:  # a heredoc body isn't commands
-            runs.append(_Run(i, cmd, _segments(cmd.replace("\n", "; ")), a.output or "", _succeeded(a)))
+            flat = cmd.replace("\n", "; ")
+            runs.append(_Run(i, cmd, _segments(flat), _proven(flat), a.output or "", _succeeded(a)))
     return runs
 
 
@@ -137,10 +161,14 @@ def _render(toks: list[str], upto: int) -> str:
     return "`" + shlex.join(toks[:upto]) + (" …" if len(toks) > upto else "") + "`"
 
 
-def _invocation(toks: list[str]) -> list[str]:
+def _invocation(toks: list[str]) -> list[str] | None:
     """What a run of `toks[0]` runs: its script or `-m module`. A missing module or env var is about
-    that, so a repair must run the same thing; a missing command is about the command alone."""
-    return toks[1:3] if toks[1:2] == ["-m"] else toks[1:2]
+    that, so a repair must run the same thing. Inline code (`-c`, `-e`) or flags ahead of the
+    script aren't compared, so those runs yield no repair (None)."""
+    rest = toks[1:]
+    if rest[:1] == ["-m"] and len(rest) >= 2:
+        return rest[:2]
+    return rest[:1] if rest and not rest[0].startswith("-") else None
 
 
 def _redact(form: list[str]) -> list[str]:
@@ -158,7 +186,7 @@ def _redact(form: list[str]) -> list[str]:
 def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     """The tokens a later, successful command runs `head` with, when it runs it another way: behind a
     wrapper (`uv run pytest`, `python -m pytest`, `npx tsc`) or by a path (`.venv/bin/pytest`)."""
-    for seg in later.segments:
+    for seg in later.proven:
         _, toks = _split_env(seg)
         for j, t in enumerate(toks):
             if _base(t) != head or (j == 0 and t == head):
@@ -168,8 +196,10 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
                 break
             if (rest and set(rest) <= _PROBE_ARGS) or rest[:len(args)] != args:
                 break
+            if len(prefix) > 3 or not all(_PLAIN.match(w) for w in prefix):
+                break
             form = toks[:j + 1]
-            return None if _ABS.search(" " + " ".join(form)) else _redact(form)
+            return None if _ABS.search(" " + " ".join(form)) else form
     return None
 
 
@@ -186,7 +216,7 @@ def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str]
     """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
         if r.i > a.i and r.ok:
-            for env, toks in map(_split_env, r.segments):
+            for env, toks in map(_split_env, r.proven):
                 if toks[:1] == [head] and toks[1:1 + len(args)] == args and (var is None or var not in env):
                     return True
     return False
@@ -207,10 +237,10 @@ def _target(seg_toks: list[list[str]], missing_cmd: str | None) -> list[str] | N
 
 def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
     """The later run that sets `name` and runs the same thing, as the fact shows it."""
-    for env, toks in map(_split_env, later.segments):
+    for env, toks in map(_split_env, later.proven):
         if name in env and toks[:1] == [head] and toks[1:1 + len(args)] == args:
             value = env[name]
-            if name not in _SAFE_ENV or _ABS.search(" " + value) or len(value) > 80:
+            if name not in _SAFE_ENV or _ABS.search(" " + value) or "@" in value or len(value) > 80:
                 return f"`{name}=… {head} …`"
             return f"`{shlex.join([f'{name}={value}', head])} …`"
     return None
@@ -235,6 +265,8 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         if not toks or "/" in toks[0] or not _WORD.match(head := toks[0]):
             continue
         args = [] if missing_cmd else _invocation(toks)
+        if args is None:
+            continue
         if _works_unchanged_later(runs, a, head, args, missing_env):
             continue
         if missing_cmd:
@@ -254,7 +286,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
                 else:
                     fix = None
                 if fix:
-                    drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(_redact(toks), 2)} {why}; {fix} works.", 0.6)
+                    drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(_redact(toks), 1 + len(args))} {why}; {fix} works.", 0.6)
                     break
         if subject in drafts:
             explained.add(a.i)
