@@ -112,6 +112,14 @@ class ModuleMissing(unittest.TestCase):
             self.assertEqual(_mine(_bash("python -m kypp.distill", "No module named 'turso'", "error"),
                                    _bash(later, "ok")), [], later)
 
+    def test_an_error_from_a_multi_command_run_is_not_attributed(self):
+        self.assertEqual(_mine(_bash("python app.py; node build.js", "No module named 'turso'", "error"),
+                               _bash("npx node build.js", "ok")), [])
+
+    def test_a_fix_that_also_sets_a_variable_is_not_recorded(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
+                               _bash("PYTHONPATH=src uv run python app.py", "ok")), [])
+
     def test_inline_code_is_not_compared_so_yields_nothing(self):
         self.assertEqual(_mine(_bash("python -c 'import turso'", "No module named 'turso'", "error"),
                                _bash("uv run python -c 'print(1)'", "ok")), [])

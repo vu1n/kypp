@@ -187,7 +187,9 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     """The tokens a later, successful command runs `head` with, when it runs it another way: behind a
     wrapper (`uv run pytest`, `python -m pytest`, `npx tsc`) or by a path (`.venv/bin/pytest`)."""
     for seg in later.proven:
-        _, toks = _split_env(seg)
+        env, toks = _split_env(seg)
+        if env:
+            continue  # the assignment may be what made it work, and the fix wouldn't say so
         for j, t in enumerate(toks):
             if _base(t) != head or (j == 0 and t == head):
                 continue
@@ -227,12 +229,13 @@ def _errs(output: str) -> bool:
 
 
 def _target(seg_toks: list[list[str]], missing_cmd: str | None) -> list[str] | None:
-    """The segment the error is about: the one running the missing command, else the last one that
-    isn't setup (`cd`, `source`, `export`)."""
+    """The segment the error is about: the one running the missing command, else the only one that
+    isn't setup (`cd`, `source`, `export`). With two, a module or env error can't be attributed."""
     runs = [_split_env(s) for s in seg_toks]
     if missing_cmd:
         return next((s for s, (_, t) in zip(seg_toks, runs) if t and _base(t[0]) == missing_cmd), None)
-    return next((s for s, (_, t) in reversed(list(zip(seg_toks, runs))) if t and t[0] not in _SETUP), None)
+    work = [s for s, (_, t) in zip(seg_toks, runs) if t and t[0] not in _SETUP]
+    return work[0] if len(work) == 1 else None
 
 
 def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
