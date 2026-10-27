@@ -28,9 +28,12 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
   failed, so a second session's repair lands on the same subject and the K=2 gate accepts it; a
   one-session quirk stays a candidate. A repair suppresses the generic "`<tool>` repeatedly
   failed" pitfall for the failures it explains.
-- A repair is skipped when the bare form works later in the session, when the thing was installed
-  in between, or when the working form is a host path. A secret-looking env var's value is never
-  written.
+- A repair needs a later run with a confirmed success (Claude's `completed`, Codex's exit 0) that
+  runs the same thing: the same script or `-m module` for a missing module or env var. It is
+  skipped when the original works later without the fix, when the thing was installed in between,
+  when the later run only probes (`--version`, `--help`), or when the working form is a host path.
+- Values are written only for a short allowlist of env vars (`PYTHONPATH`, `NODE_ENV`, ...).
+  Every other `name=value` becomes `name=…`, and a URL's user:password is dropped.
 - If the LLM distiller fails, it falls back to the heuristic distiller rather than raising.
 - With `TYPESAFE_API_KEY` or `KYPP_DECIDER_URL` (a local strands-decider) set, and `kypp[s1]`
   installed, a System One gate drops drafts scoring

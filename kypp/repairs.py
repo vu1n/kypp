@@ -48,8 +48,13 @@ _NOT_A_REPAIR = {"which", "type", "command", "whereis", "hash", "echo", "printf"
                  "file", "stat", "find", "fd", "rg", "grep", "sudo", "apt", "apt-get", "brew", "pip",
                  "pip3", "pipx", "conda", "cargo", "go", "gem", "npm", "pnpm", "yarn"}
 _INSTALL_WORDS = {"install", "add", "i", "sync", "-v", "--version", "--help", "-h"}
-# A value under one of these names may be a credential: name the variable, never repeat its value.
-_SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|AUTH|CRED|PRIVATE|COOKIE|SESSION", re.I)
+# Arguments that only ask the command about itself: running it this way proves nothing works.
+_PROBE_ARGS = {"--version", "-V", "version", "--help", "-h", "help"}
+# Only these variables' values are written; any other value may be a credential (a DATABASE_URL
+# carries a password), so a fact names the variable and never repeats its value.
+_SAFE_ENV = {"PYTHONPATH", "NODE_ENV", "CI", "TZ", "LANG", "LC_ALL", "RUST_BACKTRACE", "RUST_LOG",
+             "DEBUG", "PORT", "HOST", "FORCE_COLOR", "NO_COLOR", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"}
+_USERINFO = re.compile(r"://[^/\s]*@")
 _EXIT_CODE = re.compile(r"(?:Exit code:?|\"exit_code\":)\s*(-?\d+)")
 _ABS = re.compile(r"(?:^|\s)/(?:var|tmp|private|Users|home|root)/")
 
@@ -60,7 +65,7 @@ class _Run:
     command: str
     segments: list[list[str]]  # each shell segment, tokenized, env assignments kept as leading tokens
     output: str
-    failed: bool
+    ok: bool  # confirmed to have succeeded; a run with no recorded outcome is neither
 
 
 def _command_of(a: Action) -> str | None:
@@ -86,12 +91,13 @@ def _segments(command: str) -> list[list[str]]:
     return out
 
 
-def _failed(a: Action) -> bool:
-    """Claude records an error status; Codex records none, so read the exit code off the output."""
-    if a.status == "error":
-        return True
+def _succeeded(a: Action) -> bool:
+    """Confirmed success. Claude records a status; Codex records none, so its exit code decides. A
+    run still `running`, or with no status and no exit code, can't prove a repair."""
     m = _EXIT_CODE.search(a.output or "")
-    return bool(m and m.group(1) != "0")
+    code = m.group(1) if m else None
+    failed = a.status == "error" or (code is not None and code != "0")
+    return not failed and (a.status == "completed" or code == "0") and not _errs(a.output or "")
 
 
 def _runs(trace: Trace) -> list[_Run]:
@@ -99,7 +105,7 @@ def _runs(trace: Trace) -> list[_Run]:
     for i, a in enumerate(trace.actions):
         cmd = _command_of(a)
         if cmd and "<<" not in cmd:  # a heredoc body isn't commands
-            runs.append(_Run(i, cmd, _segments(cmd.replace("\n", "; ")), a.output or "", _failed(a)))
+            runs.append(_Run(i, cmd, _segments(cmd.replace("\n", "; ")), a.output or "", _succeeded(a)))
     return runs
 
 
@@ -131,7 +137,25 @@ def _render(toks: list[str], upto: int) -> str:
     return "`" + shlex.join(toks[:upto]) + (" …" if len(toks) > upto else "") + "`"
 
 
-def _working_form(head: str, later: _Run) -> list[str] | None:
+def _invocation(toks: list[str]) -> list[str]:
+    """What a run of `toks[0]` runs: its script or `-m module`. A missing module or env var is about
+    that, so a repair must run the same thing; a missing command is about the command alone."""
+    return toks[1:3] if toks[1:2] == ["-m"] else toks[1:2]
+
+
+def _redact(form: list[str]) -> list[str]:
+    """Never repeat a credential into shared memory: any `name=value` (`K=V`, `-e K=V`, `--token=x`)
+    unless the name is known safe, and a URL's user:password."""
+    out = []
+    for t in form:
+        key, eq, _ = t.partition("=")
+        if eq and key not in _SAFE_ENV:
+            t = f"{key}=…"
+        out.append(_USERINFO.sub("://…@", t))
+    return out
+
+
+def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     """The tokens a later, successful command runs `head` with, when it runs it another way: behind a
     wrapper (`uv run pytest`, `python -m pytest`, `npx tsc`) or by a path (`.venv/bin/pytest`)."""
     for seg in later.segments:
@@ -139,11 +163,13 @@ def _working_form(head: str, later: _Run) -> list[str] | None:
         for j, t in enumerate(toks):
             if _base(t) != head or (j == 0 and t == head):
                 continue
-            prefix = toks[:j]
+            prefix, rest = toks[:j], toks[j + 1:]
             if prefix and (_base(prefix[0]) in _NOT_A_REPAIR or _INSTALL_WORDS & set(prefix)):
                 break
+            if (rest and set(rest) <= _PROBE_ARGS) or rest[:len(args)] != args:
+                break
             form = toks[:j + 1]
-            return None if _ABS.search(" " + " ".join(form)) else form
+            return None if _ABS.search(" " + " ".join(form)) else _redact(form)
     return None
 
 
@@ -156,10 +182,13 @@ def _installed_between(runs: list[_Run], a: _Run, b: _Run, name: str) -> bool:
     return False
 
 
-def _bare_works_later(runs: list[_Run], a: _Run, head: str) -> bool:
+def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], var: str | None) -> bool:
+    """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
-        if r.i > a.i and not r.failed and not _errs(r.output) and any(_split_env(s)[1][:1] == [head] for s in r.segments):
-            return True
+        if r.i > a.i and r.ok:
+            for env, toks in map(_split_env, r.segments):
+                if toks[:1] == [head] and toks[1:1 + len(args)] == args and (var is None or var not in env):
+                    return True
     return False
 
 
@@ -176,13 +205,12 @@ def _target(seg_toks: list[list[str]], missing_cmd: str | None) -> list[str] | N
     return next((s for s, (_, t) in reversed(list(zip(seg_toks, runs))) if t and t[0] not in _SETUP), None)
 
 
-def _env_fix(name: str, head: str, later: _Run) -> str | None:
-    """The later run that sets `name` and runs `head`, as the fact shows it."""
+def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
+    """The later run that sets `name` and runs the same thing, as the fact shows it."""
     for env, toks in map(_split_env, later.segments):
-        if name in env and toks[:1] == [head]:
+        if name in env and toks[:1] == [head] and toks[1:1 + len(args)] == args:
             value = env[name]
-            # Never repeat a credential's value, or a host path, into shared memory.
-            if _SECRET_NAME.search(name) or _ABS.search(" " + value) or len(value) > 80:
+            if name not in _SAFE_ENV or _ABS.search(" " + value) or len(value) > 80:
                 return f"`{name}=… {head} …`"
             return f"`{shlex.join([f'{name}={value}', head])} …`"
     return None
@@ -206,9 +234,10 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         env, toks = _split_env(seg or [])
         if not toks or "/" in toks[0] or not _WORD.match(head := toks[0]):
             continue
+        args = [] if missing_cmd else _invocation(toks)
+        if _works_unchanged_later(runs, a, head, args, missing_env):
+            continue
         if missing_cmd:
-            if _bare_works_later(runs, a, head):
-                continue  # it works bare later in the session: installed or PATH fixed, not a fact
             subject, why = f"`{head}` is not on PATH", "fails here (command not found)"
         elif missing_mod and _WORD.match(missing_mod):
             subject, why = f"`{head}` can't import `{missing_mod}`", f"fails here (no module `{missing_mod}`)"
@@ -217,15 +246,15 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         else:
             continue
         if subject not in drafts:
-            for b in (r for r in runs if r.i > a.i and not r.failed and not _errs(r.output)):
+            for b in (r for r in runs if r.i > a.i and r.ok):
                 if missing_env:
-                    fix = _env_fix(missing_env, head, b)
-                elif (form := _working_form(head, b)) and not _installed_between(runs, a, b, missing_mod or head):
+                    fix = _env_fix(missing_env, head, args, b)
+                elif (form := _working_form(head, args, b)) and not _installed_between(runs, a, b, missing_mod or head):
                     fix = f"`{shlex.join(form)} …`"
                 else:
                     fix = None
                 if fix:
-                    drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(toks, 2)} {why}; {fix} works.", 0.6)
+                    drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(_redact(toks), 2)} {why}; {fix} works.", 0.6)
                     break
         if subject in drafts:
             explained.add(a.i)

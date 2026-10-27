@@ -71,6 +71,24 @@ class CommandMissing(unittest.TestCase):
         self.assertEqual(d.subject, "`tsc` is not on PATH")
 
 
+    def test_probe_flags_after_the_command_are_not_repairs(self):
+        for later in ("uv run pytest --version", ".venv/bin/pytest --help"):
+            self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
+                             [], later)
+
+    def test_a_run_with_no_recorded_outcome_proves_nothing(self):
+        for status, out in (("running", ""), ("unspecified", ""), ("unspecified", "3 passed")):
+            self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"),
+                                   _bash("uv run pytest", out, status)), [], status)
+
+    def test_credentials_in_the_working_form_are_redacted(self):
+        [d] = _mine(_bash("pytest", "pytest: command not found", "error"),
+                    _bash("docker run -e OPENAI_API_KEY=sk-live-123 --token=abc img pytest -q", "ok"))
+        self.assertNotIn("sk-live-123", d.content)
+        self.assertNotIn("abc", d.content)
+        self.assertIn("OPENAI_API_KEY=…", d.content)
+
+
 class ModuleMissing(unittest.TestCase):
     def test_interpreter_that_can_import_it(self):
         [d] = _mine(_bash("python -m kypp.distill", "ModuleNotFoundError: No module named 'turso'", "error"),
@@ -80,12 +98,37 @@ class ModuleMissing(unittest.TestCase):
         self.assertIn("`uv run python …` works", d.content)
 
 
+    def test_the_later_run_must_run_the_same_thing(self):
+        for later in ("uv run python -c 'print(1)'", "uv run python unrelated.py", "uv run python -m other"):
+            self.assertEqual(_mine(_bash("python -m kypp.distill", "No module named 'turso'", "error"),
+                                   _bash(later, "ok")), [], later)
+
+    def test_no_fact_when_the_bare_form_works_later(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("uv run python app.py", "ok"), _bash("python app.py", "ok")), [])
+
+
 class EnvMissing(unittest.TestCase):
     def test_setting_the_variable_works(self):
         [d] = _mine(_bash("node build.js", "Error: API_BASE is not set", "error"),
                     _bash("API_BASE=http://localhost:8787 node build.js", "built"))
         self.assertEqual(d.subject, "`node` needs `API_BASE` set")
-        self.assertIn("asking for `API_BASE`; `API_BASE=http://localhost:8787 node …` works", d.content)
+        self.assertIn("asking for `API_BASE`; `API_BASE=… node …` works", d.content)
+
+    def test_only_known_safe_values_are_written(self):
+        [d] = _mine(_bash("python app.py", "DATABASE_URL is required", "error"),
+                    _bash("DATABASE_URL=postgresql://u:pw@h/db python app.py", "ok"))
+        self.assertNotIn("pw", d.content)
+        [d] = _mine(_bash("python -m app", "KeyError: 'PYTHONPATH'", "error"), _bash("PYTHONPATH=src python -m app", "ok"))
+        self.assertIn("`PYTHONPATH=src python …` works", d.content)
+
+    def test_the_later_run_must_run_the_same_script(self):
+        self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
+                               _bash("API_BASE=x node --version", "ok")), [])
+
+    def test_no_fact_when_it_works_later_without_the_variable(self):
+        self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
+                               _bash("API_BASE=x node build.js", "ok"), _bash("node build.js", "ok")), [])
 
     def test_a_credential_value_is_never_repeated(self):
         [d] = _mine(_bash("python run.py", "KeyError: 'OPENAI_API_KEY'", "error"),
