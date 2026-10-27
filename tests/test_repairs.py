@@ -84,7 +84,8 @@ class CommandMissing(unittest.TestCase):
     def test_success_proves_only_segments_it_ran(self):
         for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3",
                       "uv run pytest |tail -3", "uv run pytest >/tmp/log 2>&1 &",
-                      "echo 'example; uv run pytest && end'", "env -u PYTHONPATH uv run pytest"):
+                      "echo 'example; uv run pytest && end'", "env -u PYTHONPATH uv run pytest",
+                      "echo ';' uv run pytest", 'echo "a|b" uv run pytest', "echo \\; uv run pytest"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
                              [], later)
         [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("cd x; uv run pytest && echo ok", "ok"))
@@ -167,8 +168,18 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
                                _bash("uv run python app.py", "ok"), _bash("python app.py", "ok")), [])
 
+    def test_a_later_help_probe_does_not_count_as_working_bare(self):
+        [d] = _mine(_bash("python app.py", "No module named 'turso'", "error"),
+                    _bash("uv run python app.py", "ok"), _bash("python app.py --help", "usage: app"))
+        self.assertIn("`uv run python …` works", d.content)
+
 
 class EnvMissing(unittest.TestCase):
+    def test_a_later_help_probe_does_not_count_as_working_without_it(self):
+        [d] = _mine(_bash("node build.js", "Error: API_BASE is not set", "error"),
+                    _bash("API_BASE=http://localhost:8787 node build.js", "built"), _bash("node build.js -h", "usage"))
+        self.assertEqual(d.subject, "`node` needs `API_BASE` set")
+
     def test_setting_the_variable_works(self):
         [d] = _mine(_bash("node build.js", "Error: API_BASE is not set", "error"),
                     _bash("API_BASE=http://localhost:8787 node build.js", "built"))

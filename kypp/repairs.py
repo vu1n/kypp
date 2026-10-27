@@ -83,11 +83,34 @@ def _command_of(a: Action) -> str | None:
     return c.strip() if isinstance(c, str) and c.strip() else None
 
 
+_MASK = {c: chr(0xE000 + i) for i, c in enumerate(";&|")}
+_UNMASK = str.maketrans({v: k for k, v in _MASK.items()})
+
+
+def _mask(command: str) -> str:
+    """The command with quoted or escaped `;`, `&` and `|` swapped for placeholders, so the lexer,
+    which drops quotes before it splits, never reads a printed `';'` as an operator."""
+    out, quote, esc = [], "", False
+    for c in command:
+        if esc:
+            out.append(_MASK.get(c, c))
+            esc = False
+            continue
+        if c == "\\" and quote != "'":
+            esc = True
+        elif c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+        elif quote and c in _MASK:
+            c = _MASK[c]
+        out.append(c)
+    return "".join(out)
+
+
 def _chain(command: str) -> list[tuple[list[str], str, str]]:
     """The command's segments as (tokens, operator before, operator after), split on shell operators
     outside quotes (`echo 'a; b'` is one segment, `|tail` two tokens). Unbalanced quotes (a heredoc
     or a script, not one command) yield nothing."""
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lex = shlex.shlex(_mask(command), posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     try:
         toks = list(lex)
@@ -100,7 +123,7 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
                 out.append((cur, before, t))
             cur, before = [], t
         else:
-            cur.append(t)
+            cur.append(t.translate(_UNMASK))
     return out
 
 
@@ -208,7 +231,7 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
             prefix, rest = toks[:j], toks[j + 1:]
             if prefix and (_base(prefix[0]), *prefix[1:]) not in _WRAPPERS:
                 break
-            if (rest and set(rest) <= _PROBE_ARGS) or _PROBE_FLAGS & set(rest) or rest[:len(args)] != args:
+            if _probes(rest) or rest[:len(args)] != args:
                 break
             form = toks[:j + 1]
             return None if _ABS.search(" " + " ".join(form)) else form
@@ -221,12 +244,18 @@ def _installed_between(runs: list[_Run], a: _Run, b: _Run) -> bool:
     return any(a.i < r.i <= b.i and _INSTALLS & set(r.command.split()) for r in runs)
 
 
+def _probes(args: list[str]) -> bool:
+    """The arguments only ask for a version or help, which can work while the real run can't."""
+    return bool(args) and set(args) <= _PROBE_ARGS or bool(_PROBE_FLAGS & set(args))
+
+
 def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], same_place: bool) -> bool:
     """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
         if r.i > a.i and r.ok and (not same_place or r.where == a.where):
             for env, toks in map(_split_env, r.proven):
-                if toks[:1] == [head] and toks[1:1 + len(args)] == args and not env:  # unchanged: no env either
+                # unchanged: no env either, and a probe (`--help`) doesn't prove the real run works
+                if toks[:1] == [head] and toks[1:1 + len(args)] == args and not env and not _probes(toks[1:]):
                     return True
     return False
 
@@ -248,7 +277,7 @@ def _target(seg_toks: list[list[str]], missing_cmd: str | None) -> list[str] | N
 def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
     """The later run that sets `name` and runs the same thing, as the fact shows it."""
     for env, toks in map(_split_env, later.proven):
-        if set(env) == {name} and toks[:1] == [head] and toks[1:1 + len(args)] == args and not _PROBE_FLAGS & set(toks):
+        if set(env) == {name} and toks[:1] == [head] and toks[1:1 + len(args)] == args and not _probes(toks[1:]):
             value = env[name]
             if name not in _SAFE_ENV or _ABS.search(" " + value) or "@" in value or len(value) > 80:
                 return f"`{name}=… {head} …`"
