@@ -429,8 +429,8 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
                 fix = _env_fix(missing_env, head, args, b)
             else:
                 form = _working_form(head, args, b)
-                # a relative path (`.venv/bin/pytest`) only works from where it ran
-                if form and "/" in form[0] and not _same_place(a, b):
+                # a relative path (`.venv/bin/pytest`, `uv run .venv/bin/pytest`) only works from where it ran
+                if form and "/" in form[-1] and not _same_place(a, b):
                     form = None
                 fix = form and f"`{shlex.join(form)} …`"
             if fix:

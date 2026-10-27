@@ -228,6 +228,8 @@ class ModuleMissing(unittest.TestCase):
     def test_a_path_form_from_another_directory_is_not_a_fix(self):
         self.assertEqual(_mine(_bash("pytest -q", "pytest: command not found", "error"),
                                _bash("cd backend && .venv/bin/pytest -q", "ok")), [])
+        self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"),
+                               _bash("cd backend && uv run .venv/bin/pytest", "ok")), [])
 
     def test_a_url_or_user_in_the_working_form_is_never_written(self):
         self.assertEqual(_mine(_bash("mycli", "mycli: command not found", "error"),
