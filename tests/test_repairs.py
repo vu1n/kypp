@@ -93,7 +93,7 @@ class CommandMissing(unittest.TestCase):
     def test_success_proves_only_segments_it_ran(self):
         for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3",
                       "uv run pytest |tail -3", "uv run pytest |& tail -3", "printf '' uv run pytest",
-                      "echo $(true; uv run pytest 2>/dev/null)", "echo `uv run pytest`", "uv run pytest >/tmp/log 2>&1 &",
+                      "echo $(true; uv run pytest 2>/dev/null)", "uv run pytest 2>/dev/null; > out.log", "echo `uv run pytest`", "uv run pytest >/tmp/log 2>&1 &",
                       "echo 'example; uv run pytest && end'", "env -u PYTHONPATH uv run pytest",
                       "echo ';' uv run pytest", 'echo "a|b" uv run pytest', "echo \\; uv run pytest"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),

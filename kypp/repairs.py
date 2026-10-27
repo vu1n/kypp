@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 _SHELL_TOOLS = {"bash", "shell", "exec_command", "local_shell", "run_shell_command"}
 
 _OPS = {";", "&&", "||", "|", "&"}
-_SETUP = {"cd", "source", ".", "export", "set", "pushd", "unset"}
+_SETUP = {"cd", "source", ".", "export", "set", "pushd", "unset", ":"}
 _ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 _WORD = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")  # a command or module name we're willing to quote
 # A missing command, as bash, sh, zsh and env each word it.
@@ -149,7 +149,8 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
     for t in toks + [None]:  # None ends it: `''` lexes to an empty token
         t = "|" if t == "|&" else t  # bash's `|&` is a pipe that also carries stderr
         if t in _OPS or t is None:
-            if cur and (words := _strip_redirects(cur)):  # `> out.log` alone has no command
+            if cur:  # `> out.log` alone runs nothing but still sets the status: keep it as `:`
+                words = _strip_redirects(cur) or [":"]
                 out.append(([w.translate(_UNMASK) for w in words], before, t or ""))
             cur, before = [], t
         else:
