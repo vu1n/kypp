@@ -70,6 +70,14 @@ class CommandMissing(unittest.TestCase):
     def test_a_host_path_form_is_not_a_fact(self):
         self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"),
                                _bash("/home/u/.venv/bin/pytest", "ok")), [])
+        for path in ("/opt/company/venv/bin/pytest", "/workspace/.venv/bin/pytest", "/mnt/x/pytest",
+                     "~/.local/bin/pytest", "/opt/uv run pytest"):
+            self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(path, "ok")), [], path)
+
+    def test_an_export_between_the_runs_may_be_the_fix(self):
+        for setup in ("export PYTHONPATH=src", "source .venv/bin/activate", "PYTHONPATH=src; true"):
+            self.assertEqual(_mine(_bash("python app.py", "ModuleNotFoundError: No module named 'project'", "error"),
+                                   _bash(setup, "ok"), _bash("uv run python app.py", "ok")), [], setup)
 
 
     def test_a_piped_run_fails_by_its_output(self):

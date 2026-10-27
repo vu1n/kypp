@@ -60,7 +60,8 @@ _SAFE_ENV = {"PYTHONPATH", "NODE_ENV", "CI", "TZ", "LANG", "LC_ALL", "RUST_BACKT
              "DEBUG", "PORT", "HOST", "FORCE_COLOR", "NO_COLOR", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"}
 _USERINFO = re.compile(r"://[^/\s]*@")
 _EXIT_CODE = re.compile(r"(?:Exit code:?|\"exit_code\":|Process exited with code)\s*(-?\d+)")
-_ABS = re.compile(r"(?:^|\s)/(?:var|tmp|private|Users|home|root)/")
+# Any absolute or home-relative path is this host's, wherever it is rooted.
+_ABS = re.compile(r"(?:^|[\s:=])[/~]")
 
 
 @dataclass
@@ -332,8 +333,10 @@ def _same_place(a: _Run, b: _Run) -> bool:
 
 def _installed_between(runs: list[_Run], a: _Run, b: _Run) -> bool:
     """Any install or sync after the failure, up to and including the run that worked (`uv sync` and
-    `pip install -r` don't name what they install), may be why it worked: the fact won't hold."""
-    return any(a.i < r.i <= b.i and any(_INSTALLS & set(t) for t, _, _ in _chain(r.command)) for r in runs)
+    `pip install -r` don't name what they install), may be why it worked: the fact won't hold. So may
+    an `export` or `source` between them, which persists in the shell."""
+    return any(a.i < r.i <= b.i and any(_INSTALLS & set(t) for t, _, _ in _chain(r.command)) or a.i < r.i < b.i
+               and _changes_env(r.segments) for r in runs)
 
 
 def _probes(args: list[str]) -> bool:
