@@ -229,6 +229,8 @@ def _runs(trace: Trace) -> list[_Run]:
             where = None if any(moves[first_cmd:]) else _walk(base, segs[:first_cmd], unknown)
             if any(moves) and persists:
                 shell = _walk(base, [t for t, m in zip(segs, moves) if m], unknown)
+                if any(o in ("|", "&") for _, before, after in _chain(cmd) for o in (before, after)):
+                    shell = _walk(base, [["popd"]], unknown)  # a piped or backgrounded `cd` may run in a subshell
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where,
                              any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), _changes_env(segs), "<" in _mask(cmd)))
