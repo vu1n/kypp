@@ -213,6 +213,12 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
                                _bash("uv run python app.py '>' --help", "usage")), [])
 
+    def test_an_argv_command_keeps_its_argument_boundaries(self):
+        argv = lambda c, out, st: {"sessionId": "s1", "payload": {"type": "tool_call", "name": "shell", "status": st,
+                                                                  "input": {"command": c}, "output": out}}
+        self.assertEqual(_mine(argv(["python", "app.py", "hello world"], "No module named 'turso'", "error"),
+                               argv(["uv", "run", "python", "app.py", "hello", "world"], "ok", "completed")), [])
+
     def test_a_path_form_from_another_directory_is_not_a_fix(self):
         self.assertEqual(_mine(_bash("pytest -q", "pytest: command not found", "error"),
                                _bash("cd backend && .venv/bin/pytest -q", "ok")), [])

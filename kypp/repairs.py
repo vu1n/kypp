@@ -80,7 +80,7 @@ def _command_of(a: Action) -> str | None:
         return None
     c = a.input.get("command", a.input.get("cmd"))
     if isinstance(c, list):  # codex: ["bash", "-lc", "<script>"] or argv
-        c = c[-1] if len(c) >= 3 and c[1] in ("-c", "-lc") else " ".join(map(str, c))
+        c = c[-1] if len(c) >= 3 and c[1] in ("-c", "-lc") else shlex.join(map(str, c))
     return c.strip() if isinstance(c, str) and c.strip() else None
 
 
