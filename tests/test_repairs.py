@@ -174,6 +174,10 @@ class ModuleMissing(unittest.TestCase):
         self.assertNotIn("SECRET", d.content)
         self.assertIn("`python app.py …` fails here", d.content)
 
+    def test_a_cd_in_between_changes_the_place(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"), _bash("cd other", ""),
+                               _bash("uv run python app.py", "ok")), [])
+
     def test_a_cd_after_the_command_leaves_the_place_unclear(self):
         self.assertEqual(_mine(_bash("python app.py; cd server", "No module named 'turso'", "error"),
                                _bash("cd server; uv run python app.py", "ok")), [])

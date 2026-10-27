@@ -198,16 +198,19 @@ def _succeeded(a: Action) -> bool:
 
 
 def _runs(trace: Trace) -> list[_Run]:
-    runs = []
+    runs, moved = [], 0
     for i, a in enumerate(trace.actions):
         cmd = _command_of(a)
         if cmd and "<<" not in cmd:  # a heredoc body isn't commands
             segs = _segments(cmd)
-            moves = [t[0] in ("cd", "pushd") for t in segs]
+            moves = [t[0] in ("cd", "pushd", "popd") for t in segs]
             first_cmd = moves.index(False) if False in moves else len(moves)
+            # A shell that persists (Claude's Bash) keeps a `cd` made on its own, so count those before this run;
+            # `cd x && cmd` is read as self-contained, since its place is already in `where`.
             where = None if any(moves[first_cmd:]) else (
-                str(a.input.get("workdir") or a.input.get("cwd") or ""),
+                moved, str(a.input.get("workdir") or a.input.get("cwd") or ""),
                 *(" ".join(t[1:]) for t in segs[:first_cmd]))
+            moved += all(moves)
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where))
     return runs
