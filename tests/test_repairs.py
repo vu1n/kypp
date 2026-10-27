@@ -181,6 +181,11 @@ class ModuleMissing(unittest.TestCase):
         _mine(_bash("pytest", "pytest: command not found", "error"), *[_bash(f"ls d{i} && pip install x{i}", "ok") for i in range(400)])
         self.assertLess(time.monotonic() - t, 1.0)
 
+    def test_a_bare_run_after_an_export_inherits_the_fix(self):
+        [d] = _mine(_bash("node build.js", "Error: API_BASE is not set", "error"), _bash("API_BASE=x node build.js", "ok"),
+                    _bash("export API_BASE=x", "ok"), _bash("node build.js", "ok"))
+        self.assertIn("`API_BASE", d.content)
+
     def test_a_piped_cd_leaves_the_place_unknown(self):
         self.assertEqual(_mine(_bash("cd /other | cat", "ok"), _bash("python app.py", "No module named 'project'", "error"),
                                _bash("cd /other && uv run python app.py", "ok")), [])

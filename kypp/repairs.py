@@ -75,7 +75,7 @@ class _Run:
     may_fail: bool  # failed, or its exit status could hide a failure (`pytest | tail`, `pytest; echo`)
     where: tuple | None  # where the shell was when it ran; None when a `cd` follows a command, so the place is unclear
     installs: bool  # runs an install or sync
-    sets_env: bool  # sets, exports, unsets or sources something, which a persistent shell keeps
+    sets_env: bool  # exports, unsets or sources something, or assigns on its own, which the shell keeps
     reads_input: bool  # a `<` input may choose what the script does, so two runs of it can differ
 
 
@@ -233,7 +233,7 @@ def _runs(trace: Trace) -> list[_Run]:
                     shell = _walk(base, [["popd"]], unknown)  # a piped or backgrounded `cd` may run in a subshell
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where,
-                             any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), _changes_env(segs), "<" in _mask(cmd)))
+                             any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), _persists_env(segs), "<" in _mask(cmd)))
     return runs
 
 
@@ -298,6 +298,13 @@ def _redact(form: list[str]) -> list[str]:
 
 def _changes_env(segments: list[list[str]]) -> bool:
     return any(_split_env(seg)[0] or seg[0] in ("export", "set", "unset", "source", ".") for seg in segments)
+
+
+def _persists_env(segments: list[list[str]]) -> bool:
+    """An env change the shell keeps for later calls: `export`, `source`, or an assignment on its own;
+    `X=1 cmd` sets it for that command only."""
+    return any(seg[0] in ("export", "set", "unset", "source", ".") or (_split_env(seg)[0] and not _split_env(seg)[1])
+               for seg in segments)
 
 
 def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
@@ -366,7 +373,8 @@ def _probes(args: list[str]) -> bool:
 def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], same_place: bool) -> bool:
     """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
-        if r.i > a.i and r.ok and (not same_place or _same_place(a, r)) and not _changes_env(r.segments):
+        # a run after an `export` may only work because it inherited the fix
+        if r.i > a.i and r.ok and (not same_place or _same_place(a, r)) and not any(x.sets_env for x in runs if a.i < x.i <= r.i):
             for env, toks in map(_split_env, r.proven):
                 # unchanged: no env anywhere in the run, and a probe (`--help`) doesn't prove the real run works
                 if toks[:1] == [head] and _same(toks[1:], args) and not env and not _probes(toks[1:]):
