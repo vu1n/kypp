@@ -310,9 +310,15 @@ def _edited_between(trace: Trace, a: _Run, b: _Run, head: str) -> bool:
     if any(_EDIT_TOOL.search(x.name or "") or _SHELL_EDIT.search(_command_of(x) or "")
            for x in trace.actions[a.i + 1:b.i]):
         return True
-    runs_head = re.compile(rf"(?<![\w./-]){re.escape(head)}\b")
+    def runs_head(seg: str) -> bool:  # as the command or behind a wrapper: `echo python > app.py` doesn't
+        for toks, _, _ in _chain(seg.translate(_UNMASK)):
+            w = _split_env(toks)[1]
+            j = next((k for k, t in enumerate(w) if _base(t) == head), None)
+            if j == 0 or (j and (_base(w[0]), *w[1:j]) in _WRAPPERS):
+                return True
+        return False
     # The invocation's own `> log` is output, not an edit; any other segment's write may be one.
-    return any(_IN_PLACE.search(seg) if runs_head.search(seg) else _SHELL_EDIT.search(seg)
+    return any(_IN_PLACE.search(seg) if runs_head(seg) else _SHELL_EDIT.search(seg)
                for seg in re.split(r"[;&|]", _mask(b.command)))
 
 

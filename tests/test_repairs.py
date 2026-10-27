@@ -206,7 +206,9 @@ class ModuleMissing(unittest.TestCase):
 
     def test_an_edit_in_the_working_run_itself_counts(self):
         for later in ("sed -i '/import turso/d' app.py && uv run python app.py",
-                      "echo 'print(1)' > app.py && uv run python app.py", "echo x | tee app.py; uv run python app.py"):
+                      "echo 'print(1)' > app.py && uv run python app.py",
+                      "echo 'print(\"python\")' > app.py && uv run python app.py",
+                      "echo python > app.py && uv run python app.py", "echo x | tee app.py; uv run python app.py"):
             self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), _bash(later, "ok")), [], later)
 
     def test_a_quoted_angle_bracket_is_an_argument(self):
