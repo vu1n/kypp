@@ -162,9 +162,16 @@ class ModuleMissing(unittest.TestCase):
     def test_the_same_script_name_elsewhere_is_not_the_same_script(self):
         self.assertEqual(_mine(_bash("cd server && python app.py", "No module named 'project'", "error"),
                                _bash("cd client && uv run python app.py", "ok")), [])
-        [d] = _mine(_bash("cd server && python app.py", "No module named 'project'", "error"),
-                    _bash("cd server && uv run python app.py", "ok"), _bash("cd client && python app.py", "ok"))
+        [d] = _mine(_bash("cd /r/server && python app.py", "No module named 'project'", "error"),
+                    _bash("cd /r/server && uv run python app.py", "ok"), _bash("cd /r/client && python app.py", "ok"))
         self.assertIn("`uv run python …` works", d.content)
+        # the shell keeps a relative `cd`, so the second one lands somewhere else
+        self.assertEqual(_mine(_bash("cd server && python app.py", "No module named 'project'", "error"),
+                               _bash("cd server && uv run python app.py", "ok")), [])
+
+    def test_a_cd_inside_a_compound_command_moves_the_shell(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
+                               _bash("cd other && ls", "ok"), _bash("uv run python app.py", "ok")), [])
 
     def test_a_script_help_probe_is_not_a_fix(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),

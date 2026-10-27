@@ -206,12 +206,12 @@ def _runs(trace: Trace) -> list[_Run]:
             segs = _segments(cmd)
             moves = [t[0] in ("cd", "pushd", "popd") for t in segs]
             first_cmd = moves.index(False) if False in moves else len(moves)
-            # A shell that persists (Claude's Bash) keeps a `cd` made on its own, so count those before this run;
-            # `cd x && cmd` is read as self-contained, since its place is already in `where`.
+            # A shell that persists (Claude's Bash) keeps every `cd`, so count those before this run; only a
+            # `cd /abs` lands in the same place again, wherever the shell was.
             where = None if any(moves[first_cmd:]) else (
                 moved, str(a.input.get("workdir") or a.input.get("cwd") or ""),
                 *(" ".join(t[1:]) for t in segs[:first_cmd]))
-            moved += all(moves)
+            moved += any(t[0] != "cd" or not t[1:] or not all(x.startswith("/") for x in t[1:]) for t in segs if t[0] in ("cd", "pushd", "popd"))
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where))
     return runs
