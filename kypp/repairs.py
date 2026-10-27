@@ -419,7 +419,11 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
             elif missing_env:
                 fix = _env_fix(missing_env, head, args, b)
             else:
-                fix = (form := _working_form(head, args, b)) and f"`{shlex.join(form)} …`"
+                form = _working_form(head, args, b)
+                # a relative path (`.venv/bin/pytest`) only works from where it ran
+                if form and "/" in form[0] and not _same_place(a, b):
+                    form = None
+                fix = form and f"`{shlex.join(form)} …`"
             if fix:
                 shown = 1 + (2 if args[:1] == ["-m"] else len(args[:1]))  # the command and script, never its arguments
                 drafts.setdefault(subject, ClaimDraft("pitfall", subject, f"{_render(_redact(toks), shown)} {why}; {fix} works.", 0.6))

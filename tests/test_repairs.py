@@ -213,6 +213,10 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
                                _bash("uv run python app.py '>' --help", "usage")), [])
 
+    def test_a_path_form_from_another_directory_is_not_a_fix(self):
+        self.assertEqual(_mine(_bash("pytest -q", "pytest: command not found", "error"),
+                               _bash("cd backend && .venv/bin/pytest -q", "ok")), [])
+
     def test_a_url_or_user_in_the_working_form_is_never_written(self):
         self.assertEqual(_mine(_bash("mycli", "mycli: command not found", "error"),
                                _bash("npx https://user:TOKEN@packages.example/mycli", "ok")), [])
