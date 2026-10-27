@@ -71,6 +71,7 @@ class _Run:
     proven: list[list[str]]  # the segments the run's success proves ran and succeeded
     output: str
     ok: bool  # confirmed to have succeeded; a run with no recorded outcome is neither
+    may_fail: bool  # failed, or its exit status could hide a failure (`pytest | tail`, `pytest; echo`)
     where: tuple | None  # workdir and `cd` targets; None when a `cd` follows a command, so the place is unclear
 
 
@@ -119,6 +120,21 @@ def _mask(command: str) -> str:
     return "".join(out)
 
 
+def _strip_redirects(toks: list[str]) -> list[str]:
+    """The command's words without its redirections (`>out`, `2>&1`, `<in`), which aren't arguments."""
+    out, skip = [], False
+    for t in toks:
+        if skip:
+            skip = False
+        elif t and set(t) <= set("<>&") and set(t) & set("<>"):
+            if out and out[-1].isdigit():  # the `2` of `2>`
+                out.pop()
+            skip = True
+        else:
+            out.append(t)
+    return out
+
+
 def _chain(command: str) -> list[tuple[list[str], str, str]]:
     """The command's segments as (tokens, operator before, operator after), split on shell operators
     outside quotes (`echo 'a; b'` is one segment, `|tail` two tokens). Unbalanced quotes (a heredoc
@@ -134,7 +150,7 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
         t = "|" if t == "|&" else t  # bash's `|&` is a pipe that also carries stderr
         if t in _OPS or t is None:
             if cur:
-                out.append((cur, before, t or ""))
+                out.append((_strip_redirects(cur), before, t or ""))
             cur, before = [], t
         else:
             cur.append(t.translate(_UNMASK))
@@ -161,13 +177,19 @@ def _proven(command: str) -> list[list[str]]:
             if before not in ("|", "&") and all(a in ("&&", "") for _, _, a in chain[k:])]
 
 
+def _exit(a: Action) -> str | None:
+    m = _EXIT_CODE.search(a.output or "")
+    return m.group(1) if m else None
+
+
+def _failed(a: Action) -> bool:
+    return a.status == "error" or (_exit(a) or "0") != "0"
+
+
 def _succeeded(a: Action) -> bool:
     """Confirmed success. Claude records a status; Codex records none, so its exit code decides. A
     run still `running`, or with no status and no exit code, can't prove a repair."""
-    m = _EXIT_CODE.search(a.output or "")
-    code = m.group(1) if m else None
-    failed = a.status == "error" or (code is not None and code != "0")
-    return not failed and (a.status == "completed" or code == "0") and not _errs(a.output or "")
+    return not _failed(a) and (a.status == "completed" or _exit(a) == "0") and not _errs(a.output or "")
 
 
 def _runs(trace: Trace) -> list[_Run]:
@@ -181,7 +203,8 @@ def _runs(trace: Trace) -> list[_Run]:
             where = None if any(moves[first_cmd:]) else (
                 str(a.input.get("workdir") or a.input.get("cwd") or ""),
                 *(" ".join(t[1:]) for t in segs[:first_cmd]))
-            runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), where))
+            masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
+            runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where))
     return runs
 
 
@@ -344,7 +367,10 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
     drafts: dict[str, ClaimDraft] = {}
     explained: set[int] = set()
     for a in runs:
-        # A piped run (`… | tail`) exits 0 with the error in its output, so the error text decides.
+        # Error text counts only from a run that failed, or one whose status could hide it (`… | tail`):
+        # a successful `rg "No module named"` just printed it.
+        if not a.may_fail:
+            continue
         missing_cmd = _first(_CMD_MISSING, a.output)
         missing_mod = None if missing_cmd else _first(_MOD_MISSING, a.output)
         missing_env = None if missing_cmd or missing_mod else _first(_ENV_MISSING, a.output)

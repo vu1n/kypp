@@ -77,6 +77,15 @@ class CommandMissing(unittest.TestCase):
                     _bash("uv run pytest -q", "3 passed"))
         self.assertIn("`uv run pytest …` works", d.content)
 
+    def test_a_successful_run_that_prints_error_text_is_not_a_failure(self):
+        self.assertEqual(_mine(_bash("rg \"No module named 'turso'\" errors.log", "No module named 'turso'"),
+                               _bash("uv run rg \"No module named 'turso'\" errors.log", "No module named 'turso'")), [])
+
+    def test_redirections_are_not_arguments(self):
+        [d] = _mine(_bash("python app.py", "No module named 'turso'", "error"),
+                    _bash("uv run python app.py >out 2>&1", "ok"))
+        self.assertIn("`uv run python …` works", d.content)
+
     def test_flags_on_the_working_run_are_not_installs(self):
         [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("uv run pytest -v", "ok"))
         self.assertIn("`uv run pytest …` works", d.content)
