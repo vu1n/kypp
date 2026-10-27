@@ -84,12 +84,12 @@ def _command_of(a: Action) -> str | None:
     return c.strip() if isinstance(c, str) and c.strip() else None
 
 
-_MASK = {c: chr(0xE000 + i) for i, c in enumerate(";&|")}
+_MASK = {c: chr(0xE000 + i) for i, c in enumerate(";&|<>")}
 _UNMASK = str.maketrans({v: k for k, v in _MASK.items()})
 
 
 def _mask(command: str) -> str:
-    """The command with quoted or escaped `;`, `&` and `|` swapped for placeholders, so the lexer,
+    """The command with quoted or escaped `;`, `&`, `|`, `<` and `>` swapped for placeholders, so the lexer,
     which drops quotes before it splits, never reads a printed `';'` as an operator. Comments are
     dropped and an unquoted newline separates commands, as the shell reads them."""
     out, quote, esc, comment = [], "", False, False
@@ -150,10 +150,10 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
         t = "|" if t == "|&" else t  # bash's `|&` is a pipe that also carries stderr
         if t in _OPS or t is None:
             if cur and (words := _strip_redirects(cur)):  # `> out.log` alone has no command
-                out.append((words, before, t or ""))
+                out.append(([w.translate(_UNMASK) for w in words], before, t or ""))
             cur, before = [], t
         else:
-            cur.append(t.translate(_UNMASK))
+            cur.append(t)
     if out and out[-1][2] == ";":  # a trailing `;` ends the command; its status is still the last one's
         out[-1] = (out[-1][0], out[-1][1], "")
     return out
@@ -295,14 +295,16 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
 
 _EDIT_TOOL = re.compile(r"edit|write|patch|replace", re.I)
 # A shell command that writes files: sed/perl -i, tee, a `>` into a file, apply_patch, write_text.
+_IN_PLACE = re.compile(r"\b(?:sed|perl)\s+-i|apply_patch|write_text")
 _SHELL_EDIT = re.compile(r"\b(?:sed|perl)\s+-i|\btee\b|apply_patch|write_text|(?<![0-9&])>>?\s*(?!/dev/null|&)[\w./]")
 
 
 def _edited_between(trace: Trace, a: _Run, b: _Run) -> bool:
     """A file edit between the runs may have changed the script itself (dropped the import), so the
     later run no longer tests what failed."""
-    return any(_EDIT_TOOL.search(x.name or "") or _SHELL_EDIT.search(_command_of(x) or "")
-               for x in trace.actions[a.i + 1:b.i])
+    between = any(_EDIT_TOOL.search(x.name or "") or _SHELL_EDIT.search(_command_of(x) or "")
+                  for x in trace.actions[a.i + 1:b.i])
+    return between or bool(_IN_PLACE.search(b.command))  # `sed -i … && uv run …`; its `> log` is no edit
 
 
 def _same_place(a: _Run, b: _Run) -> bool:

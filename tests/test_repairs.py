@@ -194,6 +194,14 @@ class ModuleMissing(unittest.TestCase):
             self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), _bash(edit, ""),
                                    _bash("uv run python app.py", "ok")), [], edit)
 
+    def test_an_edit_in_the_working_run_itself_counts(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("sed -i '/import turso/d' app.py && uv run python app.py", "ok")), [])
+
+    def test_a_quoted_angle_bracket_is_an_argument(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("uv run python app.py '>' --help", "usage")), [])
+
     def test_a_url_or_user_in_the_working_form_is_never_written(self):
         self.assertEqual(_mine(_bash("mycli", "mycli: command not found", "error"),
                                _bash("npx https://user:TOKEN@packages.example/mycli", "ok")), [])
