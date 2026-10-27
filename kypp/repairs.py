@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 # Shell tools as each harness names them (Claude: Bash; Codex: shell / exec_command; pillbox: bash).
 _SHELL_TOOLS = {"bash", "shell", "exec_command", "local_shell", "run_shell_command"}
 
-_SEGMENT_SPLIT = re.compile(r"\s*(?:&&|\|\||;)\s*")  # a pipe stays inside its segment
+_OPS = {";", "&&", "||", "|", "&"}
 _SETUP = {"cd", "source", ".", "export", "set", "pushd", "unset"}
 _ASSIGN = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
 _WORD = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")  # a command or module name we're willing to quote
@@ -83,40 +83,41 @@ def _command_of(a: Action) -> str | None:
     return c.strip() if isinstance(c, str) and c.strip() else None
 
 
-def _tokens(seg: str) -> list[str] | None:
-    lex = shlex.shlex(seg, posix=True, punctuation_chars=True)  # `|tail` is two tokens
+def _chain(command: str) -> list[tuple[list[str], str, str]]:
+    """The command's segments as (tokens, operator before, operator after), split on shell operators
+    outside quotes (`echo 'a; b'` is one segment, `|tail` two tokens). Unbalanced quotes (a heredoc
+    or a script, not one command) yield nothing."""
+    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
     lex.whitespace_split = True
     try:
-        return list(lex)
-    except ValueError:  # unbalanced quotes: a heredoc or a script, not one command
-        return None
+        toks = list(lex)
+    except ValueError:
+        return []
+    out, cur, before = [], [], ""
+    for t in toks + [""]:
+        if t in _OPS or t == "":
+            if cur:
+                out.append((cur, before, t))
+            cur, before = [], t
+        else:
+            cur.append(t)
+    return out
 
 
 def _segments(command: str) -> list[list[str]]:
-    """Each command in a `&&`/`||`/`;` chain, tokenized; only the first stage of a pipeline is kept."""
-    out = []
-    for seg in _SEGMENT_SPLIT.split(command):
-        toks = _tokens(seg) or []
-        toks = toks[:toks.index("|")] if "|" in toks else toks
-        if toks:
-            out.append(toks)
-    return out
+    """Each command in the chain, tokenized; only the first stage of a pipeline is kept."""
+    return [toks for toks, before, _ in _chain(command) if before != "|"]
 
 
 def _proven(command: str) -> list[list[str]]:
     """The segments a successful run proves succeeded. A chain's exit status is its last command's,
-    so only a segment followed by nothing but `&&` counts; `||` may skip a segment, and a pipeline
-    exits with its last stage, so neither proves anything."""
-    if "||" in command:
+    so only a segment followed by nothing but `&&` counts; `||` may skip a segment, a pipeline exits
+    with its last stage, and `&` with the launch, so none of those prove anything."""
+    chain = _chain(command)
+    if any(before == "||" or after == "||" for _, before, after in chain):
         return []
-    parts = re.split(r"\s*(&&|;)\s*", command)
-    out = []
-    for k in range(0, len(parts), 2):
-        toks = _tokens(parts[k])
-        # A pipeline exits with its last stage and `&` with the launch, so neither proves the command.
-        if toks and "|" not in toks and "&" not in toks and all(sep == "&&" for sep in parts[k + 1::2]):
-            out.append(toks)
-    return out
+    return [toks for k, (toks, before, after) in enumerate(chain)
+            if before not in ("|", "&") and all(a in ("&&", "") for _, _, a in chain[k:])]
 
 
 def _succeeded(a: Action) -> bool:
@@ -145,8 +146,10 @@ def _split_env(toks: list[str]) -> tuple[dict[str, str], list[str]]:
     env, k = {}, 0
     if toks and toks[0] in ("env", "export"):
         k = 1
-        while k < len(toks) and toks[k].startswith("-"):  # env -i, env -u NAME
-            k += 2 if toks[k] in ("-u", "--unset", "-C", "--chdir", "-S") else 1
+        while k < len(toks) and toks[k].startswith("-"):  # env -i, env -u NAME: a change, kept as one
+            n = 2 if toks[k] in ("-u", "--unset", "-C", "--chdir", "-S") else 1
+            env[" ".join(toks[k:k + n])] = ""
+            k += n
     while k < len(toks) and (m := _ASSIGN.match(toks[k])):
         env[m.group(1)] = m.group(2)
         k += 1

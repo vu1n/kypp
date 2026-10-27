@@ -74,12 +74,13 @@ class CommandMissing(unittest.TestCase):
 
     def test_a_piped_run_fails_by_its_output(self):
         [d] = _mine(_bash("pytest -q | tail -3", "bash: pytest: command not found"),
-                    _bash("env -u CI uv run pytest -q", "3 passed"))
+                    _bash("uv run pytest -q", "3 passed"))
         self.assertIn("`uv run pytest …` works", d.content)
 
     def test_success_proves_only_segments_it_ran(self):
         for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3",
-                      "uv run pytest |tail -3", "uv run pytest >/tmp/log 2>&1 &"):
+                      "uv run pytest |tail -3", "uv run pytest >/tmp/log 2>&1 &",
+                      "echo 'example; uv run pytest && end'", "env -u PYTHONPATH uv run pytest"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
                              [], later)
         [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("cd x; uv run pytest && echo ok", "ok"))
