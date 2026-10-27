@@ -131,6 +131,7 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
         return []
     out, cur, before = [], [], ""
     for t in toks + [""]:
+        t = "|" if t == "|&" else t  # bash's `|&` is a pipe that also carries stderr
         if t in _OPS or t == "":
             if cur:
                 out.append((cur, before, t))
@@ -266,6 +267,15 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     return None
 
 
+_EDIT_TOOL = re.compile(r"edit|write|patch|replace", re.I)
+
+
+def _edited_between(trace: Trace, a: _Run, b: _Run) -> bool:
+    """A file edit between the runs may have changed the script itself (dropped the import), so the
+    later run no longer tests what failed."""
+    return any(_EDIT_TOOL.search(x.name or "") for x in trace.actions[a.i + 1:b.i])
+
+
 def _same_place(a: _Run, b: _Run) -> bool:
     """A script name means the same script only from the same, known directory."""
     return a.where is not None and a.where == b.where
@@ -360,7 +370,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         # Each failure needs its own repair to count as explained; the first one found writes the claim.
         # A script or module is only the same one run from the same place.
         for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or _same_place(a, r))):
-            if _installed_between(runs, a, b):
+            if _installed_between(runs, a, b) or (not missing_cmd and _edited_between(trace, a, b)):
                 fix = None
             elif missing_env:
                 fix = _env_fix(missing_env, head, args, b)

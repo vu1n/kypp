@@ -83,7 +83,7 @@ class CommandMissing(unittest.TestCase):
 
     def test_success_proves_only_segments_it_ran(self):
         for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3",
-                      "uv run pytest |tail -3", "uv run pytest >/tmp/log 2>&1 &",
+                      "uv run pytest |tail -3", "uv run pytest |& tail -3", "uv run pytest >/tmp/log 2>&1 &",
                       "echo 'example; uv run pytest && end'", "env -u PYTHONPATH uv run pytest",
                       "echo ';' uv run pytest", 'echo "a|b" uv run pytest', "echo \\; uv run pytest"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
@@ -171,6 +171,12 @@ class ModuleMissing(unittest.TestCase):
                                               _bash("uv run python app.py", "ok"),
                                               _bash("python other.py", "No module named 'project'", "error")]))
         self.assertEqual((len(drafts), explained), (1, {0}))
+
+    def test_an_edit_in_between_may_have_changed_the_script(self):
+        edit = {"sessionId": "s1", "payload": {"type": "tool_call", "name": "Edit", "status": "completed",
+                                               "input": {"file_path": "app.py"}, "output": "ok"}}
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), edit,
+                               _bash("uv run python app.py", "ok")), [])
 
     def test_a_different_subcommand_is_not_the_same_run(self):
         fail = _bash("python manage.py migrate", "No module named 'psycopg'", "error")
