@@ -355,19 +355,18 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
             subject, why = f"`{head}` needs `{missing_env}` set", f"fails here asking for `{missing_env}`"
         else:
             continue
-        if subject not in drafts:
-            # A script or module is only the same one run from the same place.
-            for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or _same_place(a, r))):
-                if _installed_between(runs, a, b):
-                    fix = None
-                elif missing_env:
-                    fix = _env_fix(missing_env, head, args, b)
-                else:
-                    fix = (form := _working_form(head, args, b)) and f"`{shlex.join(form)} …`"
-                if fix:
-                    shown = 1 + (2 if args[:1] == ["-m"] else len(args[:1]))  # the command and script, never its arguments
-                    drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(_redact(toks), shown)} {why}; {fix} works.", 0.6)
-                    break
-        if subject in drafts:
-            explained.add(a.i)
+        # Each failure needs its own repair to count as explained; the first one found writes the claim.
+        # A script or module is only the same one run from the same place.
+        for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or _same_place(a, r))):
+            if _installed_between(runs, a, b):
+                fix = None
+            elif missing_env:
+                fix = _env_fix(missing_env, head, args, b)
+            else:
+                fix = (form := _working_form(head, args, b)) and f"`{shlex.join(form)} …`"
+            if fix:
+                shown = 1 + (2 if args[:1] == ["-m"] else len(args[:1]))  # the command and script, never its arguments
+                drafts.setdefault(subject, ClaimDraft("pitfall", subject, f"{_render(_redact(toks), shown)} {why}; {fix} works.", 0.6))
+                explained.add(a.i)
+                break
     return list(drafts.values()), explained
