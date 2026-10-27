@@ -39,6 +39,11 @@ class CommandMissing(unittest.TestCase):
         self.assertEqual(d.subject, "`tsc` is not on PATH")
         self.assertIn("`npx tsc …` works", d.content)
 
+    def test_codex_exec_command_exit_format(self):
+        [d] = _mine(_codex("pytest", "Process exited with code 127\nbash: pytest: command not found"),
+                    _codex("uv run pytest", "Process exited with code 0\n3 passed"))
+        self.assertEqual(d.subject, "`pytest` is not on PATH")
+
     def test_codex_success_with_a_nonzero_exit_is_not_a_repair(self):
         self.assertEqual(_mine(_codex("tsc", "Exit code: 127\nbash: tsc: command not found"),
                                _codex("npx tsc", "Exit code: 2\nerror TS2304")), [])
@@ -113,6 +118,10 @@ class ModuleMissing(unittest.TestCase):
         self.assertIn("(no module `turso`)", d.content)
         self.assertIn("`uv run python …` works", d.content)
 
+
+    def test_a_script_help_probe_is_not_a_fix(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("uv run python app.py --help", "ok")), [])
 
     def test_the_later_run_must_run_the_same_thing(self):
         for later in ("uv run python -c 'print(1)'", "uv run python unrelated.py", "uv run python -m other"):

@@ -59,7 +59,7 @@ _PROBE_FLAGS = {"--version", "-V", "--help", "-h"}  # with any other arguments i
 _SAFE_ENV = {"PYTHONPATH", "NODE_ENV", "CI", "TZ", "LANG", "LC_ALL", "RUST_BACKTRACE", "RUST_LOG",
              "DEBUG", "PORT", "HOST", "FORCE_COLOR", "NO_COLOR", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"}
 _USERINFO = re.compile(r"://[^/\s]*@")
-_EXIT_CODE = re.compile(r"(?:Exit code:?|\"exit_code\":)\s*(-?\d+)")
+_EXIT_CODE = re.compile(r"(?:Exit code:?|\"exit_code\":|Process exited with code)\s*(-?\d+)")
 _ABS = re.compile(r"(?:^|\s)/(?:var|tmp|private|Users|home|root)/")
 
 
