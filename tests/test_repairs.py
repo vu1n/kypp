@@ -92,7 +92,7 @@ class CommandMissing(unittest.TestCase):
         self.assertIn("`uv run pytest …` works", d.content)
 
     def test_comments_and_continuations_read_as_the_shell_does(self):
-        for later in ("# run tests\nuv run pytest", "cd x  # into the repo\nuv run pytest", "uv run \\\n  pytest"):
+        for later in ("# run tests\nuv run pytest", "uv run pytest;", "uv run pytest\n# done", "cd x  # into the repo\nuv run pytest", "uv run \\\n  pytest"):
             [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok"))
             self.assertIn("`uv run pytest …` works", d.content, later)
 

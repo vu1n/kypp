@@ -137,6 +137,8 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
             cur, before = [], t
         else:
             cur.append(t.translate(_UNMASK))
+    if out and out[-1][2] == ";":  # a trailing `;` ends the command; its status is still the last one's
+        out[-1] = (out[-1][0], out[-1][1], "")
     return out
 
 
