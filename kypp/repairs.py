@@ -130,11 +130,11 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
     except ValueError:
         return []
     out, cur, before = [], [], ""
-    for t in toks + [""]:
+    for t in toks + [None]:  # None ends it: `''` lexes to an empty token
         t = "|" if t == "|&" else t  # bash's `|&` is a pipe that also carries stderr
-        if t in _OPS or t == "":
+        if t in _OPS or t is None:
             if cur:
-                out.append((cur, before, t))
+                out.append((cur, before, t or ""))
             cur, before = [], t
         else:
             cur.append(t.translate(_UNMASK))
@@ -152,6 +152,8 @@ def _proven(command: str) -> list[list[str]]:
     """The segments a successful run proves succeeded. A chain's exit status is its last command's,
     so only a segment followed by nothing but `&&` counts; `||` may skip a segment, a pipeline exits
     with its last stage, and `&` with the launch, so none of those prove anything."""
+    if re.search(r"\$\(|`|[<>]\(", command):  # a substitution's status is hidden by the command around it
+        return []
     chain = _chain(command)
     if any(before == "||" or after == "||" for _, before, after in chain):
         return []
