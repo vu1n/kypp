@@ -197,10 +197,11 @@ def _redact(form: list[str]) -> list[str]:
 def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     """The tokens a later, successful command runs `head` with, when it runs it another way: behind a
     wrapper (`uv run pytest`, `python -m pytest`, `npx tsc`) or by a path (`.venv/bin/pytest`)."""
+    # An assignment or `export` anywhere in the run may be what made it work, and the fix wouldn't say so.
+    if any(_split_env(seg)[0] or seg[0] in ("export", "set", "source", ".") for seg in later.segments):
+        return None
     for seg in later.proven:
-        env, toks = _split_env(seg)
-        if env:
-            continue  # the assignment may be what made it work, and the fix wouldn't say so
+        _, toks = _split_env(seg)
         for j, t in enumerate(toks):
             if _base(t) != head or (j == 0 and t == head):
                 continue
@@ -214,19 +215,17 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     return None
 
 
-def _installed_between(runs: list[_Run], a: _Run, b: _Run, name: str) -> bool:
-    """An install of `name` after the failure, up to and including the run that worked, makes it work
-    for a reason the fact won't hold in the next session."""
-    for r in runs:
-        if a.i < r.i <= b.i and name in r.command and _INSTALL_WORDS & set(r.command.split()):
-            return True
-    return False
+def _installed_between(runs: list[_Run], a: _Run, b: _Run) -> bool:
+    """Any install or sync after the failure, up to and including the run that worked (`uv sync` and
+    `pip install -r` don't name what they install), may be why it worked: the fact won't hold."""
+    return any(a.i < r.i <= b.i and _INSTALL_WORDS & set(r.command.split()) for r in runs)
 
 
-def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], var: str | None) -> bool:
+def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], var: str | None,
+                           same_place: bool) -> bool:
     """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
-        if r.i > a.i and r.ok:
+        if r.i > a.i and r.ok and (not same_place or r.where == a.where):
             for env, toks in map(_split_env, r.proven):
                 if toks[:1] == [head] and toks[1:1 + len(args)] == args and (var is None or var not in env):
                     return True
@@ -279,7 +278,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         args = [] if missing_cmd else _invocation(toks)
         if args is None:
             continue
-        if _works_unchanged_later(runs, a, head, args, missing_env):
+        if _works_unchanged_later(runs, a, head, args, missing_env, same_place=not missing_cmd):
             continue
         if missing_cmd:
             subject, why = f"`{head}` is not on PATH", "fails here (command not found)"
@@ -294,7 +293,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
             for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or r.where == a.where)):
                 if missing_env:
                     fix = _env_fix(missing_env, head, args, b)
-                elif (form := _working_form(head, args, b)) and not _installed_between(runs, a, b, missing_mod or head):
+                elif (form := _working_form(head, args, b)) and not _installed_between(runs, a, b):
                     fix = f"`{shlex.join(form)} …`"
                 else:
                     fix = None

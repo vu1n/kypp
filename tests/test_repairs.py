@@ -124,7 +124,7 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("cd server && python app.py", "No module named 'project'", "error"),
                                _bash("cd client && uv run python app.py", "ok")), [])
         [d] = _mine(_bash("cd server && python app.py", "No module named 'project'", "error"),
-                    _bash("cd server && uv run python app.py", "ok"))
+                    _bash("cd server && uv run python app.py", "ok"), _bash("cd client && python app.py", "ok"))
         self.assertIn("`uv run python …` works", d.content)
 
     def test_a_script_help_probe_is_not_a_fix(self):
@@ -141,8 +141,15 @@ class ModuleMissing(unittest.TestCase):
                                _bash("npx node build.js", "ok")), [])
 
     def test_a_fix_that_also_sets_a_variable_is_not_recorded(self):
-        self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
-                               _bash("PYTHONPATH=src uv run python app.py", "ok")), [])
+        for later in ("PYTHONPATH=src uv run python app.py", "export PYTHONPATH=src && uv run python app.py",
+                      "env -C other uv run python app.py"):
+            self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
+                                   _bash(later, "ok")), [], later)
+
+    def test_a_sync_or_bulk_install_in_between_explains_it(self):
+        for between in ("uv sync", "pip install -r requirements.txt"):
+            self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"), _bash(between, "ok"),
+                                   _bash("uv run python app.py", "ok")), [], between)
 
     def test_no_fact_when_the_working_run_installed_it_first(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
