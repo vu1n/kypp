@@ -181,6 +181,11 @@ class ModuleMissing(unittest.TestCase):
         _mine(_bash("pytest", "pytest: command not found", "error"), *[_bash(f"ls d{i} && pip install x{i}", "ok") for i in range(400)])
         self.assertLess(time.monotonic() - t, 1.0)
 
+    def test_each_codex_call_starts_a_fresh_shell(self):
+        [d] = _mine(_codex("cd backend && python app.py", "Exit code: 1\nNo module named 'project'"),
+                    _codex("cd backend && uv run python app.py", "Exit code: 0\nok"))
+        self.assertIn("`uv run python …` works", d.content)
+
     def test_a_cd_inside_a_compound_command_moves_the_shell(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
                                _bash("cd other && ls", "ok"), _bash("uv run python app.py", "ok")), [])

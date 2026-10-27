@@ -221,12 +221,13 @@ def _runs(trace: Trace) -> list[_Run]:
             segs = _segments(cmd)
             moves = [t[0] in ("cd", "pushd", "popd") for t in segs]
             first_cmd = moves.index(False) if False in moves else len(moves)
-            # A call that names its directory starts there; otherwise the shell persists (Claude's Bash)
-            # and keeps every `cd`, so the run starts where the last one left it.
+            # Only Claude's Bash keeps one shell, and every `cd`, across calls, so its run starts where the
+            # last one left it; any other call starts fresh, in its named directory.
             wd = str(a.input.get("workdir") or a.input.get("cwd") or "")
-            base = ("", wd) if wd else shell or ("", "")
+            persists = (a.name or "").lower() == "bash" and not wd
+            base = shell or ("", "") if persists else ("", wd)
             where = None if any(moves[first_cmd:]) else _walk(base, segs[:first_cmd], unknown)
-            if any(moves) and not wd:
+            if any(moves) and persists:
                 shell = _walk(base, [t for t, m in zip(segs, moves) if m], unknown)
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where,
