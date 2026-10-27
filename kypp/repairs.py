@@ -75,7 +75,7 @@ class _Run:
     may_fail: bool  # failed, or its exit status could hide a failure (`pytest | tail`, `pytest; echo`)
     where: tuple | None  # where the shell was when it ran; None when a `cd` follows a command, so the place is unclear
     installs: bool  # runs an install or sync
-    sets_env: bool  # exports, unsets or sources something, or assigns on its own, which the shell keeps
+    sets_env: bool  # in a persistent shell, exports, unsets or sources something, or assigns on its own
     reads_input: bool  # a `<` input may choose what the script does, so two runs of it can differ
 
 
@@ -234,7 +234,7 @@ def _runs(trace: Trace) -> list[_Run]:
                 shell = _walk(base, [t for t, m in zip(segs, moves) if m] if sure else [["popd"]], unknown)
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where,
-                             any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), _persists_env(segs), "<" in _mask(cmd)))
+                             any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), persists and _persists_env(segs), "<" in _mask(cmd)))
     return runs
 
 

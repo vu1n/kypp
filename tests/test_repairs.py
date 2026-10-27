@@ -199,6 +199,11 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("cd /other | cat", "ok"), _bash("python app.py", "No module named 'project'", "error"),
                                _bash("cd /other && uv run python app.py", "ok")), [])
 
+    def test_a_codex_export_does_not_reach_the_next_call(self):
+        self.assertEqual(_mine(_codex("pytest", "Exit code: 127\nbash: pytest: command not found"),
+                               _codex("uv run pytest", "Exit code: 0\nok"), _codex("export FOO=bar", "Exit code: 0\n"),
+                               _codex("pytest", "Exit code: 0\nok")), [])
+
     def test_each_codex_call_starts_a_fresh_shell(self):
         [d] = _mine(_codex("cd backend && python app.py", "Exit code: 1\nNo module named 'project'"),
                     _codex("cd backend && uv run python app.py", "Exit code: 0\nok"))
