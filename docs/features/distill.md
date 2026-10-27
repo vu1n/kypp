@@ -4,6 +4,7 @@ paths:
   - "kypp/distill.py"
   - "kypp/batch_distill.py"
   - "kypp/episodes.py"
+  - "kypp/repairs.py"
   - "scripts/eval_episodes.py"
   - "eval/episodes/*"
   - "docs/episode-extraction-evaluation.md"
@@ -12,6 +13,7 @@ entry:
   - "kypp/batch_distill.py"
 tests:
   - "tests/test_episodes.py"
+  - "tests/test_repairs.py"
 ---
 # Distillation
 
@@ -20,6 +22,22 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
 
 ## Gotchas
 - Without `KYPP_DISTILL_MODEL` you only get heuristic, failure-mined pitfalls.
+- Repair pitfalls (`kypp/repairs.py`) run with or without a model: a shell command that fails
+  with command-not-found, a missing module or a missing env var, followed in the same session by a
+  form that works (`uv run pytest`, `.venv/bin/python`, `V=x cmd`). The subject names only what
+  failed, so a second session's repair lands on the same subject and the K=2 gate accepts it; a
+  one-session quirk stays a candidate. A repair suppresses the generic "`<tool>` repeatedly
+  failed" pitfall for the failures it explains.
+- A repair needs a later run with a confirmed success (Claude's `completed`, Codex's exit 0) that
+  runs the same thing: the same script or `-m module` for a missing module or env var (inline
+  `-c` code never counts). Only a segment followed by nothing but `&&`, outside any `||` or pipe,
+  counts as having succeeded, since a chain exits with its last command. It is
+  skipped when the original works later without the fix, when the thing was installed in between,
+  when the later run only probes (`--version`, `--help`), or when the working form is a host path.
+- Values are written only for a short allowlist of env vars (`PYTHONPATH`, `NODE_ENV`, ...), and
+  never one with `@` in it. A fix runs the command by path or behind a known wrapper (`_WRAPPERS`:
+  `uv run`, `python -m`, `npx`, ...). Nothing else counts, so `touch pytest` isn't a fix, and flags
+  and their values (`--token X`, `-e K=V`) never reach a claim.
 - If the LLM distiller fails, it falls back to the heuristic distiller rather than raising.
 - With `TYPESAFE_API_KEY` or `KYPP_DECIDER_URL` (a local strands-decider) set, and `kypp[s1]`
   installed, a System One gate drops drafts scoring

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from . import episodes as _episodes
-from . import s1
+from . import repairs, s1
 from .vocab import OLLAMA_DEFAULT_HOST, TYPES  # single-sourced vocabulary (turso-free leaf)
 
 if TYPE_CHECKING:
@@ -169,14 +169,32 @@ class HeuristicDistiller:
                 f"in this session's observations", 0.6))
         if trace.run_failed:
             drafts.append(ClaimDraft("pitfall", "run failed", _trunc(trace.run_failed), 0.5))
+        fixes, explained = repairs.mine(trace)
         for name, n in trace.tool_failures.items():
-            if n >= 2:
-                sample = next(a for a in trace.actions if a.failed and a.name == name)
+            unexplained = [a for i, a in enumerate(trace.actions)
+                           if a.failed and a.name == name and i not in explained]
+            # A failure a repair explains is said better by the repair ("A fails, B works").
+            if n >= 2 and unexplained:
+                sample = unexplained[0]
                 drafts.append(ClaimDraft(
                     "pitfall", f"{name} repeatedly failed",
                     _trunc(f"`{name}` errored {n}x this run; e.g. {sample.output}"), 0.4,
                     code_refs=_refs_from(sample.input)))
-        return drafts
+        return drafts + fixes
+
+
+class WithRepairs:
+    """Add the deterministic repair pitfalls to another distiller's drafts. The LLM distiller is told
+    to skip environment artifacts; a repair is one only until a second session hits it, and then
+    the K=2 gate accepts it."""
+
+    def __init__(self, inner: Distiller):
+        self.inner = inner
+
+    def distill(self, trace: Trace) -> list[ClaimDraft]:
+        drafts = self.inner.distill(trace)
+        taken = {d.subject for d in drafts}
+        return drafts + [d for d in repairs.mine(trace)[0] if d.subject not in taken]
 
 
 # LLM_DISTILL_PROMPT + _SCHEMA are what the model is ASKED for (model-agnostic, code-grounded claims).
@@ -404,7 +422,8 @@ def distiller_from_env() -> Distiller:
     A configured System One model (see kypp.s1) adds the write gate on top. The seam-config analog
     of store.store_from_env."""
     model = os.environ.get("KYPP_DISTILL_MODEL")
-    inner = (FallbackDistiller(LLMDistiller(_complete_from_model(model), episodes=_episodes.extractor_from_env()),
+    inner = (FallbackDistiller(WithRepairs(LLMDistiller(_complete_from_model(model),
+                                                        episodes=_episodes.extractor_from_env())),
                                HeuristicDistiller())
              if model else HeuristicDistiller())
     via = s1.client()
