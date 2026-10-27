@@ -184,6 +184,11 @@ class ModuleMissing(unittest.TestCase):
     def test_a_cd_inside_a_compound_command_moves_the_shell(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
                                _bash("cd other && ls", "ok"), _bash("uv run python app.py", "ok")), [])
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
+                               _bash("cd /other", "ok"), _bash("uv run python app.py", "ok")), [])
+        [d] = _mine(_bash("cd /r && python app.py", "No module named 'project'", "error"),
+                    _bash("cd /elsewhere && ls", "ok"), _bash("cd /r && uv run python app.py", "ok"))
+        self.assertIn("`uv run python …` works", d.content)
 
     def test_a_script_help_probe_is_not_a_fix(self):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),

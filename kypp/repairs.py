@@ -73,7 +73,7 @@ class _Run:
     output: str
     ok: bool  # confirmed to have succeeded; a run with no recorded outcome is neither
     may_fail: bool  # failed, or its exit status could hide a failure (`pytest | tail`, `pytest; echo`)
-    where: tuple | None  # workdir and `cd` targets; None when a `cd` follows a command, so the place is unclear
+    where: tuple | None  # where the shell was when it ran; None when a `cd` follows a command, so the place is unclear
     installs: bool  # runs an install or sync
     sets_env: bool  # sets, exports, unsets or sources something, which a persistent shell keeps
     reads_input: bool  # a `<` input may choose what the script does, so two runs of it can differ
@@ -201,20 +201,33 @@ def _succeeded(a: Action) -> bool:
     return not _failed(a) and (a.status == "completed" or _exit(a) == "0") and not _errs(a.output or "")
 
 
+def _walk(place: tuple, cds: list[list[str]], unknown: list[int]) -> tuple:
+    """Where these `cd`s land from `place`: a `cd /abs` lands in the same place from anywhere; one we
+    can't follow (`cd -`, `pushd`, `popd`) lands somewhere no other run can match."""
+    for t in cds:
+        if t[0] == "cd" and len(t) == 2 and t[1] not in ("-", "~") and not t[1].startswith("~"):
+            place = (t[1],) if t[1].startswith("/") else (*place, t[1])
+        else:
+            unknown[0] += 1
+            place = ("?", unknown[0])
+    return place
+
+
 def _runs(trace: Trace) -> list[_Run]:
-    runs, moved = [], 0
+    runs, shell, unknown = [], None, [0]
     for i, a in enumerate(trace.actions):
         cmd = _command_of(a)
         if cmd and "<<" not in cmd:  # a heredoc body isn't commands
             segs = _segments(cmd)
             moves = [t[0] in ("cd", "pushd", "popd") for t in segs]
             first_cmd = moves.index(False) if False in moves else len(moves)
-            # A shell that persists (Claude's Bash) keeps every `cd`, so count those before this run; only a
-            # `cd /abs` lands in the same place again, wherever the shell was.
-            where = None if any(moves[first_cmd:]) else (
-                moved, str(a.input.get("workdir") or a.input.get("cwd") or ""),
-                *(" ".join(t[1:]) for t in segs[:first_cmd]))
-            moved += any(t[0] != "cd" or not t[1:] or not all(x.startswith("/") for x in t[1:]) for t in segs if t[0] in ("cd", "pushd", "popd"))
+            # A call that names its directory starts there; otherwise the shell persists (Claude's Bash)
+            # and keeps every `cd`, so the run starts where the last one left it.
+            wd = str(a.input.get("workdir") or a.input.get("cwd") or "")
+            base = ("", wd) if wd else shell or ("", "")
+            where = None if any(moves[first_cmd:]) else _walk(base, segs[:first_cmd], unknown)
+            if any(moves) and not wd:
+                shell = _walk(base, [t for t, m in zip(segs, moves) if m], unknown)
             masked = any(op in ("|", ";", "||", "&") for _, _, op in _chain(cmd))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), _failed(a) or masked, where,
                              any(_INSTALLS & set(t) for t, _, _ in _chain(cmd)), _changes_env(segs), "<" in _mask(cmd)))
