@@ -89,11 +89,19 @@ _UNMASK = str.maketrans({v: k for k, v in _MASK.items()})
 
 def _mask(command: str) -> str:
     """The command with quoted or escaped `;`, `&` and `|` swapped for placeholders, so the lexer,
-    which drops quotes before it splits, never reads a printed `';'` as an operator."""
-    out, quote, esc = [], "", False
+    which drops quotes before it splits, never reads a printed `';'` as an operator. Comments are
+    dropped and an unquoted newline separates commands, as the shell reads them."""
+    out, quote, esc, comment = [], "", False, False
     for c in command:
+        if comment:
+            if c != "\n":
+                continue
+            comment = False
         if esc:
-            out.append(_MASK.get(c, c))
+            if c == "\n":  # a line continuation joins the lines
+                out.pop()
+            else:
+                out.append(_MASK.get(c, c))
             esc = False
             continue
         if c == "\\" and quote != "'":
@@ -102,6 +110,11 @@ def _mask(command: str) -> str:
             quote = "" if quote else c
         elif quote and c in _MASK:
             c = _MASK[c]
+        elif not quote and c == "#" and (not out or out[-1] in " \t\n;&|()"):
+            comment = True
+            continue
+        elif not quote and c == "\n":  # ends a command, unless the line ended on an operator
+            c = " " if "".join(out).rstrip()[-1:] in ("", ";", "&", "|", "(") else ";"
         out.append(c)
     return "".join(out)
 
@@ -111,7 +124,7 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
     outside quotes (`echo 'a; b'` is one segment, `|tail` two tokens). Unbalanced quotes (a heredoc
     or a script, not one command) yield nothing."""
     lex = shlex.shlex(_mask(command), posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
+    lex.whitespace_split, lex.commenters = True, ""  # _mask already dropped comments
     try:
         toks = list(lex)
     except ValueError:
@@ -157,11 +170,10 @@ def _runs(trace: Trace) -> list[_Run]:
     for i, a in enumerate(trace.actions):
         cmd = _command_of(a)
         if cmd and "<<" not in cmd:  # a heredoc body isn't commands
-            flat = cmd.replace("\n", "; ")
-            segs = _segments(flat)
+            segs = _segments(cmd)
             where = (str(a.input.get("workdir") or a.input.get("cwd") or ""),
                      *(" ".join(t[1:]) for t in segs if t[0] in ("cd", "pushd")))
-            runs.append(_Run(i, cmd, segs, _proven(flat), a.output or "", _succeeded(a), where))
+            runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), where))
     return runs
 
 
@@ -217,11 +229,15 @@ def _redact(form: list[str]) -> list[str]:
     return out
 
 
+def _changes_env(segments: list[list[str]]) -> bool:
+    return any(_split_env(seg)[0] or seg[0] in ("export", "set", "source", ".") for seg in segments)
+
+
 def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     """The tokens a later, successful command runs `head` with, when it runs it another way: behind a
     wrapper (`uv run pytest`, `python -m pytest`, `npx tsc`) or by a path (`.venv/bin/pytest`)."""
     # An assignment or `export` anywhere in the run may be what made it work, and the fix wouldn't say so.
-    if any(_split_env(seg)[0] or seg[0] in ("export", "set", "source", ".") for seg in later.segments):
+    if _changes_env(later.segments):
         return None
     for seg in later.proven:
         _, toks = _split_env(seg)
@@ -276,7 +292,13 @@ def _target(seg_toks: list[list[str]], missing_cmd: str | None) -> list[str] | N
 
 def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
     """The later run that sets `name` and runs the same thing, as the fact shows it."""
-    for env, toks in map(_split_env, later.proven):
+    for seg in later.proven:
+        env, toks = _split_env(seg)
+        others = list(later.segments)
+        if seg in others:
+            others.remove(seg)
+        if _changes_env(others):  # other setup in the run may be part of the fix
+            continue
         if set(env) == {name} and toks[:1] == [head] and toks[1:1 + len(args)] == args and not _probes(toks[1:]):
             value = env[name]
             if name not in _SAFE_ENV or _ABS.search(" " + value) or "@" in value or len(value) > 80:
@@ -300,7 +322,9 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         if not (missing_cmd or missing_mod or missing_env):
             continue
         seg = _target(a.segments, missing_cmd)
-        env, toks = _split_env(seg or [])
+        _, toks = _split_env(seg or [])
+        if _changes_env(a.segments):  # `PATH=/x pytest` failing says nothing about this environment
+            continue
         if not toks or "/" in toks[0] or not _WORD.match(head := toks[0]):
             continue
         args = [] if missing_cmd else _invocation(toks)
@@ -312,7 +336,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
             subject, why = f"`{head}` is not on PATH", "fails here (command not found)"
         elif missing_mod and _WORD.match(missing_mod):
             subject, why = f"`{head}` can't import `{missing_mod}`", f"fails here (no module `{missing_mod}`)"
-        elif missing_env and missing_env not in env:
+        elif missing_env:
             subject, why = f"`{head}` needs `{missing_env}` set", f"fails here asking for `{missing_env}`"
         else:
             continue

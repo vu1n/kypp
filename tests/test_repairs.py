@@ -91,6 +91,16 @@ class CommandMissing(unittest.TestCase):
         [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("cd x; uv run pytest && echo ok", "ok"))
         self.assertIn("`uv run pytest …` works", d.content)
 
+    def test_comments_and_continuations_read_as_the_shell_does(self):
+        for later in ("# run tests\nuv run pytest", "cd x  # into the repo\nuv run pytest", "uv run \\\n  pytest"):
+            [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok"))
+            self.assertIn("`uv run pytest …` works", d.content, later)
+
+    def test_a_failure_under_its_own_env_change_says_nothing(self):
+        for failed in ("PATH=/nonexistent pytest", "export PATH=/x; pytest"):
+            self.assertEqual(_mine(_bash(failed, "pytest: command not found", "error"),
+                                   _bash("uv run pytest", "ok")), [], failed)
+
     def test_a_multiline_command_is_read_line_by_line(self):
         [d] = _mine(_bash("cd web\ntsc", "tsc: command not found", "error"), _bash("cd web\nnpx tsc", "ok"))
         self.assertEqual(d.subject, "`tsc` is not on PATH")
@@ -203,6 +213,10 @@ class EnvMissing(unittest.TestCase):
     def test_a_probe_with_the_variable_set_is_not_a_fix(self):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
                                _bash("API_BASE=x node build.js --help", "ok")), [])
+
+    def test_a_fix_with_other_setup_in_the_run_is_not_recorded(self):
+        self.assertEqual(_mine(_bash("python app.py", "Error: API_BASE is not set", "error"),
+                               _bash("export PYTHONPATH=src && API_BASE=x python app.py", "ok")), [])
 
     def test_a_fix_with_other_variables_too_is_not_recorded(self):
         self.assertEqual(_mine(_bash("python app.py", "API_BASE is not set", "error"),
