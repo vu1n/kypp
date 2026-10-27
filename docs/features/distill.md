@@ -35,8 +35,9 @@ distiller runs when `KYPP_DISTILL_MODEL` is set (`claude`, `codex` or an ollama 
   skipped when the original works later without the fix, when the thing was installed in between,
   when the later run only probes (`--version`, `--help`), or when the working form is a host path.
 - Values are written only for a short allowlist of env vars (`PYTHONPATH`, `NODE_ENV`, ...), and
-  never one with `@` in it. A fix's wrapper must be plain words (`uv run`, `python -m`, `npx`), so
-  flags and their values (`--token X`, `-e K=V`) never reach a claim.
+  never one with `@` in it. A fix runs the command by path or behind a known wrapper (`_WRAPPERS`:
+  `uv run`, `python -m`, `npx`, ...). Nothing else counts, so `touch pytest` isn't a fix, and flags
+  and their values (`--token X`, `-e K=V`) never reach a claim.
 - If the LLM distiller fails, it falls back to the heuristic distiller rather than raising.
 - With `TYPESAFE_API_KEY` or `KYPP_DECIDER_URL` (a local strands-decider) set, and `kypp[s1]`
   installed, a System One gate drops drafts scoring

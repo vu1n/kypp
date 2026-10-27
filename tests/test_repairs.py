@@ -51,9 +51,14 @@ class CommandMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"),
                                _bash("uv pip install pytest", "ok"), _bash("python -m pytest", "ok")), [])
 
+    def test_no_fact_when_the_working_run_installed_it_first(self):
+        self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"),
+                               _bash("uv pip install pytest && uv run pytest", "ok")), [])
+
     def test_probes_and_installs_are_not_repairs(self):
         for later in ("which pytest", "pip install pytest", "uv add pytest", "pytest --version",
-                      "test -x .venv/bin/pytest", "test .venv/bin/pytest", "ls .venv/bin/pytest"):
+                      "test -x .venv/bin/pytest", "test .venv/bin/pytest", "ls .venv/bin/pytest",
+                      "touch pytest", "true pytest"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
                              [], later)
 
@@ -68,7 +73,8 @@ class CommandMissing(unittest.TestCase):
         self.assertIn("`uv run pytest …` works", d.content)
 
     def test_success_proves_only_segments_it_ran(self):
-        for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3"):
+        for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3",
+                      "uv run pytest |tail -3"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
                              [], later)
         [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("cd x; uv run pytest && echo ok", "ok"))

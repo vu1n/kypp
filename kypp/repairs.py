@@ -43,10 +43,13 @@ _ENV_MISSING = [re.compile(p) for p in (
     r"(?:environment variable|env var)s? '?([A-Z][A-Z0-9_]{2,})'? (?:is )?(?:not set|unset|required|missing)",
     r"[Mm]issing (?:required )?(?:environment variable|env var) '?([A-Z][A-Z0-9_]{2,})'?",
 )]
-# A later command led by one of these is looking or installing, not running the thing another way.
-_NOT_A_REPAIR = {"which", "type", "command", "test", "[", "whereis", "hash", "echo", "printf", "ls", "cat", "man",
-                 "file", "stat", "find", "fd", "rg", "grep", "sudo", "apt", "apt-get", "brew", "pip",
-                 "pip3", "pipx", "conda", "cargo", "go", "gem", "npm", "pnpm", "yarn"}
+# The wrappers a fix may run the command behind (or none, with the command given by path). Any
+# other prefix (`which`, `touch`, `test -x`, `docker run -e K=V`) doesn't run it, or may carry a
+# credential.
+_WRAPPERS = {("uv", "run"), ("uvx",), ("poetry", "run"), ("pipenv", "run"), ("pdm", "run"),
+             ("hatch", "run"), ("rye", "run"), ("python", "-m"), ("python3", "-m"), ("npx",),
+             ("bunx",), ("bun", "x"), ("bun", "run"), ("pnpm", "exec"), ("pnpm", "dlx"),
+             ("npm", "exec"), ("yarn",), ("yarn", "exec"), ("bundle", "exec")}
 _INSTALL_WORDS = {"install", "add", "i", "sync", "-v", "--version", "--help", "-h"}
 # Arguments that only ask the command about itself: running it this way proves nothing works.
 _PROBE_ARGS = {"--version", "-V", "version", "--help", "-h", "help"}
@@ -55,9 +58,6 @@ _PROBE_ARGS = {"--version", "-V", "version", "--help", "-h", "help"}
 _SAFE_ENV = {"PYTHONPATH", "NODE_ENV", "CI", "TZ", "LANG", "LC_ALL", "RUST_BACKTRACE", "RUST_LOG",
              "DEBUG", "PORT", "HOST", "FORCE_COLOR", "NO_COLOR", "PYTHONUNBUFFERED", "PYTHONDONTWRITEBYTECODE"}
 _USERINFO = re.compile(r"://[^/\s]*@")
-# A wrapper word in a recorded fix (`uv run`, `python -m`, `npx`): no flags or values, which could
-# carry a credential (`--token SECRET`, `-e KEY=…`).
-_PLAIN = re.compile(r"^(?:-m|[A-Za-z0-9._+][A-Za-z0-9._+/-]*)$")
 _EXIT_CODE = re.compile(r"(?:Exit code:?|\"exit_code\":)\s*(-?\d+)")
 _ABS = re.compile(r"(?:^|\s)/(?:var|tmp|private|Users|home|root)/")
 
@@ -82,8 +82,10 @@ def _command_of(a: Action) -> str | None:
 
 
 def _tokens(seg: str) -> list[str] | None:
+    lex = shlex.shlex(seg, posix=True, punctuation_chars=True)  # `|tail` is two tokens
+    lex.whitespace_split = True
     try:
-        return shlex.split(seg)
+        return list(lex)
     except ValueError:  # unbalanced quotes: a heredoc or a script, not one command
         return None
 
@@ -194,11 +196,9 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
             if _base(t) != head or (j == 0 and t == head):
                 continue
             prefix, rest = toks[:j], toks[j + 1:]
-            if prefix and (_base(prefix[0]) in _NOT_A_REPAIR or _INSTALL_WORDS & set(prefix)):
+            if prefix and (_base(prefix[0]), *prefix[1:]) not in _WRAPPERS:
                 break
             if (rest and set(rest) <= _PROBE_ARGS) or rest[:len(args)] != args:
-                break
-            if len(prefix) > 3 or not all(_PLAIN.match(w) for w in prefix):
                 break
             form = toks[:j + 1]
             return None if _ABS.search(" " + " ".join(form)) else form
@@ -206,10 +206,10 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
 
 
 def _installed_between(runs: list[_Run], a: _Run, b: _Run, name: str) -> bool:
-    """An install of `name` between the two runs makes the second work for a reason the fact won't
-    hold in the next session."""
+    """An install of `name` after the failure, up to and including the run that worked, makes it work
+    for a reason the fact won't hold in the next session."""
     for r in runs:
-        if a.i < r.i < b.i and name in r.command and _INSTALL_WORDS & set(r.command.split()):
+        if a.i < r.i <= b.i and name in r.command and _INSTALL_WORDS & set(r.command.split()):
             return True
     return False
 
