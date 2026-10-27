@@ -146,6 +146,12 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
                                _bash("uv run python app.py --help", "ok")), [])
 
+    def test_a_different_subcommand_is_not_the_same_run(self):
+        fail = _bash("python manage.py migrate", "No module named 'psycopg'", "error")
+        self.assertEqual(_mine(fail, _bash("uv run python manage.py check", "ok")), [])
+        [d] = _mine(fail, _bash("uv run python manage.py migrate", "ok"), _bash("python manage.py check", "ok"))
+        self.assertIn("`uv run python …` works", d.content)
+
     def test_the_later_run_must_run_the_same_thing(self):
         for later in ("uv run python -c 'print(1)'", "uv run python unrelated.py", "uv run python -m other"):
             self.assertEqual(_mine(_bash("python -m kypp.distill", "No module named 'turso'", "error"),
@@ -213,6 +219,10 @@ class EnvMissing(unittest.TestCase):
     def test_a_probe_with_the_variable_set_is_not_a_fix(self):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
                                _bash("API_BASE=x node build.js --help", "ok")), [])
+
+    def test_no_fact_when_something_was_installed_in_between(self):
+        self.assertEqual(_mine(_bash("node build.js", "Error: API_BASE is not set", "error"), _bash("npm install", "ok"),
+                               _bash("API_BASE=http://localhost:8787 node build.js", "built")), [])
 
     def test_a_fix_with_other_setup_in_the_run_is_not_recorded(self):
         for later in ("export PYTHONPATH=src && API_BASE=x python app.py", "source .env && API_BASE=x python app.py"):

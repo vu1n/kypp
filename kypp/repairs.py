@@ -208,13 +208,14 @@ def _render(toks: list[str], upto: int) -> str:
 
 
 def _invocation(toks: list[str]) -> list[str] | None:
-    """What a run of `toks[0]` runs: its script or `-m module`. A missing module or env var is about
-    that, so a repair must run the same thing. Inline code (`-c`, `-e`) or flags ahead of the
-    script aren't compared, so those runs yield no repair (None)."""
+    """What a run of `toks[0]` runs: its script or `-m module` and their arguments, since a
+    subcommand (`manage.py migrate` vs `check`) may import or read what another doesn't. A repair
+    must run the same thing. Inline code (`-c`, `-e`) or flags ahead of the script aren't compared,
+    so those runs yield no repair (None)."""
     rest = toks[1:]
     if rest[:1] == ["-m"] and len(rest) >= 2:
-        return rest[:2]
-    return rest[:1] if rest and not rest[0].startswith("-") else None
+        return rest
+    return rest if rest and not rest[0].startswith("-") else None
 
 
 def _redact(form: list[str]) -> list[str]:
@@ -343,12 +344,12 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         if subject not in drafts:
             # A script or module is only the same one run from the same place.
             for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or r.where == a.where)):
-                if missing_env:
-                    fix = _env_fix(missing_env, head, args, b)
-                elif (form := _working_form(head, args, b)) and not _installed_between(runs, a, b):
-                    fix = f"`{shlex.join(form)} …`"
-                else:
+                if _installed_between(runs, a, b):
                     fix = None
+                elif missing_env:
+                    fix = _env_fix(missing_env, head, args, b)
+                else:
+                    fix = (form := _working_form(head, args, b)) and f"`{shlex.join(form)} …`"
                 if fix:
                     drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(_redact(toks), 1 + len(args))} {why}; {fix} works.", 0.6)
                     break
