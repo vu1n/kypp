@@ -77,6 +77,10 @@ class CommandMissing(unittest.TestCase):
                     _bash("uv run pytest -q", "3 passed"))
         self.assertIn("`uv run pytest …` works", d.content)
 
+    def test_flags_on_the_working_run_are_not_installs(self):
+        [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("uv run pytest -v", "ok"))
+        self.assertIn("`uv run pytest …` works", d.content)
+
     def test_success_proves_only_segments_it_ran(self):
         for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3",
                       "uv run pytest |tail -3", "uv run pytest >/tmp/log 2>&1 &",

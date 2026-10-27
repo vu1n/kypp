@@ -50,7 +50,7 @@ _WRAPPERS = {("uv", "run"), ("uvx",), ("poetry", "run"), ("pipenv", "run"), ("pd
              ("hatch", "run"), ("rye", "run"), ("python", "-m"), ("python3", "-m"), ("npx",),
              ("bunx",), ("bun", "x"), ("bun", "run"), ("pnpm", "exec"), ("pnpm", "dlx"),
              ("npm", "exec"), ("yarn",), ("yarn", "exec"), ("bundle", "exec")}
-_INSTALL_WORDS = {"install", "add", "i", "sync", "-v", "--version", "--help", "-h"}
+_INSTALLS = {"install", "add", "i", "sync"}  # a run with one of these may have installed anything
 # Arguments that only ask the command about itself: running it this way proves nothing works.
 _PROBE_ARGS = {"--version", "-V", "version", "--help", "-h", "help"}
 _PROBE_FLAGS = {"--version", "-V", "--help", "-h"}  # with any other arguments it still only probes
@@ -218,7 +218,7 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
 def _installed_between(runs: list[_Run], a: _Run, b: _Run) -> bool:
     """Any install or sync after the failure, up to and including the run that worked (`uv sync` and
     `pip install -r` don't name what they install), may be why it worked: the fact won't hold."""
-    return any(a.i < r.i <= b.i and _INSTALL_WORDS & set(r.command.split()) for r in runs)
+    return any(a.i < r.i <= b.i and _INSTALLS & set(r.command.split()) for r in runs)
 
 
 def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], var: str | None,
