@@ -146,6 +146,18 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
                                _bash("uv run python app.py --help", "ok")), [])
 
+    def test_extra_arguments_are_not_the_same_run(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'psycopg'", "error"),
+                               _bash("uv run python app.py --skip-database", "ok")), [])
+        self.assertEqual(_mine(_bash("node build.js", "Error: API_BASE is not set", "error"),
+                               _bash("API_BASE=x node build.js --dry-run", "ok")), [])
+
+    def test_the_failing_form_shows_only_the_script(self):
+        [d] = _mine(_bash("python app.py --token SECRET", "No module named 'turso'", "error"),
+                    _bash("uv run python app.py --token SECRET", "ok"))
+        self.assertNotIn("SECRET", d.content)
+        self.assertIn("`python app.py …` fails here", d.content)
+
     def test_a_different_subcommand_is_not_the_same_run(self):
         fail = _bash("python manage.py migrate", "No module named 'psycopg'", "error")
         self.assertEqual(_mine(fail, _bash("uv run python manage.py check", "ok")), [])

@@ -218,6 +218,12 @@ def _invocation(toks: list[str]) -> list[str] | None:
     return rest if rest and not rest[0].startswith("-") else None
 
 
+def _same(rest: list[str], args: list[str]) -> bool:
+    """A run is the same invocation only with exactly its arguments: an added `--skip-db` may skip
+    the failing import. A missing command has none to match, so any arguments do."""
+    return rest == args if args else True
+
+
 def _redact(form: list[str]) -> list[str]:
     """Never repeat a credential into shared memory: any `name=value` (`K=V`, `-e K=V`, `--token=x`)
     unless the name is known safe, and a URL's user:password."""
@@ -248,7 +254,7 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
             prefix, rest = toks[:j], toks[j + 1:]
             if prefix and (_base(prefix[0]), *prefix[1:]) not in _WRAPPERS:
                 break
-            if _probes(rest) or rest[:len(args)] != args:
+            if _probes(rest) or not _same(rest, args):
                 break
             form = toks[:j + 1]
             return None if _ABS.search(" " + " ".join(form)) else form
@@ -272,7 +278,7 @@ def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str]
         if r.i > a.i and r.ok and (not same_place or r.where == a.where) and not _changes_env(r.segments):
             for env, toks in map(_split_env, r.proven):
                 # unchanged: no env anywhere in the run, and a probe (`--help`) doesn't prove the real run works
-                if toks[:1] == [head] and toks[1:1 + len(args)] == args and not env and not _probes(toks[1:]):
+                if toks[:1] == [head] and _same(toks[1:], args) and not env and not _probes(toks[1:]):
                     return True
     return False
 
@@ -300,7 +306,7 @@ def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
             others.remove(seg)
         if _changes_env(others):  # other setup in the run may be part of the fix
             continue
-        if set(env) == {name} and toks[:1] == [head] and toks[1:1 + len(args)] == args and not _probes(toks[1:]):
+        if set(env) == {name} and toks[:1] == [head] and _same(toks[1:], args) and not _probes(toks[1:]):
             value = env[name]
             if name not in _SAFE_ENV or _ABS.search(" " + value) or "@" in value or len(value) > 80:
                 return f"`{name}=… {head} …`"
@@ -351,7 +357,8 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
                 else:
                     fix = (form := _working_form(head, args, b)) and f"`{shlex.join(form)} …`"
                 if fix:
-                    drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(_redact(toks), 1 + len(args))} {why}; {fix} works.", 0.6)
+                    shown = 1 + (2 if args[:1] == ["-m"] else len(args[:1]))  # the command and script, never its arguments
+                    drafts[subject] = ClaimDraft("pitfall", subject, f"{_render(_redact(toks), shown)} {why}; {fix} works.", 0.6)
                     break
         if subject in drafts:
             explained.add(a.i)
