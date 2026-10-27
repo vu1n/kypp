@@ -74,7 +74,7 @@ class CommandMissing(unittest.TestCase):
 
     def test_success_proves_only_segments_it_ran(self):
         for later in ("true || uv run pytest", "uv run pytest; true", "uv run pytest | tail -3",
-                      "uv run pytest |tail -3"):
+                      "uv run pytest |tail -3", "uv run pytest >/tmp/log 2>&1 &"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
                              [], later)
         [d] = _mine(_bash("pytest", "pytest: command not found", "error"), _bash("cd x; uv run pytest && echo ok", "ok"))
@@ -86,7 +86,8 @@ class CommandMissing(unittest.TestCase):
 
 
     def test_probe_flags_after_the_command_are_not_repairs(self):
-        for later in ("uv run pytest --version", ".venv/bin/pytest --help"):
+        for later in ("uv run pytest --version", ".venv/bin/pytest --help", "uv run pytest --help tests",
+                      "python inspect_args.py pytest"):
             self.assertEqual(_mine(_bash("pytest", "pytest: command not found", "error"), _bash(later, "ok")),
                              [], later)
 
@@ -126,6 +127,10 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("python app.py", "No module named 'project'", "error"),
                                _bash("PYTHONPATH=src uv run python app.py", "ok")), [])
 
+    def test_no_fact_when_the_working_run_installed_it_first(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("uv pip install turso && uv run python app.py", "ok")), [])
+
     def test_inline_code_is_not_compared_so_yields_nothing(self):
         self.assertEqual(_mine(_bash("python -c 'import turso'", "No module named 'turso'", "error"),
                                _bash("uv run python -c 'print(1)'", "ok")), [])
@@ -155,6 +160,10 @@ class EnvMissing(unittest.TestCase):
     def test_the_later_run_must_run_the_same_script(self):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
                                _bash("API_BASE=x node --version", "ok")), [])
+
+    def test_a_probe_with_the_variable_set_is_not_a_fix(self):
+        self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
+                               _bash("API_BASE=x node build.js --help", "ok")), [])
 
     def test_no_fact_when_it_works_later_without_the_variable(self):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),

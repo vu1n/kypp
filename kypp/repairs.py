@@ -53,6 +53,7 @@ _WRAPPERS = {("uv", "run"), ("uvx",), ("poetry", "run"), ("pipenv", "run"), ("pd
 _INSTALL_WORDS = {"install", "add", "i", "sync", "-v", "--version", "--help", "-h"}
 # Arguments that only ask the command about itself: running it this way proves nothing works.
 _PROBE_ARGS = {"--version", "-V", "version", "--help", "-h", "help"}
+_PROBE_FLAGS = {"--version", "-V", "--help", "-h"}  # with any other arguments it still only probes
 # Only these variables' values are written; any other value may be a credential (a DATABASE_URL
 # carries a password), so a fact names the variable and never repeats its value.
 _SAFE_ENV = {"PYTHONPATH", "NODE_ENV", "CI", "TZ", "LANG", "LC_ALL", "RUST_BACKTRACE", "RUST_LOG",
@@ -111,7 +112,8 @@ def _proven(command: str) -> list[list[str]]:
     out = []
     for k in range(0, len(parts), 2):
         toks = _tokens(parts[k])
-        if toks and "|" not in toks and all(sep == "&&" for sep in parts[k + 1::2]):
+        # A pipeline exits with its last stage and `&` with the launch, so neither proves the command.
+        if toks and "|" not in toks and "&" not in toks and all(sep == "&&" for sep in parts[k + 1::2]):
             out.append(toks)
     return out
 
@@ -198,7 +200,7 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
             prefix, rest = toks[:j], toks[j + 1:]
             if prefix and (_base(prefix[0]), *prefix[1:]) not in _WRAPPERS:
                 break
-            if (rest and set(rest) <= _PROBE_ARGS) or rest[:len(args)] != args:
+            if (rest and set(rest) <= _PROBE_ARGS) or _PROBE_FLAGS & set(rest) or rest[:len(args)] != args:
                 break
             form = toks[:j + 1]
             return None if _ABS.search(" " + " ".join(form)) else form
@@ -241,7 +243,7 @@ def _target(seg_toks: list[list[str]], missing_cmd: str | None) -> list[str] | N
 def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
     """The later run that sets `name` and runs the same thing, as the fact shows it."""
     for env, toks in map(_split_env, later.proven):
-        if name in env and toks[:1] == [head] and toks[1:1 + len(args)] == args:
+        if name in env and toks[:1] == [head] and toks[1:1 + len(args)] == args and not _PROBE_FLAGS & set(toks):
             value = env[name]
             if name not in _SAFE_ENV or _ABS.search(" " + value) or "@" in value or len(value) > 80:
                 return f"`{name}=… {head} …`"
