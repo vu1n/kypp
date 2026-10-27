@@ -198,6 +198,15 @@ class ModuleMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("mycli", "mycli: command not found", "error"),
                                _bash("npx https://user:TOKEN@packages.example/mycli", "ok")), [])
 
+    def test_a_redirection_only_command_is_skipped(self):
+        [d] = _mine(_bash("> out.log", ""), _bash("python app.py", "No module named 'turso'", "error"),
+                    _bash("uv run python app.py 2>/dev/null", "ok"))
+        self.assertIn("`uv run python …` works", d.content)
+
+    def test_unset_is_an_env_change(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("unset PYTHONHOME; uv run python app.py", "ok")), [])
+
     def test_a_different_subcommand_is_not_the_same_run(self):
         fail = _bash("python manage.py migrate", "No module named 'psycopg'", "error")
         self.assertEqual(_mine(fail, _bash("uv run python manage.py check", "ok")), [])
@@ -263,6 +272,9 @@ class EnvMissing(unittest.TestCase):
         [d] = _mine(_bash("python app.py", "HOST is required", "error"),
                     _bash("HOST=https://u:pw@example.com python app.py", "ok"))
         self.assertNotIn("pw", d.content)
+        [d] = _mine(_bash("python app.py", "HOST is required", "error"),
+                    _bash("HOST='https://api.example/?token=SECRET' python app.py", "ok"))
+        self.assertNotIn("SECRET", d.content)
 
     def test_the_later_run_must_run_the_same_script(self):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),

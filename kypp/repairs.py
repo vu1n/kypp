@@ -149,8 +149,8 @@ def _chain(command: str) -> list[tuple[list[str], str, str]]:
     for t in toks + [None]:  # None ends it: `''` lexes to an empty token
         t = "|" if t == "|&" else t  # bash's `|&` is a pipe that also carries stderr
         if t in _OPS or t is None:
-            if cur:
-                out.append((_strip_redirects(cur), before, t or ""))
+            if cur and (words := _strip_redirects(cur)):  # `> out.log` alone has no command
+                out.append((words, before, t or ""))
             cur, before = [], t
         else:
             cur.append(t.translate(_UNMASK))
@@ -268,7 +268,7 @@ def _redact(form: list[str]) -> list[str]:
 
 
 def _changes_env(segments: list[list[str]]) -> bool:
-    return any(_split_env(seg)[0] or seg[0] in ("export", "set", "source", ".") for seg in segments)
+    return any(_split_env(seg)[0] or seg[0] in ("export", "set", "unset", "source", ".") for seg in segments)
 
 
 def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
@@ -357,7 +357,8 @@ def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
             continue
         if set(env) == {name} and toks[:1] == [head] and _same(toks[1:], args) and not _probes(toks[1:]):
             value = env[name]
-            if name not in _SAFE_ENV or _ABS.search(" " + value) or "@" in value or len(value) > 80:
+            # Only a plain value is written: a URL, `?token=`, `@` or host path may carry a secret.
+            if name not in _SAFE_ENV or _ABS.search(" " + value) or "://" in value or not re.fullmatch(r"[\w.,:/+-]{0,80}", value):
                 return f"`{name}=… {head} …`"
             return f"`{shlex.join([f'{name}={value}', head])} …`"
     return None
