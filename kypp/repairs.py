@@ -221,13 +221,12 @@ def _installed_between(runs: list[_Run], a: _Run, b: _Run) -> bool:
     return any(a.i < r.i <= b.i and _INSTALLS & set(r.command.split()) for r in runs)
 
 
-def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], var: str | None,
-                           same_place: bool) -> bool:
+def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], same_place: bool) -> bool:
     """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
         if r.i > a.i and r.ok and (not same_place or r.where == a.where):
             for env, toks in map(_split_env, r.proven):
-                if toks[:1] == [head] and toks[1:1 + len(args)] == args and (var is None or var not in env):
+                if toks[:1] == [head] and toks[1:1 + len(args)] == args and not env:  # unchanged: no env either
                     return True
     return False
 
@@ -249,7 +248,7 @@ def _target(seg_toks: list[list[str]], missing_cmd: str | None) -> list[str] | N
 def _env_fix(name: str, head: str, args: list[str], later: _Run) -> str | None:
     """The later run that sets `name` and runs the same thing, as the fact shows it."""
     for env, toks in map(_split_env, later.proven):
-        if name in env and toks[:1] == [head] and toks[1:1 + len(args)] == args and not _PROBE_FLAGS & set(toks):
+        if set(env) == {name} and toks[:1] == [head] and toks[1:1 + len(args)] == args and not _PROBE_FLAGS & set(toks):
             value = env[name]
             if name not in _SAFE_ENV or _ABS.search(" " + value) or "@" in value or len(value) > 80:
                 return f"`{name}=… {head} …`"
@@ -278,7 +277,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
         args = [] if missing_cmd else _invocation(toks)
         if args is None:
             continue
-        if _works_unchanged_later(runs, a, head, args, missing_env, same_place=not missing_cmd):
+        if _works_unchanged_later(runs, a, head, args, same_place=not missing_cmd):
             continue
         if missing_cmd:
             subject, why = f"`{head}` is not on PATH", "fails here (command not found)"

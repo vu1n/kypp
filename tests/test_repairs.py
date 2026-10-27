@@ -193,6 +193,15 @@ class EnvMissing(unittest.TestCase):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
                                _bash("API_BASE=x node build.js --help", "ok")), [])
 
+    def test_a_fix_with_other_variables_too_is_not_recorded(self):
+        self.assertEqual(_mine(_bash("python app.py", "API_BASE is not set", "error"),
+                               _bash("API_BASE=x PYTHONPATH=src python app.py", "ok")), [])
+
+    def test_a_later_run_with_its_own_env_change_is_not_unchanged(self):
+        [d] = _mine(_bash("python app.py", "No module named 'project'", "error"),
+                    _bash("uv run python app.py", "ok"), _bash("PYTHONPATH=src python app.py", "ok"))
+        self.assertIn("`uv run python …` works", d.content)
+
     def test_no_fact_when_it_works_later_without_the_variable(self):
         self.assertEqual(_mine(_bash("node build.js", "API_BASE is not set", "error"),
                                _bash("API_BASE=x node build.js", "ok"), _bash("node build.js", "ok")), [])
