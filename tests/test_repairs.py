@@ -158,6 +158,14 @@ class ModuleMissing(unittest.TestCase):
         self.assertNotIn("SECRET", d.content)
         self.assertIn("`python app.py …` fails here", d.content)
 
+    def test_a_cd_after_the_command_leaves_the_place_unclear(self):
+        self.assertEqual(_mine(_bash("python app.py; cd server", "No module named 'turso'", "error"),
+                               _bash("cd server; uv run python app.py", "ok")), [])
+
+    def test_an_install_joined_by_a_separator_still_counts(self):
+        self.assertEqual(_mine(_bash("python app.py", "No module named 'turso'", "error"),
+                               _bash("uv sync; uv run python app.py", "ok")), [])
+
     def test_a_different_subcommand_is_not_the_same_run(self):
         fail = _bash("python manage.py migrate", "No module named 'psycopg'", "error")
         self.assertEqual(_mine(fail, _bash("uv run python manage.py check", "ok")), [])

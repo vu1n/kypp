@@ -71,7 +71,7 @@ class _Run:
     proven: list[list[str]]  # the segments the run's success proves ran and succeeded
     output: str
     ok: bool  # confirmed to have succeeded; a run with no recorded outcome is neither
-    where: tuple  # the tool's workdir and every `cd` target: a script name means nothing without it
+    where: tuple | None  # workdir and `cd` targets; None when a `cd` follows a command, so the place is unclear
 
 
 def _command_of(a: Action) -> str | None:
@@ -171,8 +171,11 @@ def _runs(trace: Trace) -> list[_Run]:
         cmd = _command_of(a)
         if cmd and "<<" not in cmd:  # a heredoc body isn't commands
             segs = _segments(cmd)
-            where = (str(a.input.get("workdir") or a.input.get("cwd") or ""),
-                     *(" ".join(t[1:]) for t in segs if t[0] in ("cd", "pushd")))
+            moves = [t[0] in ("cd", "pushd") for t in segs]
+            first_cmd = moves.index(False) if False in moves else len(moves)
+            where = None if any(moves[first_cmd:]) else (
+                str(a.input.get("workdir") or a.input.get("cwd") or ""),
+                *(" ".join(t[1:]) for t in segs[:first_cmd]))
             runs.append(_Run(i, cmd, segs, _proven(cmd), a.output or "", _succeeded(a), where))
     return runs
 
@@ -261,10 +264,15 @@ def _working_form(head: str, args: list[str], later: _Run) -> list[str] | None:
     return None
 
 
+def _same_place(a: _Run, b: _Run) -> bool:
+    """A script name means the same script only from the same, known directory."""
+    return a.where is not None and a.where == b.where
+
+
 def _installed_between(runs: list[_Run], a: _Run, b: _Run) -> bool:
     """Any install or sync after the failure, up to and including the run that worked (`uv sync` and
     `pip install -r` don't name what they install), may be why it worked: the fact won't hold."""
-    return any(a.i < r.i <= b.i and _INSTALLS & set(r.command.split()) for r in runs)
+    return any(a.i < r.i <= b.i and any(_INSTALLS & set(t) for t, _, _ in _chain(r.command)) for r in runs)
 
 
 def _probes(args: list[str]) -> bool:
@@ -275,7 +283,7 @@ def _probes(args: list[str]) -> bool:
 def _works_unchanged_later(runs: list[_Run], a: _Run, head: str, args: list[str], same_place: bool) -> bool:
     """The same thing ran bare later, without the fix, and worked: installed or fixed mid-session."""
     for r in runs:
-        if r.i > a.i and r.ok and (not same_place or r.where == a.where) and not _changes_env(r.segments):
+        if r.i > a.i and r.ok and (not same_place or _same_place(a, r)) and not _changes_env(r.segments):
             for env, toks in map(_split_env, r.proven):
                 # unchanged: no env anywhere in the run, and a probe (`--help`) doesn't prove the real run works
                 if toks[:1] == [head] and _same(toks[1:], args) and not env and not _probes(toks[1:]):
@@ -349,7 +357,7 @@ def mine(trace: Trace) -> tuple[list[ClaimDraft], set[int]]:
             continue
         if subject not in drafts:
             # A script or module is only the same one run from the same place.
-            for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or r.where == a.where)):
+            for b in (r for r in runs if r.i > a.i and r.ok and (missing_cmd or _same_place(a, r))):
                 if _installed_between(runs, a, b):
                     fix = None
                 elif missing_env:
