@@ -137,6 +137,13 @@ function visible(t: string, project: string | null, groups: string[], user: stri
   return [`(${parts.join(" OR ")})`, params];
 }
 
+// Another session's candidate shows only once the S1 gate has judged it: the gate fails open, and
+// until defrag's judgeLate runs, an unjudged claim could be control text aimed at other agents.
+function judgedOnly(t: string, session: string | null): [string, unknown[]] {
+  // Sessionless callers share no session: NULL = NULL would let every one of them read the others' claims.
+  return [` AND (${t}.status != 'candidate' OR (${t}.session IS NOT NULL AND ${t}.session = ?) OR json_extract(${t}.metadata, '$.s1') IS NOT NULL)`, [session]];
+}
+
 /** A room bot's reach: its own lane, plus the projects its room is linked to and their groups. */
 export interface RoomScope { identity: string; links: string[]; groups: string[] }
 
@@ -172,7 +179,13 @@ export interface ClaimInput {
 
 export class D1Store {
   private db: D1Database;
-  constructor(db: D1Database) { this.db = db; }
+  private screened: boolean;
+  // `screened` (an S1 model is wired) hides other sessions' candidates the gate has not judged yet.
+  constructor(db: D1Database, opts: { screened?: boolean } = {}) { this.db = db; this.screened = opts.screened ?? false; }
+
+  private screen(t: string, session: string | null): [string, unknown[]] {
+    return this.screened ? judgedOnly(t, session) : ["", []];
+  }
 
   // Claims written here are agent authority; human and verified come only from operatorClaim/markVerified (POST /v1/operator) and authenticated POST /sync imports, once built.
   async claim(c: ClaimInput): Promise<string> {
@@ -306,8 +319,9 @@ export class D1Store {
       ? roomVisible("c", opts.room, opts.candidates ?? "origin")
       : visible("c", project, opts.groups ?? [], user, opts.candidates ?? "origin", opts.session ?? null);
     const types = opts.types ?? [];
-    let filter = types.length ? ` AND c.type IN (${types.map(() => "?").join(",")})` : "";
-    const fparams: unknown[] = [...types];
+    const [screen, sparams] = this.screen("c", opts.session ?? null);
+    let filter = screen + (types.length ? ` AND c.type IN (${types.map(() => "?").join(",")})` : "");
+    const fparams: unknown[] = [...sparams, ...types];
     if (opts.agent) { filter += " AND c.agent = ?"; fparams.push(opts.agent); }
     // `groups` comes nearest first, so a parent's claim outranks a grandparent's.
     const groups = opts.room?.groups ?? opts.groups ?? [];
@@ -429,19 +443,21 @@ export class D1Store {
   // lesson is learned once per repo at most, so waiting for a second session would hide it for long.
   // A room's own lane works the same way (`scope` = "room").
   async recentUserCandidates(user: string, session: string | null, limit: number, scope: "user" | "room" = "user"): Promise<Claim[]> {
+    const [screen, sparams] = this.screen("memory_claims", session);
     const { results } = await this.db.prepare(
       "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = ? AND user = ? AND session IS NOT ?"
-      + " ORDER BY created_at DESC LIMIT ?",
-    ).bind(scope, user, session, limit).all();
+      + screen + " ORDER BY created_at DESC LIMIT ?",
+    ).bind(scope, user, session, ...sparams, limit).all();
     return results.map(hydrate);
   }
 
   // Other sessions' newest unconfirmed claims in this project, for the briefing's "recent" section.
   async recentCandidates(project: string, session: string | null, limit: number): Promise<Claim[]> {
+    const [screen, sparams] = this.screen("memory_claims", session);
     const { results } = await this.db.prepare(
       "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = 'project' AND project = ? AND session IS NOT ?"
-      + " ORDER BY created_at DESC LIMIT ?",
-    ).bind(project, session, limit).all();
+      + screen + " ORDER BY created_at DESC LIMIT ?",
+    ).bind(project, session, ...sparams, limit).all();
     return results.map(hydrate);
   }
 
@@ -467,11 +483,12 @@ export class D1Store {
     const fts = ftsQuery(`${subject} ${content}`);
     if (!fts) return [];
     const [level, key] = laneSql(at);
+    const [screen, sparams] = this.screen("c", session);
     const { results } = await this.db.prepare(
       "SELECT c.subject FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id"
       + ` WHERE claims_fts MATCH ? AND ${level} AND c.status IN ('candidate','accepted') AND c.subject != ?`
-      + " AND c.session IS NOT ? ORDER BY bm25(claims_fts) LIMIT ?",
-    ).bind(fts, key, subject, session, limit * 4).all();
+      + ` AND c.session IS NOT ?${screen} ORDER BY bm25(claims_fts) LIMIT ?`,
+    ).bind(fts, key, subject, session, ...sparams, limit * 4).all();
     return [...new Set(results.map((r) => r.subject as string))].slice(0, limit);
   }
 
