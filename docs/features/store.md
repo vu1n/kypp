@@ -53,5 +53,8 @@ the file path, so search can go from a file to entries and from an entry to file
 - Memory is append-only: claims and observations are never deleted. The one erase is `purge`
   (`MemoryStore.purge`, operator `purge` on the Worker): it blanks the claim's text, embedding,
   anchors and verify, drops its FTS and pointer rows and its usage queries, and leaves a rejected
-  `[purged]` tombstone. A new table or column that copies claim text must be added to both purges.
+  `[purged]` tombstone. A recall query is copied onto every claim it returned, so purge clears
+  every copy; hosted purge also blanks the claim's earlier `defrag_log` reasons. Verdicts skip a
+  claim with no `verify`, so a run that started before the purge can't revive it. A new table or
+  column that copies claim text must be added to both purges.
   Purge does not touch the observations a claim was distilled from.

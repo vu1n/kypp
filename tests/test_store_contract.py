@@ -73,14 +73,19 @@ class StoreContract:
         key = "sk-live-leakedvalue0123"
         cid = store.put("fact", "deploy token", f"use {key} for ftsmarker deploys", scope="project",
                         project="p", accept=True, code_refs=[{"symbol": "TOKEN", "path": "deploy/token.py"}])
-        store.record_usage("run", [store.get(cid)], surface="recall", project="p", query=f"which {key}")
-        self.assertEqual([c.id for c in store.search("leakedvalue0123", project="p")], [cid])
+        other = store.put("fact", "deploys", "deploys go out on green", scope="project", project="p", accept=True)
+        # One recall returned both claims, so its query (and the key) is copied onto both usage rows.
+        store.record_usage("run", [store.get(cid), store.get(other)], surface="recall", project="p", query=f"which {key}")
+        self.assertIn(cid, [c.id for c in store.search("leakedvalue0123", project="p")])
         store.purge(cid, "leaked key")
+        store.mark_verified(cid, True)  # a verify run that loaded the claim before the purge
+        self.assertEqual(store.get(cid).status, "rejected", "a late verdict can't revive a tombstone")
+        self.assertEqual(store.get(other).content, "deploys go out on green")
         got = store.get(cid)
         self.assertEqual((got.status, got.subject, got.content), ("rejected", "[purged]", "[purged]"))
         self.assertEqual(got.code_refs, [])
-        self.assertEqual(store.search("leakedvalue0123", project="p", include_candidates=True), [])
-        self.assertEqual(store.search("ftsmarker", project="p", include_candidates=True), [])
+        self.assertNotIn(cid, [c.id for c in store.search("leakedvalue0123", project="p", include_candidates=True)])
+        self.assertNotIn(cid, [c.id for c in store.search("ftsmarker", project="p", include_candidates=True)])
         self.assertEqual(store.entries_for_path("deploy/token.py"), [])
         cur = store.db.cursor()
         tables = ["memory_claims", "claim_usages", "code_pointers"] + (["claims_fts"] if self.fts else [])

@@ -302,7 +302,10 @@ export class D1Store {
       ).bind(PURGED, PURGED, ts, ts, id),
       this.db.prepare("DELETE FROM claims_fts WHERE claim_id = ?").bind(id),
       this.db.prepare("DELETE FROM code_pointers WHERE claim_id = ?").bind(id),
-      this.db.prepare("UPDATE claim_usages SET query = NULL WHERE claim_id = ?").bind(id),
+      // A recall query is copied onto every claim it returned; clear each copy, not just this claim's.
+      this.db.prepare("UPDATE claim_usages SET query = NULL WHERE query IN (SELECT query FROM claim_usages WHERE claim_id = ? AND query IS NOT NULL)").bind(id),
+      // Earlier free-text reasons (a reject's) may quote the leaked text; the actions and times stay.
+      this.db.prepare("UPDATE defrag_log SET reason = NULL WHERE claim_id = ?").bind(id),
       this.logOperator(id, "purge", null, reason),
     ]);
   }

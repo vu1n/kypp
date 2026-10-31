@@ -244,7 +244,12 @@ test("purge erases a claim's text from every place recall reads, keeps a tombsto
   const before = await db.prepare("SELECT (SELECT COUNT(*) FROM claims_fts WHERE claim_id = ?) AS fts, (SELECT COUNT(*) FROM code_pointers WHERE claim_id = ?) AS ptr")
     .bind(id, id).first() as Record<string, number>;
   assert.ok(before.fts > 0 && before.ptr > 0, "the claim is indexed before the purge");
-  await store.recordUsage("s", [(await store.anyClaim(id))!], "recall", null, `which ${KEY}`);
+  const other = await store.claim({ type: "fact", subject: "deploys", content: "deploys go out on green", scope: "user", project: null,
+    confidence: 0.7, sourceIds: [], codeRefs: [], accept: true, agent: "t", user: "someone" });
+  // One recall returned both claims, so its query (and the key) is copied onto both usage rows.
+  await store.recordUsage("s", [(await store.anyClaim(id))!, (await store.anyClaim(other))!], "recall", null, `which ${KEY}`);
+  // An earlier reject whose reason quotes the leaked text.
+  await store.operatorReject(id, `wrong: ${KEY}`);
   assert.equal((await call({ op: "purge", handle: id.slice(0, 8) })).status, 400, "a reason is required");
   const res = await call({ op: "purge", handle: id.slice(0, 8), reason: "leaked key" });
   assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -254,11 +259,11 @@ test("purge erases a claim's text from every place recall reads, keeps a tombsto
   for (const col of ["subject", "content", "metadata", "code_refs", "source_ids"]) assert.ok(!String(r[col]).includes(KEY) && !String(r[col]).includes("deploy/token"), col);
   const leftovers = await db.prepare(
     "SELECT (SELECT COUNT(*) FROM claims_fts WHERE claim_id = ?) AS fts, (SELECT COUNT(*) FROM code_pointers WHERE claim_id = ?) AS ptr,"
-    + " (SELECT COUNT(*) FROM claim_usages WHERE claim_id = ? AND query IS NOT NULL) AS q").bind(id, id, id).first() as Record<string, number>;
+    + " (SELECT COUNT(*) FROM claim_usages WHERE query IS NOT NULL) AS q").bind(id, id).first() as Record<string, number>;
   assert.deepEqual({ ...leftovers }, { fts: 0, ptr: 0, q: 0 });
   assert.equal((await store.recall("leakedvalue0123", null, "someone")).length, 0);
   assert.equal((await store.recall("deploy/token.ts", null, "someone")).length, 0);
-  assert.deepEqual(await logged(id), ["operator:purge"]);
-  const log = await db.prepare("SELECT reason FROM defrag_log WHERE claim_id = ?").bind(id).first() as { reason: string };
-  assert.equal(log.reason, "leaked key");
+  assert.deepEqual(await logged(id), ["operator:reject", "operator:purge"]);
+  const reasons = (await db.prepare("SELECT reason FROM defrag_log WHERE claim_id = ? ORDER BY created_at").bind(id).all()).results.map((r) => r.reason);
+  assert.deepEqual(reasons, [null, "leaked key"]);
 });
