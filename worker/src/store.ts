@@ -140,7 +140,8 @@ function visible(t: string, project: string | null, groups: string[], user: stri
 // Another session's candidate shows only once the S1 gate has judged it: the gate fails open, and
 // until defrag's judgeLate runs, an unjudged claim could be control text aimed at other agents.
 function judgedOnly(t: string, session: string | null): [string, unknown[]] {
-  return [` AND (${t}.status != 'candidate' OR ${t}.session IS ? OR json_extract(${t}.metadata, '$.s1') IS NOT NULL)`, [session]];
+  // Sessionless callers share no session: NULL = NULL would let every one of them read the others' claims.
+  return [` AND (${t}.status != 'candidate' OR (${t}.session IS NOT NULL AND ${t}.session = ?) OR json_extract(${t}.metadata, '$.s1') IS NOT NULL)`, [session]];
 }
 
 /** A room bot's reach: its own lane, plus the projects its room is linked to and their groups. */

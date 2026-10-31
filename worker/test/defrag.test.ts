@@ -239,6 +239,10 @@ test("other sessions see a candidate only once the gate has judged it", async ()
   assert.ok(!(await seen("b", down)), "another session doesn't, while it is unjudged");
   assert.ok(!(await seen("b", down, "briefing")), "nor in the briefing's recent section");
   assert.ok(await seen("b", null), "an install with no gate shows candidates as before");
+  // Two callers with no session header are not one session.
+  const anon = idOf((await client(db, { header: "kypp", s1: down, session: null })("claim", { subject: "anon outage", content: "a sessionless lesson written while the gate was down" })).text);
+  const anonSeen = (await client(db, { header: "kypp", s1: down, session: null })("recall", { query: "sessionless lesson" })).text;
+  assert.ok(!anonSeen.includes(anon.slice(0, 8)), anonSeen);
   await defrag(new D1Store(db), DEFAULT_POLICY, up);
   assert.ok((await row(db, id)).metadata.includes('"s1"'));
   assert.ok(await seen("b", down), "judged, it shows to other sessions");
