@@ -31,7 +31,8 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   nothing, never browse results. Recall order ends in `c.id`, so ties don't depend on the engine.
   `worker/bench/replay` replays one query set against every store to check this.
 - `POST /v1/operator` (`worker/src/operator.ts`, `kypp/remote.py`) is the only hosted writer of human
-  authority, `verify` commands and verified results, behind `KYPP_OPERATOR_TOKEN`. Keep
+  authority, `verify` commands and verified results, behind `KYPP_OPERATOR_TOKEN`. Its `purge` op
+  reaches any claim by handle (`anyClaim`, every scope and lane) and logs only the reason. Keep
   `D1Store.operatorClaim`, `markVerified` and `operatorReject` off every MCP path, and log each in
   `defrag_log`. `markVerified` mirrors `MemoryStore.mark_verified`: change one, change both.
 - Hosted operator `correct` is an explicit replacement in the existing `memory_claims` store,
