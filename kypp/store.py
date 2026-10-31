@@ -493,7 +493,8 @@ class MemoryStore:
             where.append("type IN (%s)" % ",".join("?" * len(types))); params.extend(types)
         if not query.strip():
             # browse mode skips the embedder: distance-to-an-empty-string is noise, not ranking.
-            cur, rows = self._browse(where, params, limit)
+            # Grounding over-fetches so a demoted stale claim can be replaced, not just moved down.
+            cur, rows = self._browse(where, params, limit * 4 if ground else limit)
         else:
             # Pointer hits outrank text: a file path or a doc:// anchor is an exact identity, not a bag of words.
             native = self._native_ids(query, where, params, max(limit * 4, 20))
@@ -507,9 +508,10 @@ class MemoryStore:
                 if len(ordered) >= max(limit * 4, limit):
                     break
             cur, rows = self._in_id_order(ordered, where, params)
-            rows = rows[:limit]
+            claims = self._hydrate(cur, rows)
+            return self.ground(claims, frozenset(pointers))[:limit] if ground else claims[:limit]
         claims = self._hydrate(cur, rows)
-        return self.ground(claims) if ground else claims
+        return self.ground(claims)[:limit] if ground else claims
 
     def search(self, query: str, **kwargs) -> list[Claim]:
         return self.recall(query, **kwargs)
@@ -712,10 +714,11 @@ class MemoryStore:
         cols = [d[0] for d in cur.description]
         return [self._claim(dict(zip(cols, r))) for r in rows]
 
-    def ground(self, claims: list[Claim]) -> list[Claim]:
+    def ground(self, claims: list[Claim], pinned: frozenset[str] = frozenset()) -> list[Claim]:
         """Resolve each claim's code anchors to live pointers — the one grounding pass (recall + get
         apply it automatically; recall(ground=False) callers apply it to their survivors). No-op
-        without an available resolver (CodeResolver declares `available` — no default)."""
+        without an available resolver (CodeResolver declares `available` — no default). Returns the
+        claims with stale ones after live ones; `pinned` ids (pointer hits) keep their place."""
         if self.resolver is not None and self.resolver.available:
             for c in claims:
                 if c.code_refs:
@@ -724,7 +727,8 @@ class MemoryStore:
                     # and the lesson may hold even if the code is gone): every anchor unresolved ⇒ the
                     # code this claim points at no longer exists, so flag it for the reader to weigh.
                     c.stale = all(g.get("status") == "unresolved" for g in c.grounding)
-        return claims
+        # A lesson about code that is gone ranks below live ones, unless the query named its anchor.
+        return sorted(claims, key=lambda c: c.stale and c.id not in pinned)
 
     @staticmethod
     def _base_where(project: str | None, alias: str = "", live_only: bool = True) -> tuple[list[str], list]:

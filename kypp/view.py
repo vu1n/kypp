@@ -48,14 +48,16 @@ def briefing_claims(store: ClaimStore, project: str, limit: int = 12,
                     include_candidates: bool = False) -> list[Claim]:
     """The session-start digest selection: strongest claims, pitfalls/decisions/procedures first.
     Over-fetches 3× then stable-sorts by type priority so a pile of facts can't crowd out the traps
-    (recall's browse mode orders by confidence/recency only). Grounding is deferred to the survivors —
-    it's a ripgrep subprocess per code_ref, wasted on discards. include_candidates=True adds this
+    (recall's browse mode orders by confidence/recency only). The whole pool is grounded (a ripgrep
+    subprocess per code_ref) so a claim about deleted code sinks below live ones of any type and a live
+    claim can take its place. include_candidates=True adds this
     project's un-corroborated candidates (your own recent lessons) — the same-project RETRY surface,
     vs the default accepted-only cold-start swarm-truth digest."""
     claims = store.recall("", project=project, limit=limit * 3, ground=False,
                           include_candidates=include_candidates)
-    claims.sort(key=lambda c: _BRIEFING_PRIORITY.get(c.type, 3))
-    return store.ground(claims[:limit])
+    claims = store.ground(claims)
+    claims.sort(key=lambda c: (c.stale, _BRIEFING_PRIORITY.get(c.type, 3)))
+    return claims[:limit]
 
 
 if __name__ == "__main__":

@@ -13,12 +13,22 @@ from kypp.arbiter import consolidate
 from kypp.backends import LibsqlStore, SqliteFtsStore
 from kypp.repository import SemanticUnavailable, index_context_sources
 from kypp.store import MemoryStore
+from kypp.view import briefing_claims
 
 REF = "doc://kypp/authority-order@0006#authority-dominates"
 SOURCE = (
     "# Context: doc://kypp/authority-order@0006#authority-dominates"
     " — only mark_verified grants verified.\n"
 )
+
+
+class _GoneResolver:
+    """Every anchor under gone/ is unresolved; anything else resolves."""
+
+    available = True
+
+    def resolve(self, ref: dict) -> dict:
+        return {"status": "unresolved" if ref["path"].startswith("gone/") else "grounded"}
 
 
 def _embed(text: str) -> list[float]:
@@ -67,6 +77,26 @@ class StoreContract:
         self.assertEqual(got.id, cid)
         hits = store.search("codesign", project="pillbox")
         self.assertEqual([c.id for c in hits], [cid])
+
+    def test_stale_claims_rank_after_live_ones_unless_named(self):
+        store = self.open(self.path)
+        store.resolver = _GoneResolver()
+        store.put("pitfall", "live code", "codesign lesson", scope="project", project="p", accept=True,
+                  code_refs=[{"symbol": "live_fn", "path": "src/live.rs", "query": "live_fn"}])
+        # Written later, so it would otherwise rank first.
+        store.put("pitfall", "gone code", "codesign lesson", scope="project", project="p", accept=True,
+                  code_refs=[{"symbol": "gone_fn", "path": "gone/old.rs", "query": "gone_fn"}])
+        hits = store.search("codesign lesson", project="p")
+        self.assertEqual([c.subject for c in hits], ["live code", "gone code"])
+        self.assertTrue(hits[1].stale)
+        named = store.search("codesign lesson gone/old.rs", project="p")
+        self.assertEqual(named[0].subject, "gone code")
+        browse = store.recall("", project="p")
+        self.assertEqual([c.subject for c in browse], ["live code", "gone code"])
+        # A capped recall drops the stale claim, not the live one.
+        self.assertEqual([c.subject for c in store.search("codesign lesson", project="p", limit=1)], ["live code"])
+        self.assertEqual([c.subject for c in store.recall("", project="p", limit=1)], ["live code"])
+        self.assertEqual([c.subject for c in briefing_claims(store, "p", limit=1)], ["live code"])
 
     def test_rejected_claim_stays_readable_and_leaves_search(self):
         store = self.open(self.path)
