@@ -68,6 +68,29 @@ class StoreContract:
         hits = store.search("codesign", project="pillbox")
         self.assertEqual([c.id for c in hits], [cid])
 
+    def test_purge_erases_text_from_every_index_and_keeps_a_tombstone(self):
+        store = self.open(self.path, embed=_embed if self.semantic else None)
+        key = "sk-live-leakedvalue0123"
+        cid = store.put("fact", "deploy token", f"use {key} for ftsmarker deploys", scope="project",
+                        project="p", accept=True, code_refs=[{"symbol": "TOKEN", "path": "deploy/token.py"}])
+        store.record_usage("run", [store.get(cid)], surface="recall", project="p", query=f"which {key}")
+        self.assertEqual([c.id for c in store.search("leakedvalue0123", project="p")], [cid])
+        store.purge(cid, "leaked key")
+        got = store.get(cid)
+        self.assertEqual((got.status, got.subject, got.content), ("rejected", "[purged]", "[purged]"))
+        self.assertEqual(got.code_refs, [])
+        self.assertEqual(store.search("leakedvalue0123", project="p", include_candidates=True), [])
+        self.assertEqual(store.search("ftsmarker", project="p", include_candidates=True), [])
+        self.assertEqual(store.entries_for_path("deploy/token.py"), [])
+        cur = store.db.cursor()
+        tables = ["memory_claims", "claim_usages", "code_pointers"] + (["claims_fts"] if self.fts else [])
+        for table in tables:
+            rows = cur.execute(f"SELECT * FROM {table}").fetchall()
+            self.assertNotIn(key, repr(rows), table)
+        self.assertIsNone(cur.execute("SELECT verify FROM memory_claims WHERE id=?", (cid,)).fetchone()[0])
+        with self.assertRaises(ValueError):
+            store.purge(cid, " ")
+
     def test_rejected_claim_stays_readable_and_leaves_search(self):
         store = self.open(self.path)
         cid = store.put("fact", "bad lesson", "drop this from recall", scope="project",

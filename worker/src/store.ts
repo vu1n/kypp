@@ -170,6 +170,8 @@ export interface ClaimInput {
   sharedFrom?: string;
 }
 
+export const PURGED = "[purged]";
+
 export class D1Store {
   private db: D1Database;
   constructor(db: D1Database) { this.db = db; }
@@ -288,6 +290,23 @@ export class D1Store {
     ]);
   }
 
+  // Purge is the one erase: memory is otherwise never deleted, but a leaked key or a badly wrong
+  // lesson must leave every copy kypp reads (row text, FTS, pointers, recall queries). The row stays
+  // as a rejected tombstone so its id still resolves, and the log keeps the reason, never the text.
+  async operatorPurge(id: string, reason: string): Promise<void> {
+    const ts = now();
+    await this.db.batch([
+      this.db.prepare(
+        "UPDATE memory_claims SET subject = ?, content = ?, status = 'rejected', verify = NULL, code_refs = '[]',"
+        + " source_ids = '[]', metadata = json_object('purged_at', ?), updated_at = ? WHERE id = ?",
+      ).bind(PURGED, PURGED, ts, ts, id),
+      this.db.prepare("DELETE FROM claims_fts WHERE claim_id = ?").bind(id),
+      this.db.prepare("DELETE FROM code_pointers WHERE claim_id = ?").bind(id),
+      this.db.prepare("UPDATE claim_usages SET query = NULL WHERE claim_id = ?").bind(id),
+      this.logOperator(id, "purge", null, reason),
+    ]);
+  }
+
   // One defrag_log row for an operator write, so every human/verified change can be traced.
   // `when` (a query on the claim id) skips the row when the write it logs would not apply.
   private logOperator(id: string, op: string, project: string | null, reason: string | null, when?: string): D1PreparedStatement {
@@ -390,6 +409,15 @@ export class D1Store {
       "SELECT * FROM memory_claims WHERE id LIKE ? AND (scope NOT IN ('user','room') OR user IS ?)"
       + " AND NOT (scope = 'project' AND project IS NULL AND NOT (session IS NOT NULL AND session = ? AND user IS ?))" + within + " LIMIT 2",
     ).bind(`${handle}%`, user, session, user, ...(room ? [room.identity, "", ...room.links, "", ...room.groups] : [])).all();
+    if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
+    return results.length ? hydrate(results[0]) : null;
+  }
+
+  // The operator's reach: any claim by handle, whatever its scope or lane (purge must reach a key
+  // leaked into a room, another user's scope or an unsorted claim).
+  async anyClaim(handle: string): Promise<Claim | null> {
+    if (!/^[0-9a-f]{8,32}$/.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
+    const { results } = await this.db.prepare("SELECT * FROM memory_claims WHERE id LIKE ? LIMIT 2").bind(`${handle}%`).all();
     if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
     return results.length ? hydrate(results[0]) : null;
   }

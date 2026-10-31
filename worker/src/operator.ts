@@ -75,6 +75,14 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       await store.operatorReject(c.id, str(a.reason) || null);
       return { claim: await store.get(c.id, OPERATOR_USER) };
     }
+    case "purge": {
+      const reason = str(a.reason).trim();
+      if (!reason) throw new Error("purge needs a reason (it is logged; don't paste the purged text into it)");
+      const c = await store.anyClaim(str(a.handle));
+      if (!c) throw new Error(`no claim ${JSON.stringify(a.handle)}`);
+      await store.operatorPurge(c.id, reason);
+      return { claim: await store.anyClaim(c.id) };
+    }
     case "verifiable": {
       const where = await project();
       if (!where) throw new Error(`unknown project ${JSON.stringify(a.project)}`);

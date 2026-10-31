@@ -232,3 +232,33 @@ test("register adds a project once and files the claims already waiting under it
   assert.equal((await call({ op: "register", project: "vu1n/grokbot" })).status, 400);
   assert.equal((await call({ op: "register", project: "" })).status, 400);
 });
+
+test("purge erases a claim's text from every place recall reads, keeps a tombstone, and is logged", async () => {
+  const { db, call, row, logged } = await setup();
+  const store = new D1Store(db);
+  const KEY = "sk-live-leakedvalue0123";
+  // A key leaked into another user's scope: the operator reaches it anyway.
+  const id = await store.claim({ type: "fact", subject: "deploy token", content: `use ${KEY} for deploys`, scope: "user", project: null,
+    confidence: 0.7, sourceIds: ["session:a"], codeRefs: [{ path: "deploy/token.ts", symbol: "TOKEN" }], accept: true, agent: "t", user: "someone" });
+  await db.prepare("UPDATE memory_claims SET verify = 'true' WHERE id = ?").bind(id).run();
+  const before = await db.prepare("SELECT (SELECT COUNT(*) FROM claims_fts WHERE claim_id = ?) AS fts, (SELECT COUNT(*) FROM code_pointers WHERE claim_id = ?) AS ptr")
+    .bind(id, id).first() as Record<string, number>;
+  assert.ok(before.fts > 0 && before.ptr > 0, "the claim is indexed before the purge");
+  await store.recordUsage("s", [(await store.anyClaim(id))!], "recall", null, `which ${KEY}`);
+  assert.equal((await call({ op: "purge", handle: id.slice(0, 8) })).status, 400, "a reason is required");
+  const res = await call({ op: "purge", handle: id.slice(0, 8), reason: "leaked key" });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const r = await row(id);
+  assert.equal(r.status, "rejected");
+  assert.equal(r.verify, null, "a purged claim can't be revived by verify");
+  for (const col of ["subject", "content", "metadata", "code_refs", "source_ids"]) assert.ok(!String(r[col]).includes(KEY) && !String(r[col]).includes("deploy/token"), col);
+  const leftovers = await db.prepare(
+    "SELECT (SELECT COUNT(*) FROM claims_fts WHERE claim_id = ?) AS fts, (SELECT COUNT(*) FROM code_pointers WHERE claim_id = ?) AS ptr,"
+    + " (SELECT COUNT(*) FROM claim_usages WHERE claim_id = ? AND query IS NOT NULL) AS q").bind(id, id, id).first() as Record<string, number>;
+  assert.deepEqual({ ...leftovers }, { fts: 0, ptr: 0, q: 0 });
+  assert.equal((await store.recall("leakedvalue0123", null, "someone")).length, 0);
+  assert.equal((await store.recall("deploy/token.ts", null, "someone")).length, 0);
+  assert.deepEqual(await logged(id), ["operator:purge"]);
+  const log = await db.prepare("SELECT reason FROM defrag_log WHERE claim_id = ?").bind(id).first() as { reason: string };
+  assert.equal(log.reason, "leaked key");
+});

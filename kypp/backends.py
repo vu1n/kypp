@@ -37,6 +37,9 @@ class _FtsWrites:
         ))
         return rows
 
+    def _purge_side_writes(self, claim_id):
+        return [*super()._purge_side_writes(claim_id), ("DELETE FROM claims_fts WHERE claim_id=?", (claim_id,))]
+
     def _fts_ids(self, query: str, where: list[str], params: list, limit: int) -> list[str]:
         terms = query_tokens(query)
         if not terms:

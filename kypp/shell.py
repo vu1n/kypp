@@ -216,6 +216,24 @@ def reject_main():
     print(f"{cid[:8]} [{status} {ctype}] {subject}" + (f" — {args.reason}" if args.reason else ""))
 
 
+def purge_main():
+    ap = argparse.ArgumentParser(
+        description="erase a claim BY HANDLE: its subject, content, code anchors and the recall queries "
+                    "that found it, from every index. The row stays as a rejected '[purged]' tombstone. "
+                    "For a leaked key or a badly wrong lesson; to retire an ordinary bad claim, use `reject`.")
+    ap.add_argument("handle", nargs="+", help="claim id or 8-char prefix; several to purge copies")
+    ap.add_argument("--reason", required=True, help="why, for the audit log. Never paste the purged text here")
+    args = ap.parse_args()
+    for handle in args.handle:
+        if remote.remote_url():
+            cid = remote.call("purge", handle=handle, reason=args.reason)["claim"]["id"]
+        else:
+            store = store_from_env()
+            cid = _resolve_handle(store, handle).id
+            store.purge(cid, args.reason)
+        print(f"{cid[:8]} purged — {args.reason}")
+
+
 def project_main():
     ap = argparse.ArgumentParser(
         description="the hosted store's projects (needs KYPP_URL): list them, or add one so claims under "

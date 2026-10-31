@@ -42,6 +42,8 @@ from .repository import (  # driver-free seam: capabilities, pointer edges, doc:
 )
 from .vocab import AUTHORITIES, OLLAMA_DEFAULT_HOST, SCOPES, STATUSES, SURFACES, TYPES  # single-sourced vocabulary (turso-free leaf)
 
+PURGED = "[purged]"  # what a purged claim's subject and content read as
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS observations (
   id TEXT PRIMARY KEY, actor TEXT NOT NULL, project TEXT, scope TEXT NOT NULL,
@@ -434,6 +436,25 @@ class MemoryStore:
                       "status=CASE WHEN status='superseded' THEN status ELSE 'rejected' END, "
                       "metadata=?, updated_at=? WHERE id=?",
                       (json.dumps(meta), _now(), claim_id))])
+
+    def purge(self, claim_id: str, reason: str) -> None:
+        """Erase one claim's text everywhere recall reads it (row, embedding, pointers, usage queries,
+        FTS on the adapters that have it), keeping a rejected tombstone so the id still resolves. The
+        one erase in an append-only store: for a leaked key or a badly wrong lesson. The observations
+        a claim was distilled from are not touched."""
+        _require(bool(reason and reason.strip()), "purge needs a reason")
+        now = _now()
+        self._write([
+            ("UPDATE memory_claims SET subject=?, content=?, status='rejected', verify=NULL, embedding=NULL, "
+             "code_refs='[]', source_ids='[]', metadata=?, updated_at=? WHERE id=?",
+             (PURGED, PURGED, json.dumps({"purged_at": now, "purged_reason": reason}), now, claim_id)),
+            ("DELETE FROM code_pointers WHERE claim_id=?", (claim_id,)),
+            ("UPDATE claim_usages SET query=NULL WHERE claim_id=?", (claim_id,)),
+            *self._purge_side_writes(claim_id),
+        ])
+
+    def _purge_side_writes(self, claim_id: str) -> list[tuple[str, tuple]]:
+        return []
 
     # --- usage = the run -> claims-consumed link (memory credit-assignment foundation) ---
     def record_usage(self, consumer: str, claims, *, surface: str, project: str | None = None,

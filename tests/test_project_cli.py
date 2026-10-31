@@ -1,4 +1,4 @@
-"""`kypp project` is hosted-only and prints what the operator route answered."""
+"""`kypp project` and `kypp purge` over KYPP_URL print what the operator route answered."""
 import contextlib
 import io
 import os
@@ -9,15 +9,15 @@ from unittest import mock
 from kypp import remote, shell
 
 
-def _run(argv, answers):
+def _run(argv, answers, main=shell.project_main, prog="kypp project"):
     calls = []
     def fake(op, **args):
         calls.append((op, args))
         return answers[op]
     out = io.StringIO()
-    with mock.patch.object(sys, "argv", ["kypp project", *argv]), mock.patch.object(remote, "call", fake), \
+    with mock.patch.object(sys, "argv", [prog, *argv]), mock.patch.object(remote, "call", fake), \
             mock.patch.dict(os.environ, {"KYPP_URL": "https://k.example"}), contextlib.redirect_stdout(out):
-        shell.project_main()
+        main()
     return calls, out.getvalue()
 
 
@@ -37,6 +37,20 @@ class ProjectCliTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as e:
                 shell.project_main()
         self.assertIn("KYPP_URL", str(e.exception))
+
+
+class PurgeCliTest(unittest.TestCase):
+    def test_purges_each_handle_with_the_reason(self):
+        calls, out = _run(["abcd1234", "ef567890", "--reason", "leaked key"],
+                          {"purge": {"claim": {"id": "abcd1234" + "0" * 24}}}, shell.purge_main, "kypp purge")
+        self.assertEqual(calls, [("purge", {"handle": "abcd1234", "reason": "leaked key"}),
+                                 ("purge", {"handle": "ef567890", "reason": "leaked key"})])
+        self.assertEqual(out.splitlines(), ["abcd1234 purged — leaked key"] * 2)
+
+    def test_needs_a_reason(self):
+        with mock.patch.object(sys, "argv", ["kypp purge", "abcd1234"]), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                shell.purge_main()
 
 
 if __name__ == "__main__":
