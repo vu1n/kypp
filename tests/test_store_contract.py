@@ -21,6 +21,15 @@ SOURCE = (
 )
 
 
+class _GoneResolver:
+    """Every anchor under gone/ is unresolved; anything else resolves."""
+
+    available = True
+
+    def resolve(self, ref: dict) -> dict:
+        return {"status": "unresolved" if ref["path"].startswith("gone/") else "grounded"}
+
+
 def _embed(text: str) -> list[float]:
     """Query 'ftsmarker' sits next to the paraphrase and away from the lexical claim.
 
@@ -67,6 +76,22 @@ class StoreContract:
         self.assertEqual(got.id, cid)
         hits = store.search("codesign", project="pillbox")
         self.assertEqual([c.id for c in hits], [cid])
+
+    def test_stale_claims_rank_after_live_ones_unless_named(self):
+        store = self.open(self.path)
+        store.resolver = _GoneResolver()
+        store.put("pitfall", "live code", "codesign lesson", scope="project", project="p", accept=True,
+                  code_refs=[{"symbol": "live_fn", "path": "src/live.rs", "query": "live_fn"}])
+        # Written later, so it would otherwise rank first.
+        store.put("pitfall", "gone code", "codesign lesson", scope="project", project="p", accept=True,
+                  code_refs=[{"symbol": "gone_fn", "path": "gone/old.rs", "query": "gone_fn"}])
+        hits = store.search("codesign lesson", project="p")
+        self.assertEqual([c.subject for c in hits], ["live code", "gone code"])
+        self.assertTrue(hits[1].stale)
+        named = store.search("codesign lesson gone/old.rs", project="p")
+        self.assertEqual(named[0].subject, "gone code")
+        browse = store.recall("", project="p")
+        self.assertEqual([c.subject for c in browse], ["live code", "gone code"])
 
     def test_rejected_claim_stays_readable_and_leaves_search(self):
         store = self.open(self.path)

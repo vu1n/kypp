@@ -46,6 +46,9 @@ the file path, so search can go from a file to entries and from an entry to file
   doc:// ref is the identity match and ranks ahead of bm25.
 - Existing-table column changes remain additive/defaulted; new staged command tables do not
   migrate existing rows or make old writers safe. Coordinate all writers at activation.
+- `ground()` also reorders: a claim whose every anchor is unresolved (`stale`, the code is gone)
+  sorts after live claims, except a pointer hit, which keeps its place because the query named
+  that anchor. The hosted Worker has no checkout, so it neither grounds nor demotes.
 - Code refs resolve to `path:line` plus a one-line preview at recall. Never store or return
   file bodies; they go stale and burn context.
 - Vector recall is an exact scan on purpose (pyturso and libsql). libsql can build a DiskANN
