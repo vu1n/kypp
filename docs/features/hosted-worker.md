@@ -10,6 +10,7 @@ tests:
   - "worker/test/mcp-contract.test.ts"
   - "worker/test/operator.test.ts"
   - "worker/test/defrag.test.ts"
+  - "worker/test/scenarios.test.ts"
 ---
 # Hosted Worker
 
