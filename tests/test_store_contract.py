@@ -13,6 +13,7 @@ from kypp.arbiter import consolidate
 from kypp.backends import LibsqlStore, SqliteFtsStore
 from kypp.repository import SemanticUnavailable, index_context_sources
 from kypp.store import MemoryStore
+from kypp.view import briefing_claims
 
 REF = "doc://kypp/authority-order@0006#authority-dominates"
 SOURCE = (
@@ -92,6 +93,10 @@ class StoreContract:
         self.assertEqual(named[0].subject, "gone code")
         browse = store.recall("", project="p")
         self.assertEqual([c.subject for c in browse], ["live code", "gone code"])
+        # A capped recall drops the stale claim, not the live one.
+        self.assertEqual([c.subject for c in store.search("codesign lesson", project="p", limit=1)], ["live code"])
+        self.assertEqual([c.subject for c in store.recall("", project="p", limit=1)], ["live code"])
+        self.assertEqual([c.subject for c in briefing_claims(store, "p", limit=1)], ["live code"])
 
     def test_rejected_claim_stays_readable_and_leaves_search(self):
         store = self.open(self.path)

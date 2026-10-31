@@ -493,7 +493,8 @@ class MemoryStore:
             where.append("type IN (%s)" % ",".join("?" * len(types))); params.extend(types)
         if not query.strip():
             # browse mode skips the embedder: distance-to-an-empty-string is noise, not ranking.
-            cur, rows = self._browse(where, params, limit)
+            # Grounding over-fetches so a demoted stale claim can be replaced, not just moved down.
+            cur, rows = self._browse(where, params, limit * 4 if ground else limit)
         else:
             # Pointer hits outrank text: a file path or a doc:// anchor is an exact identity, not a bag of words.
             native = self._native_ids(query, where, params, max(limit * 4, 20))
@@ -507,11 +508,10 @@ class MemoryStore:
                 if len(ordered) >= max(limit * 4, limit):
                     break
             cur, rows = self._in_id_order(ordered, where, params)
-            rows = rows[:limit]
             claims = self._hydrate(cur, rows)
-            return self.ground(claims, frozenset(pointers)) if ground else claims
+            return self.ground(claims, frozenset(pointers))[:limit] if ground else claims[:limit]
         claims = self._hydrate(cur, rows)
-        return self.ground(claims) if ground else claims
+        return self.ground(claims)[:limit] if ground else claims
 
     def search(self, query: str, **kwargs) -> list[Claim]:
         return self.recall(query, **kwargs)
