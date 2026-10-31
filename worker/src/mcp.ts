@@ -451,7 +451,7 @@ export async function handleMcp(request: Request, db: D1Database, caller: Caller
   const isInit = msgs.some((m) => m.method === "initialize");
   const issued = isInit ? await issueSession(opts.sessionKey) : null;
   const session = issued ? issued.split(".")[0] : await verifySession(opts.sessionKey, request.headers.get(SESSION_HEADER));
-  const store = new D1Store(db);
+  const store = new D1Store(db, { screened: !!opts.s1 });
   const ctx: ToolCtx = { project, session, caller, s1: opts.s1 ?? null, policy: opts.policy ?? DEFAULT_POLICY, correct: opts.correct ?? true };
   const replies = [];
   for (const m of msgs) {
