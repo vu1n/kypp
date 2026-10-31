@@ -10,6 +10,7 @@ tests:
   - "worker/test/mcp-contract.test.ts"
   - "worker/test/operator.test.ts"
   - "worker/test/defrag.test.ts"
+  - "worker/test/scenarios.test.ts"
 ---
 # Hosted Worker
 
@@ -107,6 +108,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 - The write gate fails open, so defrag re-judges agent claims with no `metadata.s1` verdict
   (`judgeLate`) and rejects control text aimed at agents. A claim stored without `metadata.s1` is
   re-judged every pass until one sticks, so new write paths must keep recording the verdict.
+  With an S1 model wired (`D1Store` `screened`), other sessions don't see a candidate until it has a
+  verdict: recall, the briefing's recent sections and `nearSubjects` all apply `judgedOnly`. A new
+  read of other sessions' candidates must apply it too, or control text written during a gate
+  outage reaches other agents before `judgeLate` sees it.
 - `/v1/systemone` is routed in `index.ts` before the OAuth provider, so it checks the bearer
   itself: a GitHub Actions OIDC token, else a `KYPP_S1_TOKENS` token (never `KYPP_API_TOKENS`, so a
   CI caller can't reach memory). The OIDC `aud` must equal `KYPP_PUBLIC_URL` with trailing slashes

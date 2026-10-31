@@ -228,3 +228,22 @@ test("without a session the unsorted reply doesn't promise a recall", async () =
   const { result } = await (await handleMcp(req, db, { user: "owner", agent: "t" })).json() as any;
   assert.match(result.content[0].text, /it can't be recalled until the server files it/);
 });
+
+test("other sessions see a candidate only once the gate has judged it", async () => {
+  const db = await setup();
+  const down: S1Client = { systemOne: async () => ({ answers: {} }) }; // fails open: no verdict
+  const up: S1Client = { systemOne: async () => ({ answers: { keep: { type: "noul", noul: 0.9 }, control: { type: "noul", noul: 0.1 } } }) };
+  const id = idOf((await client(db, { header: "kypp", s1: down, session: "a" })("claim", { subject: "gate outage", content: "a lesson written while the gate was down" })).text);
+  const seen = async (session: string, s1: S1Client | null, tool = "recall") =>
+    (await client(db, { header: "kypp", s1, session })(tool, { query: "gate outage lesson" })).text.includes(id.slice(0, 8));
+  assert.ok(!(await seen("b", down)), "another session doesn't, while it is unjudged");
+  assert.ok(!(await seen("b", down, "briefing")), "nor in the briefing's recent section");
+  assert.ok(await seen("b", null), "an install with no gate shows candidates as before");
+  // Two callers with no session header are not one session.
+  const anon = idOf((await client(db, { header: "kypp", s1: down, session: null })("claim", { subject: "anon outage", content: "a sessionless lesson written while the gate was down" })).text);
+  const anonSeen = (await client(db, { header: "kypp", s1: down, session: null })("recall", { query: "sessionless lesson" })).text;
+  assert.ok(!anonSeen.includes(anon.slice(0, 8)), anonSeen);
+  await defrag(new D1Store(db), DEFAULT_POLICY, up);
+  assert.ok((await row(db, id)).metadata.includes('"s1"'));
+  assert.ok(await seen("b", down), "judged, it shows to other sessions");
+});
