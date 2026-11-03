@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.1",
+    "@keycardai/oauth": "^0.26.3",
     "@typesafe-ai/sdk": "^0.6.0"
   },
   "devDependencies": {

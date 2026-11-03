@@ -11,6 +11,7 @@ tests:
   - "worker/test/operator.test.ts"
   - "worker/test/defrag.test.ts"
   - "worker/test/scenarios.test.ts"
+  - "worker/test/keycard.test.ts"
 ---
 # Hosted Worker
 
@@ -158,3 +159,9 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   per IP in `index.ts` before the OAuth provider writes the client to KV.
 - Keep status edits on existing maintenance/correction/operator paths; ordinary agent claims
   only insert. Hosted operator correction has its own atomic batch, not a later consolidation pass.
+- Keycard tokens (`worker/src/keycard.ts`) enter through `resolveExternalToken`, after the static
+  token check, and only for JWT-shaped tokens. Off unless both `KEYCARD_ISSUER` and
+  `KEYCARD_OWNER_SUBJECTS` are set. The audience is `<base>/mcp`, the same resource id kypp's own
+  grants use. A zone that can't be reached throws `ExternalTokenError` (503), never a `null` (401):
+  a 401 sends the agent back through sign-in for a token that may be fine. The SDK's `TokenVerifier`
+  returns `null` for a missing scope too, so a token without `mcp` gets 401, not 403.

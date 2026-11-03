@@ -1,13 +1,14 @@
 // index.ts — kypp's hosted store: one Worker that is both the OAuth authorization server and the MCP
 // resource at /mcp, over D1. Sign-in is a single owner passphrase (KYPP_OWNER_SECRET); headless
 // clients can present a named static token from KYPP_API_TOKENS instead.
-import { AuthorizationError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
+import { AuthorizationError, ExternalTokenError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { type Caller, handleMcp } from "./mcp.ts";
 import { defrag } from "./defrag.ts";
 import { type Policy } from "./memory.ts";
 import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
 import { looksLikeJwt, oidcVerifier, owners } from "./oidc.ts";
+import { type KeycardEnv, keycardCaller } from "./keycard.ts";
 import { SYSTEM_ONE_PATH, handleSystemOne } from "./systemone.ts";
 import { OPERATOR_PATH, handleOperator } from "./operator.ts";
 import { sameSecret } from "./secret.ts";
@@ -16,7 +17,7 @@ import { type ApiToken, apiTokens, tokenPins } from "./tokens.ts";
 import { PAIRS_PATH, PAIR_PATH, type PairingDeps, handlePair, handlePairs, pairedGrant } from "./pairing.ts";
 import { escape, htmlResponse, icon, passphrase, render } from "./page.ts";
 
-export interface Env extends S1Env {
+export interface Env extends S1Env, KeycardEnv {
   DB: D1Database;
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: any; // injected by OAuthProvider for the default handler
@@ -219,6 +220,10 @@ function oauthProvider(base: string): OAuthProvider<Env> {
       seat?.catch(() => {}); // a matched static token must not fail on the seat lookup
       const t = await apiToken(token, env.KYPP_API_TOKENS);
       if (t) return { props: { user: t.name, agent: t.name, ...(t.projects ? { projects: t.projects } : {}) } satisfies Caller, audience: `${base}/mcp` };
+      // A Keycard zone's JWT (KEYCARD_ISSUER), bound to this resource; kypp's own grants never look like one.
+      const keycard = looksLikeJwt(token) ? await keycardCaller(token, env, `${base}/mcp`) : null;
+      if (keycard === "unavailable") throw new ExternalTokenError("temporarily_unavailable", { description: "Keycard could not be reached to check this token.", statusCode: 503, headers: { "Retry-After": "5" } });
+      if (keycard) return { props: keycard satisfies Caller, audience: `${base}/mcp` };
       const room = await seat;
       return room ? { props: room, audience: `${base}/mcp` } : null as any;
     },
