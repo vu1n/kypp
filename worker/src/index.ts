@@ -215,9 +215,11 @@ function oauthProvider(base: string): OAuthProvider<Env> {
     clientIdMetadataDocumentEnabled: true,
     resolveExternalToken: async ({ token, env }) => {
       // A static token wins over a room seat; the seat lookup only overlaps the token compare.
-      const [t, room] = await Promise.all([apiToken(token, env.KYPP_API_TOKENS),
-        token.startsWith("kypr_") ? configuredIssuers(env).then((issuers) => roomCaller(env.DB, token, issuers)) : null]);
+      const seat = token.startsWith("kypr_") ? configuredIssuers(env).then((issuers) => roomCaller(env.DB, token, issuers)) : null;
+      seat?.catch(() => {}); // a matched static token must not fail on the seat lookup
+      const t = await apiToken(token, env.KYPP_API_TOKENS);
       if (t) return { props: { user: t.name, agent: t.name, ...(t.projects ? { projects: t.projects } : {}) } satisfies Caller, audience: `${base}/mcp` };
+      const room = await seat;
       return room ? { props: room, audience: `${base}/mcp` } : null as any;
     },
   });
