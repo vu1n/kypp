@@ -29,18 +29,29 @@ const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID().replaceAll("-", "");
 const POINTER_SQL = "INSERT OR IGNORE INTO code_pointers(id,claim_id,entry_ref,project,doc_id,anchor,revision,path,symbol,kind,created_at)";
 const DOC_REF = /doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)/g;
+const DOC_REF_ONE = new RegExp(DOC_REF.source);
+const DOC_REF_WHOLE = new RegExp(`^${DOC_REF.source}$`);
+const LEADING_DOT = /^\.\//;
+const WORD_RUN = /[^\s]+/g;
+const CODE_FILE = /\.(py|ts|md|rs|go|sql)$/;
+const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)+$/;
+const HANDLE = /^[0-9a-f]{8,32}$/;
+// The columns a Claim carries; metadata and file_tried_at stay in the table for the passes that need them.
+const CLAIM_COLUMNS = ["id", "type", "subject", "content", "scope", "project", "origin", "session", "agent", "user",
+  "status", "authority", "confidence", "source_ids", "code_refs", "verify", "created_at", "updated_at"];
+const claimColumns = (t?: string) => CLAIM_COLUMNS.map((c) => (t ? `${t}.${c}` : c)).join(", ");
 
 // A claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
 function pointerRow(claimId: string, entryRef: string, path: string, symbol: string, kind: string,
   project = "", docId = "", revision = "", anchor = ""): unknown[] {
   if (!project && entryRef.startsWith("doc://")) {
-    const m = /doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)/.exec(entryRef);
+    const m = DOC_REF_ONE.exec(entryRef);
     if (m) { project = m[1]; docId = m[2]; revision = m[3]; anchor = m[4]; }
   } else if (!anchor && (entryRef.startsWith("symbol:") || entryRef.startsWith("path:"))) {
     docId = "code";
     anchor = entryRef.slice(entryRef.indexOf(":") + 1);
   }
-  return [uid(), claimId, entryRef, project, docId, anchor, revision, path.replace(/^\.\//, ""), symbol, kind, now()];
+  return [uid(), claimId, entryRef, project, docId, anchor, revision, path.replace(LEADING_DOT, ""), symbol, kind, now()];
 }
 
 function pointerRows(claimId: string, subject: string, content: string, refs: Record<string, string>[]): unknown[][] {
@@ -67,16 +78,16 @@ function pointerRows(claimId: string, subject: string, content: string, refs: Re
 function pointerMatch(query: string): [string, unknown[]] {
   const clauses: string[] = [];
   const binds: unknown[] = [];
-  for (const m of query.matchAll(/doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)/g)) {
+  for (const m of query.matchAll(DOC_REF)) {
     clauses.push("(entry_ref = ? OR (project = ? AND doc_id = ? AND anchor = ?))");
     binds.push(m[0], m[1], m[2], m[4]);
   }
-  for (const tok of query.match(/[^\s]+/g) ?? []) {
-    const bare = tok.replace(/^\.\//, "");
-    if (bare.includes("/") || /\.(py|ts|md|rs|go|sql)$/.test(bare)) {
+  for (const tok of query.match(WORD_RUN) ?? []) {
+    const bare = tok.replace(LEADING_DOT, "");
+    if (bare.includes("/") || CODE_FILE.test(bare)) {
       clauses.push("path = ?");
       binds.push(bare);
-    } else if (/^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(bare)) {
+    } else if (KEBAB.test(bare)) {
       clauses.push("anchor = ?");
       binds.push(bare);
     }
@@ -266,13 +277,13 @@ export class D1Store {
 
   // Every claim the operator's `kypp verify` re-checks in this project: any status, so a rejected
   // claim revives when its check passes again, except a superseded human claim (as kypp/store.py).
-  async verifiable(project: string, user: string | null, subject?: string): Promise<Claim[]> {
-    let sql = "SELECT * FROM memory_claims WHERE verify IS NOT NULL AND NOT (authority = 'human' AND status = 'superseded')"
+  async verifiable(project: string, user: string | null, subject?: string): Promise<{ id: string; subject: string; verify: string }[]> {
+    let sql = "SELECT id, subject, verify FROM memory_claims WHERE verify IS NOT NULL AND NOT (authority = 'human' AND status = 'superseded')"
       + " AND ((scope = 'project' AND project = ?) OR scope = 'global' OR (scope = 'user' AND user IS ?))";
     const binds: unknown[] = [project, user];
     if (subject) { sql += " AND subject = ?"; binds.push(subject); }
-    const { results } = await this.db.prepare(sql).bind(...binds).all();
-    return results.map(hydrate);
+    const { results } = await this.db.prepare(sql).bind(...binds).all<{ id: string; subject: string; verify: string }>();
+    return results;
   }
 
   // Verify raises agent → verified, never lowers human.
@@ -353,22 +364,22 @@ export class D1Store {
     // Quote word tokens before MATCH. A path (`kypp/store.py`) is not an FTS expression; `/` is syntax.
     const fts = match ? ftsQuery(match) : "";
     const sql = fts
-      ? `SELECT c.* FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
+      ? `SELECT ${claimColumns("c")} FROM claims_fts JOIN memory_claims c ON c.id = claims_fts.claim_id`
         + ` WHERE claims_fts MATCH ? AND ${where}${filter} ORDER BY bm25(claims_fts), ${order} LIMIT ?`
-      : `SELECT c.* FROM memory_claims c WHERE ${where}${filter} ORDER BY ${order} LIMIT ?`;
+      : `SELECT ${claimColumns("c")} FROM memory_claims c WHERE ${where}${filter} ORDER BY ${order} LIMIT ?`;
     const binds = [...(fts ? [fts] : []), ...params, ...fparams, ...groups, limit];
-    const { results } = match && !fts
-      ? { results: [] as Record<string, unknown>[] }
-      : await this.db.prepare(sql).bind(...binds).all();
-    const text = results.map(hydrate);
-    if (!match) return text;
+    const textRead = match && !fts
+      ? Promise.resolve({ results: [] as Record<string, unknown>[] })
+      : this.db.prepare(sql).bind(...binds).all();
+    if (!match) return (await textRead).results.map(hydrate);
     // A path or anchor hit is an identity match. It outranks bm25 and still has to pass visibility.
     const [pointSql, pointBinds] = pointerMatch(match);
-    const pointed = await this.db.prepare(
-      `SELECT c.* FROM memory_claims c WHERE c.id IN (`
+    const [{ results }, pointed] = await Promise.all([textRead, this.db.prepare(
+      `SELECT ${claimColumns("c")} FROM memory_claims c WHERE c.id IN (`
       + `SELECT claim_id FROM code_pointers WHERE claim_id != '' AND (${pointSql}))`
       + ` AND ${where}${filter} ORDER BY ${order} LIMIT ?`,
-    ).bind(...pointBinds, ...params, ...fparams, ...groups, limit).all();
+    ).bind(...pointBinds, ...params, ...fparams, ...groups, limit).all()]);
+    const text = results.map(hydrate);
     const seen = new Set<string>();
     const merged = [];
     for (const c of [...pointed.results.map((r) => ({ ...hydrate(r), pointer: true })), ...text]) {
@@ -388,20 +399,20 @@ export class D1Store {
     ).bind(...(row as unknown[])).run();
     const found = await this.db.prepare(
       "SELECT id FROM code_pointers WHERE kind = ? AND entry_ref = ? AND path = ? AND symbol = ? AND claim_id = ?",
-    ).bind(kind, entryRef, path.replace(/^\.\//, ""), symbol, claimId).first();
+    ).bind(kind, entryRef, path.replace(LEADING_DOT, ""), symbol, claimId).first();
     return (found?.id as string) ?? (row[0] as string);
   }
 
   async entriesForPath(path: string): Promise<Record<string, unknown>[]> {
     const { results } = await this.db.prepare(
       "SELECT * FROM code_pointers WHERE path = ? AND path != '' ORDER BY entry_ref",
-    ).bind(path.replace(/^\.\//, "")).all();
+    ).bind(path.replace(LEADING_DOT, "")).all();
     return results;
   }
 
   async pathsForEntry(entryRef: string): Promise<Record<string, unknown>[]> {
     const anchor = entryRef.includes("#") ? entryRef.slice(entryRef.indexOf("#") + 1) : entryRef;
-    const doc = /^doc:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)@(latest|current|\d{1,4})#([A-Za-z0-9_-]+)$/.exec(entryRef);
+    const doc = DOC_REF_WHOLE.exec(entryRef);
     const identity = doc ? "project = ? AND doc_id = ? AND anchor = ?" : "anchor != '' AND anchor = ?";
     const { results } = await this.db.prepare(
       `SELECT * FROM code_pointers WHERE entry_ref = ? OR claim_id = ? OR (${identity}) ORDER BY path`,
@@ -417,13 +428,13 @@ export class D1Store {
   // A room resolves only its own lane and its linked projects and groups, so a guessed prefix can't
   // reach another repo's or another room's memory.
   async get(handle: string, user: string | null, session: string | null = null, room?: RoomScope): Promise<Claim | null> {
-    if (!/^[0-9a-f]{8,32}$/.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
+    if (!HANDLE.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
     const within = room
       ? ` AND ((scope = 'room' AND user IS ?) OR (scope = 'project' AND project IN (${["", ...room.links].map(() => "?").join(",")}))`
         + ` OR (scope = 'group' AND project IN (${["", ...room.groups].map(() => "?").join(",")})))`
       : "";
     const { results } = await this.db.prepare(
-      "SELECT * FROM memory_claims WHERE id LIKE ? AND (scope NOT IN ('user','room') OR user IS ?)"
+      `SELECT ${claimColumns()} FROM memory_claims WHERE id LIKE ? AND (scope NOT IN ('user','room') OR user IS ?)`
       + " AND NOT (scope = 'project' AND project IS NULL AND NOT (session IS NOT NULL AND session = ? AND user IS ?))" + within + " LIMIT 2",
     ).bind(`${handle}%`, user, session, user, ...(room ? [room.identity, "", ...room.links, "", ...room.groups] : [])).all();
     if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
@@ -433,7 +444,7 @@ export class D1Store {
   // The operator's reach: any claim by handle, whatever its scope or lane (purge must reach a key
   // leaked into a room, another user's scope or an unsorted claim).
   async anyClaim(handle: string): Promise<Claim | null> {
-    if (!/^[0-9a-f]{8,32}$/.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
+    if (!HANDLE.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
     const { results } = await this.db.prepare("SELECT * FROM memory_claims WHERE id LIKE ? LIMIT 2").bind(`${handle}%`).all();
     if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
     return results.length ? hydrate(results[0]) : null;
@@ -476,7 +487,7 @@ export class D1Store {
   async recentUserCandidates(user: string, session: string | null, limit: number, scope: "user" | "room" = "user"): Promise<Claim[]> {
     const [screen, sparams] = this.screen("memory_claims", session);
     const { results } = await this.db.prepare(
-      "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = ? AND user = ? AND session IS NOT ?"
+      `SELECT ${claimColumns()} FROM memory_claims WHERE status = 'candidate' AND scope = ? AND user = ? AND session IS NOT ?`
       + screen + " ORDER BY created_at DESC LIMIT ?",
     ).bind(scope, user, session, ...sparams, limit).all();
     return results.map(hydrate);
@@ -486,7 +497,7 @@ export class D1Store {
   async recentCandidates(project: string, session: string | null, limit: number): Promise<Claim[]> {
     const [screen, sparams] = this.screen("memory_claims", session);
     const { results } = await this.db.prepare(
-      "SELECT * FROM memory_claims WHERE status = 'candidate' AND scope = 'project' AND project = ? AND session IS NOT ?"
+      `SELECT ${claimColumns()} FROM memory_claims WHERE status = 'candidate' AND scope = 'project' AND project = ? AND session IS NOT ?`
       + screen + " ORDER BY created_at DESC LIMIT ?",
     ).bind(project, session, ...sparams, limit).all();
     return results.map(hydrate);

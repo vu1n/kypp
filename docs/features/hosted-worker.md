@@ -23,6 +23,9 @@ defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It
 TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and static `KYPP_S1_TOKENS`.
 
 ## Gotchas
+- Recall, briefing reads and `get` select `CLAIM_COLUMNS` (`worker/src/store.ts`), not `*`, so
+  `metadata` and `file_tried_at` never reach a hydrated `Claim`. A field read off a claim on those
+  paths has to be added to that list.
 - `memory.ts` mirrors `arbiter.py` and `view.py` by hand. A ranking or promotion change lands in
   both, or local and hosted memory disagree.
 - `ftsQuery` splits on Unicode letters, marks, digits and `_` so a query word reaches `unicode61`

@@ -179,6 +179,15 @@ const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", "
 
 const NEAR_SUBJECTS = 3;
 
+// The orgs among `groups` and their accepted rules. Why a read of its own: recall ranks the org (the
+// farthest group) last, so a busy lane's capped list would crowd it out.
+async function orgRules(store: D1Store, groups: string[]): Promise<{ orgs: Set<string>; org: Claim[] }> {
+  const orgs = await store.orgs(groups);
+  if (!orgs.size) return { orgs, org: [] };
+  const org = await store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit: ORG_RULES });
+  return { orgs, org: org.filter((c) => c.scope === "group" && orgs.has(c.project ?? "")) };
+}
+
 // Why: subjects are free text and the scheduled pass groups by exact subject, so the same lesson
 // under two names never recurs. The reply names nearby subjects; reusing one with the same content
 // renames this claim (the earlier one is withdrawn) instead of leaving a stray candidate.
@@ -210,17 +219,14 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
-      const [settled, orgs, yours] = await Promise.all([
+      // Why a read of its own, as in a repo briefing: recall ranks the org last, so a busy room's
+      // capped list would crowd its rules out.
+      const [settled, { orgs, org }, yours] = await Promise.all([
         store.recall("", null, null, { room, candidates: "none", limit: limit * 3 }),
-        store.orgs(groups),
+        orgRules(store, groups),
         store.recentUserCandidates(identity, ctx.session, RECENT_USER, "room"),
       ]);
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
-      // Why a read of its own, as in a repo briefing: recall ranks the org last, so a busy room's
-      // capped list would crowd its rules out.
-      const org = orgs.size
-        ? (await store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit: ORG_RULES })).filter(isOrg)
-        : [];
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       await store.recordUsage(ctx.session, [...org, ...claims, ...yours], "briefing", null);
       return (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
@@ -240,7 +246,10 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       if (share !== null && !links.includes(share)) {
         throw new Error(links.length ? `share_to must be one of this room's linked repos: ${links.join(", ")}` : "this room is linked to no repo, so lessons stay in the room");
       }
-      const v = await judge(ctx.s1, { subject, content, project: share });
+      const at: Lane = share !== null ? { project: share } : { room: identity };
+      // The model's verdict and the provenance reads don't depend on each other.
+      const [v, { prior, echoOf, stamp }] = await Promise.all([judge(ctx.s1, { subject, content, project: share }),
+        provenance(store, at, subject, content, ctx.session)]);
       if (v.keep !== null && v.keep < (ctx.s1?.dropBelow ?? DROP_BELOW)) {
         return `Not stored: this reads as status or conversation detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}).`;
       }
@@ -248,8 +257,6 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson (p_control=${v.control.toFixed(2)}).`;
       }
       const s1 = v.keep === null && v.control === null ? undefined : { keep: v.keep, general: v.general, type: v.type, control: v.control };
-      const at: Lane = share !== null ? { project: share } : { room: identity };
-      const { prior, echoOf, stamp } = await provenance(store, at, subject, content, ctx.session);
       const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}), ...(share !== null ? { shared_from: identity } : {}) };
       const id = await store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,
@@ -296,8 +303,9 @@ async function pinnedTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, p
   // Why: the argument wins over the header as for other callers, but each must be inside the pin.
   const project = a.project ? pick(a.project) : ctx.project ? pick(ctx.project) : names.length === 1 ? names[0] : null;
   if (name === "expand") {
-    const c = await store.get(String(a.handle ?? ""), ctx.caller.user, ctx.session);
-    const groups = new Set((await Promise.all(names.map((p) => store.ancestors(p)))).flat());
+    const [c, ancestors] = await Promise.all([store.get(String(a.handle ?? ""), ctx.caller.user, ctx.session),
+      Promise.all(names.map((p) => store.ancestors(p)))]);
+    const groups = new Set(ancestors.flat());
     const visible = c && (c.scope === "project" ? c.project === null || names.includes(c.project) : c.scope === "group" ? groups.has(c.project ?? "") : true);
     if (!c || !visible) throw new Error(`unknown claim handle ${a.handle}`);
     await store.recordUsage(ctx.session, [c], "expand", c.project);
@@ -318,20 +326,16 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
   switch (name) {
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
-      const [settled, orgs, recent, yours] = await Promise.all([
+      // An org's rules apply to every contributor, so they come first under their own heading.
+      const [settled, { orgs, org }, recent, yours] = await Promise.all([
         store.recall("", project, user, { candidates: "none", groups, limit: limit * 3 }),
-        store.orgs(groups),
+        orgRules(store, groups),
         // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
         project ? store.recentCandidates(project, ctx.session, RECENT) : [],
         // User scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
         user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
       ]);
-      // An org's rules apply to every contributor, so they come first under their own heading.
-      // Why a read of its own: recall ranks the org (the farthest group) last, so a busy repo's capped list would crowd it out.
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
-      const org = orgs.size
-        ? (await store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit: ORG_RULES })).filter(isOrg)
-        : [];
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       await store.recordUsage(ctx.session, [...org, ...claims, ...recent, ...yours], "briefing", project);
       return note + (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
@@ -347,8 +351,18 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     }
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
+      // Why: the agent picks who a lesson is about (user), never how widely it applies, so global is refused.
+      if (a.scope !== undefined && a.scope !== "project" && a.scope !== "user") {
+        throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
+      }
+      const scope: "project" | "user" = a.scope ?? "project";
+      // A session shown another session's candidate on this subject doesn't count toward accepting it.
+      const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
       // A cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
-      const v = await judge(ctx.s1, { subject, content, project });
+      // Its verdict and the provenance reads don't depend on each other.
+      const [v, { prior, echoOf, stamp }] = await Promise.all([judge(ctx.s1, { subject, content, project }),
+        at ? provenance(store, at, subject, content, ctx.session)
+          : { prior: [] as Renamed[], echoOf: [] as string[], stamp: ctx.session ? [`session:${ctx.session}`] : [] }]);
       if (v.keep !== null && v.keep < (ctx.s1?.dropBelow ?? DROP_BELOW)) {
         return `Not stored: this reads as status or session detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}). Git and PRs already hold status.`;
       }
@@ -357,15 +371,6 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson about the code or the person (p_control=${v.control.toFixed(2)}).`;
       }
       const s1 = v.keep === null && v.control === null ? undefined : { keep: v.keep, general: v.general, type: v.type, control: v.control };
-      // Why: the agent picks who a lesson is about (user), never how widely it applies, so global is refused.
-      if (a.scope !== undefined && a.scope !== "project" && a.scope !== "user") {
-        throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
-      }
-      const scope: "project" | "user" = a.scope ?? "project";
-      // A session shown another session's candidate on this subject doesn't count toward accepting it.
-      const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
-      const { prior, echoOf, stamp } = at ? await provenance(store, at, subject, content, ctx.session)
-        : { prior: [], echoOf: [], stamp: ctx.session ? [`session:${ctx.session}`] : [] };
       const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}) };
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement; an echo gets none.
       const id = await store.claim({
