@@ -18,7 +18,8 @@ export type Scope = (typeof SCOPES)[number];
 // An exact name wins; then a registered path the origin ends with ("https://github.com/vu1n/kypp.git"
 // → "vu1n/kypp"); then the last path segment, so "vu1n/Kypp" resolves to "kypp". Each fallback
 // counts only when it names exactly one project: two registered "foo"s leave the claim unsorted.
-const path = (s: string) => s.trim().replace(/\.git$/i, "").toLowerCase().split("/").filter(Boolean);
+const GIT_SUFFIX = /\.git$/i;
+const path = (s: string) => s.trim().replace(GIT_SUFFIX, "").toLowerCase().split("/").filter(Boolean);
 const only = (xs: string[]) => (xs.length === 1 ? xs[0] : null);
 export function resolveOrigin(origin: string | null | undefined, known: string[]): string | null {
   const given = (origin ?? "").trim(), segs = path(given);
@@ -175,10 +176,11 @@ export function planConsolidation(live: Claim[], policy: Policy = DEFAULT_POLICY
 // view.compact_line, minus code grounding (the Worker has no checkout to resolve anchors against;
 // it names the first anchored path instead).
 const CLIP = 240;
+const WHITESPACE = /\s+/;
 export function compactLine(c: Claim): string {
   const mark = c.status === "accepted" ? "✓" : "?";
   const auth = c.authority === "human" ? " 👤" : c.authority === "verified" ? " ☑" : "";
-  const body = c.content.split(/\s+/).filter(Boolean).join(" ");
+  const body = c.content.split(WHITESPACE).filter(Boolean).join(" ");
   let line = `${c.id.slice(0, 8)} [${c.type} ${mark}${c.confidence.toFixed(1)}${auth} @${level(c)}] ${c.subject} — ${body.slice(0, CLIP)}`;
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
   const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
@@ -214,6 +216,7 @@ export function briefingOrder(claims: Claim[], limit: number): Claim[] {
 // Why: words are Unicode letters, marks, digits and _, so `café` or `日本語` reach MATCH whole and
 // unicode61 folds them the way it folded the stored text. unicode61 doesn't segment CJK, so `日本語`
 // matches only a stored run that ends at a space or punctuation.
+const WORDS = /[\p{L}\p{M}\p{N}_]+/gu;
 export function ftsQuery(text: string): string {
-  return (text.match(/[\p{L}\p{M}\p{N}_]+/gu) ?? []).map((t) => `"${t}"`).join(" OR ");
+  return (text.match(WORDS) ?? []).map((t) => `"${t}"`).join(" OR ");
 }

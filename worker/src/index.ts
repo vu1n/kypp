@@ -125,36 +125,38 @@ async function authorize(request: Request, env: Env, base: string): Promise<Resp
 
 // The static token presented as `token`, or null.
 async function apiToken(token: string, list: string | undefined): Promise<ApiToken | null> {
-  for (const [secret, t] of apiTokens(list)) if (await sameSecret(token, secret)) return t;
-  return null;
+  const tokens = [...apiTokens(list)];
+  const same = await Promise.all(tokens.map(([secret]) => sameSecret(token, secret)));
+  return tokens[same.indexOf(true)]?.[1] ?? null;
 }
 async function tokenName(token: string, list: string | undefined): Promise<string | null> {
   return (await apiToken(token, list))?.name ?? null;
 }
 
 const oidc = oidcVerifier();
+const BEARER = /^Bearer\s+(.+)$/i;
+const TRAILING_SLASHES = /\/+$/;
 
 // Only an issuer grant registers rooms (an operator-configured name, or a paired issuer token); a room token never can.
 // The caller's issuer name: its paired grant, or its KYPP_API_TOKENS name when that is listed in
 // KYPP_ROOM_ISSUERS. Only a configured issuer may link rooms to repos.
 async function roomIssuer(request: Request, env: Env): Promise<{ name: string; grant?: string; credential?: string; projects?: string[] } | null> {
-  const token = request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const token = request.headers.get("Authorization")?.match(BEARER)?.[1];
   if (!token) return null;
   const paired = await pairedGrant(env.DB, token);
   if (paired) return paired;
-  const t = await apiToken(token, env.KYPP_API_TOKENS);
-  const credential = await digest(token);
-  return t && (await configuredIssuers(env)).get(t.name)?.has(credential) ? { name: t.name, credential, ...(t.projects ? { projects: t.projects } : {}) } : null;
+  const [t, credential, issuers] = await Promise.all([apiToken(token, env.KYPP_API_TOKENS), digest(token), configuredIssuers(env)]);
+  return t && issuers.get(t.name)?.has(credential) ? { name: t.name, credential, ...(t.projects ? { projects: t.projects } : {}) } : null;
 }
 
 // KYPP_ROOM_ISSUERS names that still have a token, each with its secrets' digests. Removing either
 // one pauses their rooms; a seat stops working once the secret that made it is gone.
 const configuredIssuers = async (env: Env) => {
   const listed = new Set(owners(env.KYPP_ROOM_ISSUERS));
+  const issued = [...apiTokens(env.KYPP_API_TOKENS)].filter(([, { name }]) => listed.has(name));
+  const digests = await Promise.all(issued.map(([secret]) => digest(secret)));
   const issuers = new Map<string, Set<string>>();
-  for (const [secret, { name }] of apiTokens(env.KYPP_API_TOKENS)) {
-    if (listed.has(name)) issuers.set(name, (issuers.get(name) ?? new Set()).add(await digest(secret)));
-  }
+  issued.forEach(([, { name }], i) => issuers.set(name, (issuers.get(name) ?? new Set()).add(digests[i])));
   return issuers;
 };
 
@@ -171,8 +173,8 @@ function pairingDeps(request: Request, env: Env, base: string): PairingDeps {
 
 // The public origin: the OAuth issuer, the MCP resource id (<base>/mcp) and the OIDC audience.
 // KYPP_PUBLIC_URL pins it; a Deploy to Cloudflare install leaves it unset and gets the request's origin.
-export function publicBase(env: Pick<Env, "KYPP_PUBLIC_URL">, request: Request): string {
-  return (env.KYPP_PUBLIC_URL || new URL(request.url).origin).replace(/\/+$/, "");
+export function publicBase(env: Pick<Env, "KYPP_PUBLIC_URL">, url: URL): string {
+  return (env.KYPP_PUBLIC_URL || url.origin).replace(TRAILING_SLASHES, "");
 }
 
 // /v1/systemone callers: a GitHub Actions OIDC token for <base> from a listed owner, or
@@ -212,9 +214,12 @@ function oauthProvider(base: string): OAuthProvider<Env> {
     resourceMetadata: { resource: `${base}/mcp`, authorization_servers: [base], resource_name: "kypp memory" },
     clientIdMetadataDocumentEnabled: true,
     resolveExternalToken: async ({ token, env }) => {
+      // A static token wins over a room seat; the seat lookup only overlaps the token compare.
+      const seat = token.startsWith("kypr_") ? configuredIssuers(env).then((issuers) => roomCaller(env.DB, token, issuers)) : null;
+      seat?.catch(() => {}); // a matched static token must not fail on the seat lookup
       const t = await apiToken(token, env.KYPP_API_TOKENS);
       if (t) return { props: { user: t.name, agent: t.name, ...(t.projects ? { projects: t.projects } : {}) } satisfies Caller, audience: `${base}/mcp` };
-      const room = await roomCaller(env.DB, token, await configuredIssuers(env));
+      const room = await seat;
       return room ? { props: room, audience: `${base}/mcp` } : null as any;
     },
   });
@@ -225,14 +230,15 @@ function oauthProvider(base: string): OAuthProvider<Env> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     // Registration is open by design (MCP clients self-register), so throttle it before it writes to KV.
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const path = url.pathname;
     if (request.method === "POST" && path === "/oauth/register"
       && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "register"))) return tooMany();
     if (request.method === "POST" && path === PAIR_PATH
       && !(await allowAttempt(request, env, env.REGISTER_LIMIT, "pair"))) return tooMany();
     // TypeSafe-compatible System One for headless tools (brief triage in CI). GitHub Actions OIDC or
     // its own tokens, never KYPP_API_TOKENS or OAuth, so a CI caller can reach the model but not memory.
-    const base = publicBase(env, request);
+    const base = publicBase(env, url);
     if (path === SYSTEM_ONE_PATH) return handleSystemOne(request, env.AI, (token) => systemOneCaller(token, env, base));
     // The operator's CLI (KYPP_URL): its own secret, never OAuth or KYPP_API_TOKENS, and never on /mcp.
     if (path === OPERATOR_PATH) return handleOperator(request, env.DB, env.KYPP_OPERATOR_TOKEN, { s1: s1Client(env), policy: policyFrom(env) });
