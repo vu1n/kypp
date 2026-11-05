@@ -122,6 +122,9 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
   A name outside the pin is refused and the project list is never shown; its claims must name a
   project, defrag never files them outside the pin, and as a room issuer it links rooms only inside
   it. `name@:token` pins to nothing. A token without `@` keeps full access, like an OAuth sign-in.
+  End the name in `!ro` (`review!ro:token`, `ci@kypp!ro:token`) for a read-only token: it gets
+  `briefing`, `recall` and `expand`; `claim` and `correct` are hidden and refused, and it can't
+  register rooms.
 - `KYPP_ROOM_ISSUERS` (variable, e.g. `huddles`): `KYPP_API_TOKENS` names that may register chat
   rooms (see Rooms). Unset refuses every registration. Removing a name pauses its bots' seats; each
   seat is tied to the secret that made it, so to cut those bots off for good, give the name a new
@@ -131,6 +134,13 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
   It is the only credential that writes human authority (`kypp correct`), verify commands and
   verified results (`kypp verify`) here. Unset, the route answers 404. It never works on `/mcp`.
 - `TYPESAFE_API_KEY` (secret): route the gate to TypeSafe instead of Clef on Workers AI.
+- `KEYCARD_ISSUER` (variable, e.g. `https://<zone>.keycard.cloud`) and `KEYCARD_OWNER_SUBJECTS`
+  (variable, comma list of Keycard subject ids): accept access tokens a [Keycard](https://keycard.ai)
+  zone mints for this Worker, beside the sign-in and static tokens. Register `<worker>/mcp` as the
+  resource in the zone; a token must name it as its audience, carry the `mcp` scope and have a listed
+  `sub` (exact match), and then it acts as the owner. Scopes `kypp:project:<name>` pin it like a
+  `name@proj` static token. The agent is recorded as `keycard:<application id>`. An unreachable zone
+  answers 503 with `Retry-After`, so the agent keeps its token. Both unset (the default) is off.
 
 From a checkout instead of the button:
 
@@ -160,6 +170,7 @@ token in GitHub, connect the Worker to the repo with Workers Builds (Worker > Se
   reads only user and global claims, and its claims land unsorted (see Placement).
 - **Claude (projects and chat):** Settings → Connectors → Add custom connector → `https://<worker>/mcp`.
 - **Headless:** `Authorization: Bearer <token from KYPP_API_TOKENS>`.
+- **Keycard-issued agents:** `Authorization: Bearer <access token from the Keycard zone for <worker>/mcp>`.
 - **Chat-room bots (Huddles):** register the room (see Rooms) and give the bot its `kypr_` token as
   `Authorization: Bearer`.
 - **The `kypp` CLI (operator):** `KYPP_URL=https://<worker> KYPP_OPERATOR_TOKEN=<token> KYPP_PROJECT=<repo>`.
