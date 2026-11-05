@@ -13,6 +13,7 @@ export interface Caller {
   agent: string | null;   // the client that holds the token
   room?: string | null;   // a room lane's key; user and agent are then its identity
   projects?: string[];    // a pinned static token's projects: it may read and write only these
+  readOnly?: boolean;     // a read-only token: briefing, recall and expand, never claim or correct
 }
 
 const VERSIONS = ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"];
@@ -276,8 +277,14 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
   throw new Error(`unknown tool ${name}`);
 }
 
+// The tools that write memory; a read-only caller neither sees nor calls them.
+const WRITES = new Set(["claim", "correct"]);
+const visibleTools = (ctx: ToolCtx) => ctx.caller.room ? ROOM_TOOLS
+  : TOOLS.filter((t) => (ctx.correct || t.name !== "correct") && !(ctx.caller.readOnly && WRITES.has(t.name)));
+
 export async function callTool(store: D1Store, name: string, a: Args, ctx: ToolCtx): Promise<string> {
   if (ctx.caller.room) return roomTool(store, name, a, ctx, ctx.caller.room);
+  if (ctx.caller.readOnly && WRITES.has(name)) throw new Error(`this token is read-only: ${name} is not available`);
   // The caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
   const pin = ctx.caller.projects;
   if (pin) return pinnedTool(store, name, a, ctx, pin);
@@ -422,13 +429,14 @@ async function dispatch(msg: Rpc, store: D1Store, ctx: ToolCtx) {
         protocolVersion: VERSIONS.includes(asked) ? asked : VERSIONS[2],
         capabilities: { tools: {} },
         serverInfo: { name: "kypp", version: "0.1.0" },
-        instructions: ctx.caller.room ? ROOM_INSTRUCTIONS : ctx.correct ? INSTRUCTIONS : INSTRUCTIONS.slice(0, INSTRUCTIONS.indexOf("\n4.")),
+        instructions: ctx.caller.room ? ROOM_INSTRUCTIONS : ctx.caller.readOnly ? INSTRUCTIONS.slice(0, INSTRUCTIONS.indexOf("\n3."))
+          : ctx.correct ? INSTRUCTIONS : INSTRUCTIONS.slice(0, INSTRUCTIONS.indexOf("\n4.")),
       });
     }
     case "ping":
       return ok({});
     case "tools/list":
-      return ok({ tools: ctx.caller.room ? ROOM_TOOLS : ctx.correct ? TOOLS : TOOLS.filter((t) => t.name !== "correct") });
+      return ok({ tools: visibleTools(ctx) });
     case "tools/call":
       try {
         const text = await callTool(store, msg.params?.name, msg.params?.arguments ?? {}, ctx);

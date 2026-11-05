@@ -122,6 +122,9 @@ keeps variables set outside `wrangler.jsonc` (`keep_vars`), so they survive rede
   A name outside the pin is refused and the project list is never shown; its claims must name a
   project, defrag never files them outside the pin, and as a room issuer it links rooms only inside
   it. `name@:token` pins to nothing. A token without `@` keeps full access, like an OAuth sign-in.
+  End the name in `!ro` (`review!ro:token`, `ci@kypp!ro:token`) for a read-only token: it gets
+  `briefing`, `recall` and `expand`; `claim` and `correct` are hidden and refused, and it can't
+  register rooms.
 - `KYPP_ROOM_ISSUERS` (variable, e.g. `huddles`): `KYPP_API_TOKENS` names that may register chat
   rooms (see Rooms). Unset refuses every registration. Removing a name pauses its bots' seats; each
   seat is tied to the secret that made it, so to cut those bots off for good, give the name a new

@@ -1,19 +1,22 @@
 // tokens.ts — parsing KYPP_API_TOKENS, kept apart from index.ts so tests can load it without the OAuth provider.
 
 // Static tokens for clients that can't do the browser flow: "name:token,name:token". A name may
-// carry a pin, "name@projA|projB:token", confining that token to those registered projects.
-export interface ApiToken { name: string; projects?: string[] }
+// carry a pin, "name@projA|projB:token", confining that token to those registered projects, and may
+// end in "!ro", "name!ro:token" or "name@proj!ro:token", which makes the token read-only.
+export interface ApiToken { name: string; projects?: string[]; readOnly?: true }
 export function apiTokens(list: string | undefined): Map<string, ApiToken> {
   const m = new Map<string, ApiToken>();
   for (const pair of (list ?? "").split(",")) {
     const i = pair.indexOf(":");
     if (!(i > 0 && pair.length - i > 16)) continue;
-    const label = pair.slice(0, i).trim(), at = label.indexOf("@");
+    const raw = pair.slice(0, i).trim();
+    const readOnly = raw.endsWith("!ro");
+    const label = readOnly ? raw.slice(0, -3).trim() : raw, at = label.indexOf("@");
     const name = (at < 0 ? label : label.slice(0, at)).trim();
     if (!name) continue;
     // Why: "name@" pins to nothing rather than to everything, so a typo fails closed.
     const projects = at < 0 ? undefined : label.slice(at + 1).split("|").map((p) => p.trim()).filter(Boolean);
-    m.set(pair.slice(i + 1).trim(), projects ? { name, projects } : { name });
+    m.set(pair.slice(i + 1).trim(), { name, ...(projects ? { projects } : {}), ...(readOnly ? { readOnly } : {}) });
   }
   return m;
 }

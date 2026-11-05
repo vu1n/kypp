@@ -147,7 +147,8 @@ async function roomIssuer(request: Request, env: Env): Promise<{ name: string; g
   const paired = await pairedGrant(env.DB, token);
   if (paired) return paired;
   const [t, credential, issuers] = await Promise.all([apiToken(token, env.KYPP_API_TOKENS), digest(token), configuredIssuers(env)]);
-  return t && issuers.get(t.name)?.has(credential) ? { name: t.name, credential, ...(t.projects ? { projects: t.projects } : {}) } : null;
+  // Why: registering a room writes; a read-only token never registers or links one.
+  return t && !t.readOnly && issuers.get(t.name)?.has(credential) ? { name: t.name, credential, ...(t.projects ? { projects: t.projects } : {}) } : null;
 }
 
 // KYPP_ROOM_ISSUERS names that still have a token, each with its secrets' digests. Removing either
@@ -219,7 +220,7 @@ function oauthProvider(base: string): OAuthProvider<Env> {
       const seat = token.startsWith("kypr_") ? configuredIssuers(env).then((issuers) => roomCaller(env.DB, token, issuers)) : null;
       seat?.catch(() => {}); // a matched static token must not fail on the seat lookup
       const t = await apiToken(token, env.KYPP_API_TOKENS);
-      if (t) return { props: { user: t.name, agent: t.name, ...(t.projects ? { projects: t.projects } : {}) } satisfies Caller, audience: `${base}/mcp` };
+      if (t) return { props: { user: t.name, agent: t.name, ...(t.projects ? { projects: t.projects } : {}), ...(t.readOnly ? { readOnly: true } : {}) } satisfies Caller, audience: `${base}/mcp` };
       // A Keycard zone's JWT (KEYCARD_ISSUER), bound to this resource; kypp's own grants never look like one.
       const keycard = looksLikeJwt(token) ? await keycardCaller(token, env, `${base}/mcp`) : null;
       if (keycard === "unavailable") throw new ExternalTokenError("temporarily_unavailable", { description: "Keycard could not be reached to check this token.", statusCode: 503, headers: { "Retry-After": "5" } });
