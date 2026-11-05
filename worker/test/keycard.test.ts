@@ -42,8 +42,12 @@ test("kypp:project scopes pin the token to those projects", async () => {
   assert.deepEqual(await keycardCaller(t, ENV, AUD), { user: "owner", agent: "keycard:app_ci", projects: ["resume", "kypp"] });
 });
 
-test("refused: another resource's token, an unlisted or differently cased subject, no mcp scope, expired", async () => {
-  for (const over of [{ aud: "https://other.example/mcp" }, { sub: "usr_stranger" }, { sub: OWNER.toUpperCase() }, { scope: "read" }, { exp: now() - 120 }]) {
+test("a valid token without the mcp scope is insufficient_scope, not a refusal", async () => {
+  assert.equal(await keycardCaller(await token({ scope: "read" }), ENV, AUD), "insufficient_scope");
+});
+
+test("refused: another resource's token, an unlisted or differently cased subject, expired", async () => {
+  for (const over of [{ aud: "https://other.example/mcp" }, { sub: "usr_stranger" }, { sub: OWNER.toUpperCase() }, { exp: now() - 120 }]) {
     assert.equal(await keycardCaller(await token(over), ENV, AUD), null, JSON.stringify(over));
   }
 });

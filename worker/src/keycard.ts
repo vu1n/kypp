@@ -17,14 +17,14 @@ const verifiers = new Map<string, TokenVerifier>();
 function verifierFor(issuer: string, audience: string): TokenVerifier {
   const key = `${issuer} ${audience}`;
   let v = verifiers.get(key);
-  if (!v) verifiers.set(key, v = new TokenVerifier({ issuer, audience, requiredScopes: ["mcp"] }));
+  if (!v) verifiers.set(key, v = new TokenVerifier({ issuer, audience }));
   return v;
 }
 
-// The Caller a Keycard token stands for, null for a token kypp refuses, or "unavailable" when the zone
-// could not be reached to check it. `audience` is kypp's MCP resource id (<base>/mcp), so a token the
+// The Caller a Keycard token stands for, null for a token kypp refuses, "insufficient_scope" for a
+// valid token without the mcp scope, or "unavailable" when the zone could not be reached to check it. `audience` is kypp's MCP resource id (<base>/mcp), so a token the
 // zone minted for any other resource is refused.
-export async function keycardCaller(token: string, env: KeycardEnv, audience: string): Promise<Caller | null | "unavailable"> {
+export async function keycardCaller(token: string, env: KeycardEnv, audience: string): Promise<Caller | null | "insufficient_scope" | "unavailable"> {
   const issuer = env.KEYCARD_ISSUER?.trim();
   // Why: subjects are compared exactly; a zone's ids are opaque and case can matter.
   const subjects = (env.KEYCARD_OWNER_SUBJECTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -41,6 +41,9 @@ export async function keycardCaller(token: string, env: KeycardEnv, audience: st
   if (!t) return null;
   // Why: kypp has one owner. A zone user who is not listed is refused, never given an empty scope.
   if (!t.sub || !subjects.includes(t.sub)) return null;
+  // Why: the scope is checked here, not by TokenVerifier, which returns null for a missing scope and
+  // so turns what should be a 403 the client can step up from into a 401.
+  if (!t.scopes.includes("mcp")) return "insufficient_scope";
   const pinned = t.scopes.filter((s) => s.startsWith(PROJECT_SCOPE)).map((s) => s.slice(PROJECT_SCOPE.length)).filter(Boolean);
   return {
     user: "owner",

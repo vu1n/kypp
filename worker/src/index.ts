@@ -223,6 +223,7 @@ function oauthProvider(base: string): OAuthProvider<Env> {
       if (t) return { props: { user: t.name, agent: t.name, ...(t.projects ? { projects: t.projects } : {}), ...(t.readOnly ? { readOnly: true } : {}) } satisfies Caller, audience: `${base}/mcp` };
       // A Keycard zone's JWT (KEYCARD_ISSUER), bound to this resource; kypp's own grants never look like one.
       const keycard = looksLikeJwt(token) ? await keycardCaller(token, env, `${base}/mcp`) : null;
+      if (keycard === "insufficient_scope") throw new ExternalTokenError("insufficient_scope", { description: "This token lacks the mcp scope.", statusCode: 403, requiredScopes: ["mcp"] });
       if (keycard === "unavailable") throw new ExternalTokenError("temporarily_unavailable", { description: "Keycard could not be reached to check this token.", statusCode: 503, headers: { "Retry-After": "5" } });
       if (keycard) return { props: keycard satisfies Caller, audience: `${base}/mcp` };
       const room = await seat;

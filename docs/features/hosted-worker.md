@@ -164,8 +164,9 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   token check, and only for JWT-shaped tokens. Off unless both `KEYCARD_ISSUER` and
   `KEYCARD_OWNER_SUBJECTS` are set. The audience is `<base>/mcp`, the same resource id kypp's own
   grants use. A zone that can't be reached throws `ExternalTokenError` (503), never a `null` (401):
-  a 401 sends the agent back through sign-in for a token that may be fine. The SDK's `TokenVerifier`
-  returns `null` for a missing scope too, so a token without `mcp` gets 401, not 403.
+  a 401 sends the agent back through sign-in for a token that may be fine. The `mcp` scope is checked
+  in `keycard.ts`, not through `TokenVerifier`'s `requiredScopes`, which returns `null` for a missing
+  scope: that would answer 401, not the 403 `insufficient_scope` a client can step up from.
 - A read-only caller (`Caller.readOnly`, a `name!ro` static token) is stopped in `callTool` before
   any routing, and `WRITES` in `mcp.ts` lists the tools it can't use. A new tool that writes memory
   goes in `WRITES`, or read-only tokens can call it.
