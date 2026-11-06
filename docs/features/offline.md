@@ -29,7 +29,7 @@ operator's view of the project (`POST /v1/operator` `snapshot`, 500 claims a pag
   Worker keeps refusing stays until `kypp sync --drop N`. The pull still runs, so a stuck write doesn't
   freeze the copy.
 - A Worker deployed before keys answers `unknown op` to `capabilities` and ignores `key`, so the write
-  goes without one. A row sent without a key (to such a Worker, or by an older CLI), or a keyed row the
+  goes without one, and a row's key is cleared before any such send. A row sent without a key (to such a Worker, or by an older CLI), or a keyed row the
   Worker no longer honours, may or may not have landed: it blocks the push until the operator checks and
   runs `--drop N` or `--resend N`. A send that never connected restores the row's earlier mark (none if
   it was never sent), so an earlier, maybe committed send stays on record.

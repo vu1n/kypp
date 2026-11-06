@@ -222,18 +222,14 @@ def push(db: sqlite3.Connection) -> int:
                              f"drop it with `kypp sync --drop {seq}`")
         stored = json.loads(raw)
         args = {k: stored.get(k) for k in _QUEUEABLE[op]}
-        # A row's key is fixed, on disk, before its first send, and only once the Worker said it honours
-        # keys; a row sent without one is never resent automatically.
-        if not key and sent_at:
-            raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at} without an idempotency key "
-                                                "and no 200 came back"))
+        # A row keeps a key only while every send of it went to a Worker that honours keys: it is fixed on
+        # disk before such a send and cleared before any other, so only a keyed row is resent on its own.
         if keyed is None:
             keyed = _keyed()
-        if key and sent_at and not keyed:
-            raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at} and the Worker no longer honours "
-                                                "idempotency keys"))
-        if not key:
-            key = secrets.token_hex(16) if keyed else None
+        if sent_at and not (key and keyed):
+            why = "and the Worker no longer honours idempotency keys" if key else "without an idempotency key"
+            raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at} {why} and no 200 came back"))
+        key = (key or secrets.token_hex(16)) if keyed else None
         with db:
             db.execute("UPDATE outbox SET sent_at = ?, key = ? WHERE seq = ?", (_now(), key, seq))
         try:

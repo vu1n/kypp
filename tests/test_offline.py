@@ -326,6 +326,40 @@ class OfflineTest(unittest.TestCase):
         self.assertIn("no longer honours idempotency keys", str(e.exception.code))
         self.assertEqual(len(_Worker.applied), 1)
 
+    def test_a_row_sent_to_a_worker_without_keys_loses_its_key(self):
+        # Keyed Worker, the send can't connect; downgraded Worker, the reply is lost; upgraded again.
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        orig = remote.call
+
+        def unreachable(op, **args):
+            if op == "remember":
+                raise remote.Unreachable("kypp: can't reach it")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", unreachable):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+        _Worker.old = True
+
+        def lost(op, **args):
+            res = orig(op, **args)
+            if op == "remember":
+                raise SystemExit("kypp: timed out")
+            return res
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+        _Worker.old = False
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("without an idempotency key", str(e.exception.code))
+        self.assertEqual(len(_Worker.applied), 1)
+
     def test_a_cache_from_before_keys_gains_the_column(self):
         import sqlite3
         path = self.env["KYPP_CACHE_DB"]
