@@ -267,3 +267,23 @@ test("purge erases a claim's text from every place recall reads, keeps a tombsto
   const reasons = (await db.prepare("SELECT reason FROM defrag_log WHERE claim_id = ? ORDER BY created_at").bind(id).all()).results.map((r) => r.reason);
   assert.deepEqual(reasons, [null, "leaked key"]);
 });
+
+test("snapshot pages the operator's live view of one project by id, without rejected rows or other projects", async () => {
+  const { db, call } = await setup();
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES(?,?,?)").bind("q", "", "2026-10-15T00:00:00Z").run();
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i++) ids.push((await call({ op: "remember", subject: `s${i}`, content: `c${i}`, project: "p", accept: i === 0 })).body!.id);
+  const gone = (await call({ op: "remember", subject: "gone", content: "x", project: "p" })).body!.id;
+  await call({ op: "reject", handle: gone, reason: "test" });
+  await call({ op: "remember", subject: "elsewhere", content: "y", project: "q" });
+  const first = await call({ op: "snapshot", project: "p", limit: 2 });
+  assert.equal(first.status, 200);
+  assert.equal(first.body!.claims.length, 2);
+  assert.ok(first.body!.next);
+  const rest = await call({ op: "snapshot", project: "p", after: first.body!.next, limit: 2 });
+  const got = [...first.body!.claims, ...rest.body!.claims].map((c: any) => c.id);
+  assert.deepEqual(got, [...ids].sort());
+  assert.equal(rest.body!.next, null);
+  assert.deepEqual(new Set([...first.body!.claims, ...rest.body!.claims].map((c: any) => c.status)), new Set(["accepted", "candidate"]));
+  assert.equal((await call({ op: "snapshot", project: "nope" })).status, 400);
+});

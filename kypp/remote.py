@@ -9,6 +9,8 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import ssl
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,6 +29,12 @@ def default_project() -> str:
     return os.environ.get("KYPP_PROJECT") or os.path.basename(os.path.abspath(os.path.expanduser(root)))
 
 
+class Unreachable(SystemExit):
+    """The Worker could not be reached at all: the request never got a connection (refused, DNS,
+    connect timeout), so nothing was applied. Only this failure may fall back to the offline cache
+    or queue; an answer from the Worker, even an error, and a connection lost mid-request, may not."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     # Why: urllib re-sends every header but Content-* on a redirect, to any host, so following one
     # would hand the operator token (and the verify commands we then run) to wherever it points.
@@ -34,7 +42,34 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_opener = urllib.request.build_opener(_NoRedirect)
+# Whether this thread's current request got a connection (TCP, and TLS for https). urllib wraps a
+# failure while *sending* in URLError too, and by then the Worker may have the request.
+_conn = threading.local()
+
+
+class _HTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        super().connect()
+        _conn.made = True
+
+
+class _HTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        super().connect()
+        _conn.made = True
+
+
+class _HTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_HTTPConnection, req)
+
+
+class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_HTTPSConnection, req, context=self._context)
+
+
+_opener = urllib.request.build_opener(_NoRedirect, _HTTPHandler, _HTTPSHandler)
 
 
 def call(op: str, **args) -> dict:
@@ -52,6 +87,7 @@ def call(op: str, **args) -> dict:
     body = json.dumps({"op": op, **{k: v for k, v in args.items() if v is not None}}).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    _conn.made = False
     try:
         with _opener.open(req, timeout=60) as r:
             return json.load(r)
@@ -63,7 +99,12 @@ def call(op: str, **args) -> dict:
             pass
         raise SystemExit(f"kypp: {url} answered {e.code}: {text.strip()}")
     except urllib.error.URLError as e:
-        raise SystemExit(f"kypp: can't reach {url}: {e.reason}")
+        # A certificate that fails to verify is a possible interception, never just "offline".
+        if isinstance(e.reason, ssl.SSLError):
+            raise SystemExit(f"kypp: TLS to {url} failed, not falling back to the offline copy: {e.reason}")
+        if _conn.made:
+            raise SystemExit(f"kypp: {url} dropped the connection while sending: {e.reason}")
+        raise Unreachable(f"kypp: can't reach {url}: {e.reason}")
     except TimeoutError:
         raise SystemExit(f"kypp: {url} did not answer in time")
     except ValueError:

@@ -11,6 +11,8 @@ export const OPERATOR_PATH = "/v1/operator";
 // The operator is the deployment's owner: the same user the passphrase sign-in stamps, so the CLI and
 // the owner's MCP clients share one user scope.
 const OPERATOR_USER = "owner";
+// One snapshot page stays well under D1 and Worker response limits (claims cap content at 4000 chars).
+const SNAPSHOT_PAGE = 500;
 // A repo's bare name, as `resolveOrigin` matches the last segment of an origin like `owner/repo`.
 const PROJECT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
@@ -87,6 +89,14 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       const where = await project();
       if (!where) throw new Error(`unknown project ${JSON.stringify(a.project)}`);
       return { claims: (await store.verifiable(where, OPERATOR_USER, str(a.subject) || undefined)).map(({ id, subject, verify }) => ({ id, subject, verify })) };
+    }
+    // `kypp sync`'s pull: the operator's view of one project, a page at a time (id order, `after` cursor).
+    case "snapshot": {
+      const where = await project();
+      if (!where) throw new Error(`unknown project ${JSON.stringify(a.project)}`);
+      const limit = Math.min(Math.max(Number(a.limit) || SNAPSHOT_PAGE, 1), SNAPSHOT_PAGE);
+      const claims = await store.snapshot(where, await store.ancestors(where), OPERATOR_USER, str(a.after), limit);
+      return { project: where, claims, next: claims.length === limit ? claims[claims.length - 1].id : null };
     }
     case "projects":
       return { projects: await store.projects() };

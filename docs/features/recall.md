@@ -15,7 +15,8 @@ tests:
 
 `kypp recall`, `briefing`, `show`, `remember`, `correct`, `reject`, `purge` and `usage` print one compact
 handle line per claim, and `show` expands a handle to the full claim. With `KYPP_URL` set, all but
-`usage` go to the hosted Worker (`kypp/remote.py`) and never open the local store.
+`usage` go to the hosted Worker (`kypp/remote.py`) and never open the local store. When the Worker
+can't be reached, see [offline](offline.md).
 
 ## Gotchas
 - The briefing is the same top-N accepted claims for every task. It is not task-conditioned

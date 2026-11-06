@@ -58,6 +58,16 @@ def _local_only(what: str) -> None:
     raise SystemExit(f"kypp: {what} needs the local store; unset KYPP_URL to use it")
 
 
+def _online(what: str, op: str, **args) -> dict:
+    """A hosted write that is never queued offline: human answers, rejections and purges replace or
+    retire memory, so they must meet the Worker's current state, not a stale copy's."""
+    try:
+        return remote.call(op, **args)
+    except remote.Unreachable as e:
+        raise SystemExit(f"{e.code}\nkypp: `kypp {what}` is not queued offline; run it again once the Worker "
+                         "is reachable") from None
+
+
 def _session_arg(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--session", default=os.environ.get("KYPP_SESSION"),
                     help="record that this run/session was shown the results — usage provenance "
@@ -81,8 +91,14 @@ def recall_main():
     if remote.remote_url():
         if args.json:
             _local_only("--json")
-        print(remote.call("recall", query=query, project=args.project, types=args.types,
-                          include_candidates=args.candidates, limit=args.limit)["text"])
+        try:
+            text = remote.call("recall", query=query, project=args.project, types=args.types,
+                               include_candidates=args.candidates, limit=args.limit)["text"]
+        except remote.Unreachable as e:
+            from . import offline
+            text = offline.recall(offline.open_cache(args.project, e), args.project, query, args.types,
+                                  args.candidates, args.limit)
+        print(text)
         return
     store = store_from_env()
     claims = store.recall(query, project=args.project, types=args.types,
@@ -96,7 +112,12 @@ def show_main():
     ap.add_argument("handle")
     args = ap.parse_args()
     if remote.remote_url():
-        print(json.dumps(remote.call("show", handle=args.handle)["claim"], indent=2))
+        try:
+            claim = remote.call("show", handle=args.handle)["claim"]
+        except remote.Unreachable as e:
+            from . import offline
+            claim = offline.show(offline.open_cache(None, e), args.handle)
+        print(json.dumps(claim, indent=2))
         return
     print(json.dumps(asdict(_resolve_handle(store_from_env(), args.handle)), indent=2))
 
@@ -116,9 +137,17 @@ def remember_main():
     _identity_args(ap)
     args = ap.parse_args()
     if remote.remote_url():
-        res = remote.call("remember", type=args.type, subject=args.subject, content=args.content, scope=args.scope,
-                          project=args.project, confidence=args.confidence, accept=args.accept,
-                          verify=args.verify, agent=args.agent)
+        op = dict(type=args.type, subject=args.subject, content=args.content, scope=args.scope,
+                  project=args.project, confidence=args.confidence, accept=args.accept,
+                  verify=args.verify, agent=args.agent)
+        try:
+            res = remote.call("remember", **op)
+        except remote.Unreachable as e:
+            from . import offline
+            waiting = offline.queue(args.project, "remember", op, e)
+            print(f"queued [{args.type}] {args.subject} — {e.code.removeprefix('kypp: ')}; "
+                  f"`kypp sync` sends it ({waiting} waiting)")
+            return
         cid, status = res["id"], res["status"]
     else:
         store = store_from_env()
@@ -148,7 +177,12 @@ def briefing_main():
     if remote.remote_url():
         if args.candidates:
             _local_only("--candidates")
-        print(remote.call("briefing", project=args.project, limit=args.limit)["text"])
+        try:
+            text = remote.call("briefing", project=args.project, limit=args.limit)["text"]
+        except remote.Unreachable as e:
+            from . import offline
+            text = offline.briefing(offline.open_cache(args.project, e), args.project, args.limit)
+        print(text)
         return
     store = store_from_env()
     claims = briefing_claims(store, args.project, args.limit, include_candidates=args.candidates)
@@ -178,8 +212,9 @@ def correct_main():
         if args.semantic is not None:
             _local_only("--semantic")
         # The operator's human writer; with KYPP_URL it writes through POST /v1/operator.
-        res = remote.call("correct", type=args.type, subject=args.subject, content=args.content, scope=args.scope,
-                          project=args.project, confidence=args.confidence, verify=args.verify, agent=args.agent)
+        res = _online("correct", "correct", type=args.type, subject=args.subject, content=args.content,
+                      scope=args.scope, project=args.project, confidence=args.confidence, verify=args.verify,
+                      agent=args.agent)
         print(f"{res['id'][:8]} [human {args.type}] {args.subject} — corrected; "
               f"superseded {res['superseded']} prior claim(s)")
         return
@@ -205,7 +240,9 @@ def reject_main():
     ap.add_argument("--reason", help="why it's being rejected — recorded in the claim's metadata for audit")
     args = ap.parse_args()
     if remote.remote_url():
-        c = remote.call("reject", handle=args.handle, reason=args.reason)["claim"]
+        c = _online("reject", "reject", handle=args.handle, reason=args.reason)["claim"]
+        from . import offline
+        offline.forget(c["id"], purged=False)
         cid, status, ctype, subject = c["id"], c["status"], c["type"], c["subject"]
     else:
         store = store_from_env()
@@ -226,7 +263,9 @@ def purge_main():
     args = ap.parse_args()
     for handle in args.handle:
         if remote.remote_url():
-            cid = remote.call("purge", handle=handle, reason=args.reason)["claim"]["id"]
+            cid = _online("purge", "purge", handle=handle, reason=args.reason)["claim"]["id"]
+            from . import offline
+            offline.forget(cid, purged=True)
         else:
             store = store_from_env()
             cid = _resolve_handle(store, handle).id

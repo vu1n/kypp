@@ -391,6 +391,17 @@ export class D1Store {
     return merged;
   }
 
+  // A read-only copy of what this caller sees (accepted and candidate, every level), paged by id,
+  // for an offline cache. Same visibility as recall; nothing here ranks, promotes or writes.
+  async snapshot(project: string | null, groups: string[], user: string | null, after: string, limit: number): Promise<Claim[]> {
+    const [where, params] = visible("c", project, groups, user, "all", null);
+    const [screen, sparams] = this.screen("c", null);
+    const { results } = await this.db.prepare(
+      `SELECT ${claimColumns("c")} FROM memory_claims c WHERE ${where}${screen} AND c.id > ? ORDER BY c.id LIMIT ?`,
+    ).bind(...params, ...sparams, after, limit).all();
+    return results.map(hydrate);
+  }
+
   // Code → entries, and entries → code. Line numbers are not stored.
   async linkPointer(entryRef: string, path: string, claimId = "", symbol = "", kind = "context"): Promise<string> {
     const row = pointerRow(claimId, entryRef, path, symbol, kind);
