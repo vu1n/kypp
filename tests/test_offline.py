@@ -9,6 +9,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 from unittest import mock
@@ -28,6 +29,9 @@ class _Worker(http.server.BaseHTTPRequestHandler):
     refuse: set = set()  # ops answered 400
     page = 2
     claim_reply: dict = {}
+    applied: dict = {}  # idempotency key -> claim id, as the Worker's operator_receipts
+    old = False  # a Worker deployed before idempotency keys: no `capabilities`, `key` ignored
+
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -40,8 +44,17 @@ class _Worker(http.server.BaseHTTPRequestHandler):
             rest = [c for c in self.claims if c["id"] > body.get("after", "")]
             got = rest[:self.page]
             return self._send(200, {"claims": got, "next": got[-1]["id"] if len(rest) > self.page else None})
+        if body["op"] == "capabilities":
+            if self.old:
+                return self._send(400, {"error": 'unknown op "capabilities"'})
+            return self._send(200, {"idempotent_writes": True})
+        if body["op"] == "remember" and self.old:
+            self.applied[len(self.applied)] = body["subject"]
+            return self._send(200, {"id": "e" * 32, "status": "candidate"})
         if body["op"] == "remember":
-            return self._send(200, {"id": "f" * 32, "status": "candidate"})
+            replayed = body.get("key") in self.applied
+            cid = self.applied.setdefault(body.get("key"), f"{len(self.applied):032x}")
+            return self._send(200, {"id": cid, "status": "candidate", "key": body.get("key"), "replayed": replayed})
         if body["op"] in ("purge", "reject"):
             return self._send(200, self.claim_reply)
         return self._send(200, {"text": "online answer"})
@@ -77,7 +90,7 @@ def _run(main, *argv) -> tuple[str, str]:
 class OfflineTest(unittest.TestCase):
     def setUp(self):
         _Worker.claims = [_claim(1), _claim(2, status="candidate"), _claim(3, type="pitfall")]
-        _Worker.seen, _Worker.refuse, _Worker.page = [], set(), 2
+        _Worker.seen, _Worker.refuse, _Worker.page, _Worker.applied, _Worker.old = [], set(), 2, {}, False
         self.srv = http.server.HTTPServer(("127.0.0.1", 0), _Worker)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.addCleanup(self.srv.server_close)
@@ -178,57 +191,246 @@ class OfflineTest(unittest.TestCase):
         out, _ = self.sync()
         self.assertIn("sent 0 queued write(s)", out)
 
-    def test_a_write_without_a_200_is_never_sent_again_on_its_own(self):
-        # An error answer, a gateway error or a lost reply may follow a committed write (the Worker answers
-        # 400 even after a commit, and has no idempotency key), so only the operator decides.
+    def test_a_write_without_a_200_is_sent_again_under_its_key_and_lands_once(self):
+        # A refusal, a gateway error or a lost reply after a commit: the next sync resends the same key,
+        # and the Worker returns the first claim instead of inserting another.
         for failure in ("refused", "lost"):
             with self.subTest(failure=failure):
                 self.setUp()
                 dead = _dead_url()
                 self.offline_copy(dead)
                 with self.env_at(dead):
-                    _run(shell.remember_main, "leaked", "the token is abc")
+                    _run(shell.remember_main, "a", "first")
                     _run(shell.remember_main, "b", "second")
                 self.back_online()
-                orig = remote.call
+                orig, fails = remote.call, [1]
 
-                def fail(op, **args):
-                    if op == "remember":
-                        _Worker.seen.append({"op": op, **args})
+                def flaky(op, **args):
+                    if op == "remember" and fails:
+                        fails.pop()
+                        if failure == "lost":
+                            orig(op, **args)  # committed; the answer never arrives
                         raise SystemExit("kypp: answered 400" if failure == "refused" else "kypp: timed out")
                     return orig(op, **args)
 
-                with self.env_at(self.url), mock.patch.object(remote, "call", fail):
+                with self.env_at(self.url), mock.patch.object(remote, "call", flaky):
                     with self.assertRaises(SystemExit) as e:
                         _run(offline.sync_main)
-                self.assertIn("may already be in the hosted store", str(e.exception.code))
+                self.assertIn("sends it again under the same key", str(e.exception.code))
                 self.assertIn("cached", str(e.exception.code))  # the copy still refreshed
-                for _ in range(2):  # e.g. the operator purged it meanwhile: still not re-sent
-                    with self.assertRaises(SystemExit) as e:
-                        self.sync()
-                    self.assertIn("--resend 1", str(e.exception.code))
-                self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
                 with self.env_at(self.url):
-                    out, _ = _run(offline.sync_main, "--drop", "1")
-                self.assertIn("dropped queued write #1", out)
-                self.assertIn("sent 1 queued write(s)", out)  # "b" goes once the operator decided
+                    self.assertEqual(len(offline._queued(offline._db(), "p")), 2)  # "b" waits behind "a"
+                out, _ = self.sync()
+                self.assertIn("sent 2 queued write(s)", out)
+                sent = [b for b in _Worker.seen if b["op"] == "remember"]
+                self.assertEqual([b["subject"] for b in sent], ["a", "a", "b"] if failure == "lost" else ["a", "b"])
+                self.assertEqual(len({b["key"] for b in sent}), 2)  # a resend reuses its key
+                self.assertEqual(len(_Worker.applied), 2)
 
-    def test_resend_sends_a_write_the_operator_checked(self):
+    def test_a_row_sent_before_keys_waits_for_the_operator(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+            _run(shell.remember_main, "b", "second")
+        self.back_online()
+        with self.env_at(self.url):
+            db = offline._db()
+            db.execute("UPDATE outbox SET key = NULL")  # as a cache from before keys
+            db.execute("UPDATE outbox SET sent_at = 'earlier' WHERE seq = 1")
+            db.commit()
+        for _ in range(2):
+            with self.assertRaises(SystemExit) as e:
+                self.sync()
+            self.assertIn("without an idempotency key", str(e.exception.code))
+            self.assertIn("--resend 1", str(e.exception.code))
+        self.assertEqual([b for b in _Worker.seen if b["op"] == "remember"], [])
+        with self.env_at(self.url):
+            out, _ = _run(offline.sync_main, "--resend", "1")
+        self.assertIn("sent 2 queued write(s)", out)  # an unsent row from before keys gets one
+        self.assertTrue(all(b.get("key") for b in _Worker.seen if b["op"] == "remember"))
+
+    def test_a_lost_reply_from_a_worker_without_keys_is_never_resent_on_its_own(self):
+        # A Worker deployed before keys ignores `key`; a resend after a committed write would duplicate it.
+        _Worker.old = True
         dead = _dead_url()
         self.offline_copy(dead)
         with self.env_at(dead):
             _run(shell.remember_main, "a", "first")
         self.back_online()
-        with self.env_at(self.url):
-            db = offline._db()
-            db.execute("UPDATE outbox SET sent_at = 'earlier'")
-            db.commit()
+        orig, fails = remote.call, [1]
+
+        def lost(op, **args):
+            if op == "remember" and fails:
+                fails.pop()
+                orig(op, **args)  # committed; the answer never arrives
+                raise SystemExit("kypp: timed out")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
+            with self.assertRaises(SystemExit) as e:
+                _run(offline.sync_main)
+        self.assertIn("predates idempotency keys", str(e.exception.code))
+        _Worker.old = False  # even once the Worker is upgraded, the unkeyed send stays the operator's call
+        for _ in range(2):
+            with self.assertRaises(SystemExit) as e:
+                self.sync()
+            self.assertIn("--resend 1", str(e.exception.code))
+        self.assertEqual(len(_Worker.applied), 1)
+        self.assertNotIn("key", [k for b in _Worker.seen if b["op"] == "remember" for k in b])
+
+    def test_a_keyed_row_is_not_resent_to_a_worker_that_stopped_honouring_keys(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        _Worker.refuse = {"remember"}
         with self.assertRaises(SystemExit):
             self.sync()
-        with self.env_at(self.url):
-            out, _ = _run(offline.sync_main, "--resend", "1")
-        self.assertIn("sent 1 queued write(s)", out)
+        _Worker.refuse, _Worker.old = set(), True
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("no longer honours idempotency keys", str(e.exception.code))
         self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
+
+    def test_a_resend_that_cannot_connect_keeps_the_earlier_send_on_record(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        orig, fails = remote.call, [1]
+
+        def lost(op, **args):
+            if op == "remember" and fails:
+                fails.pop()
+                orig(op, **args)  # committed; the answer never arrives
+                raise SystemExit("kypp: timed out")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+
+        def offline_resend(op, **args):
+            if op == "remember":
+                raise remote.Unreachable("kypp: can't reach it")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", offline_resend):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+        _Worker.old = True  # the Worker is downgraded: the row was sent once, so it stays the operator's call
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("no longer honours idempotency keys", str(e.exception.code))
+        self.assertEqual(len(_Worker.applied), 1)
+
+    def test_a_row_sent_to_a_worker_without_keys_loses_its_key(self):
+        # Keyed Worker, the send can't connect; downgraded Worker, the reply is lost; upgraded again.
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        orig = remote.call
+
+        def unreachable(op, **args):
+            if op == "remember":
+                raise remote.Unreachable("kypp: can't reach it")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", unreachable):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+        _Worker.old = True
+
+        def lost(op, **args):
+            res = orig(op, **args)
+            if op == "remember":
+                raise SystemExit("kypp: timed out")
+            return res
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+        _Worker.old = False
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("without an idempotency key", str(e.exception.code))
+        self.assertEqual(len(_Worker.applied), 1)
+
+    def test_a_cache_from_before_keys_gains_the_column(self):
+        import sqlite3
+        path = self.env["KYPP_CACHE_DB"]
+        old = sqlite3.connect(path)
+        old.execute("CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project TEXT "
+                    "NOT NULL, op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT)")
+        old.execute("INSERT INTO outbox(url, project, op, args, queued_at) VALUES(?, 'p', 'remember', ?, 'x')",
+                    (self.url, json.dumps({"subject": "old", "content": "row", "project": "p"})))
+        old.commit()
+        old.close()
+        out, _ = self.sync()
+        self.assertIn("sent 1 queued write(s)", out)
+
+    def test_clis_opening_an_old_cache_at_once_add_the_column_once(self):
+        import sqlite3
+        path = self.env["KYPP_CACHE_DB"]
+        connect = sqlite3.connect
+
+        class Slow(sqlite3.Connection):
+            # Widens the gap between reading the schema and changing it, where a second CLI could step in.
+            def execute(self, sql, *a):
+                cur = super().execute(sql, *a)
+                if sql.startswith("PRAGMA table_info"):
+                    time.sleep(0.05)
+                return cur
+
+        def slow(*a, **kw):
+            return connect(*a, factory=Slow, **kw)
+
+        for round_ in range(3):
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(path)
+            old = sqlite3.connect(path)
+            old.execute("CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project "
+                        "TEXT NOT NULL, op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT)")
+            old.commit()
+            old.close()
+            gate, errors = threading.Barrier(6), []
+
+            def open_it():
+                gate.wait()
+                try:
+                    offline._db().close()
+                except Exception as e:  # noqa: BLE001 - the test reports any failure
+                    errors.append(e)
+
+            with mock.patch.dict(os.environ, self.env), mock.patch.object(offline.sqlite3, "connect", slow):
+                threads = [threading.Thread(target=open_it) for _ in range(6)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+            self.assertEqual(errors, [], f"round {round_}")
+
+    def test_drop_discards_a_write_the_worker_keeps_refusing(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+            _run(shell.remember_main, "b", "second")
+        self.back_online()
+        _Worker.refuse = {"remember"}
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("--drop 1", str(e.exception.code))
+        _Worker.refuse = set()
+        with self.env_at(self.url):
+            out, _ = _run(offline.sync_main, "--drop", "1")
+        self.assertIn("dropped queued write #1", out)
+        self.assertIn("sent 1 queued write(s)", out)
 
     def test_a_tampered_queue_row_never_becomes_another_operator_write(self):
         dead = _dead_url()
@@ -245,7 +447,7 @@ class OfflineTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as e:
             self.sync()
         self.assertIn("never queued", str(e.exception.code))
-        sent = [b for b in _Worker.seen if b["op"] not in ("snapshot",)]
+        sent = [b for b in _Worker.seen if b["op"] not in ("snapshot", "capabilities")]
         self.assertEqual([b["op"] for b in sent], ["remember"])
         self.assertNotIn("authority", sent[0])
 

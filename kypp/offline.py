@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import time
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS synced (url TEXT NOT NULL, project TEXT NOT NULL, at 
 CREATE TABLE IF NOT EXISTS forgotten (url TEXT NOT NULL, id TEXT NOT NULL, purged INTEGER NOT NULL, at REAL NOT NULL,
   PRIMARY KEY (url, id));
 CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project TEXT NOT NULL,
-  op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT);
+  op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT, key TEXT);
 """
 
 
@@ -56,6 +57,16 @@ def _db() -> sqlite3.Connection:
         os.umask(old)
     os.chmod(path, 0o600)
     db.executescript(_SCHEMA)
+    # A cache made before writes carried keys gains the column; push gives each row its key. The check
+    # and the ALTER share one write transaction, so two CLIs opening an old cache can't both add it.
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        if "key" not in {r[1] for r in db.execute("PRAGMA table_info(outbox)")}:
+            db.execute("ALTER TABLE outbox ADD COLUMN key TEXT")
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
     return db
 
 
@@ -192,32 +203,56 @@ def forget(claim_id: str, purged: bool) -> None:
             db.execute("DELETE FROM claims WHERE url = ? AND id = ?", (_url(), claim_id))
 
 
+def _keyed() -> bool:
+    """Whether the Worker honours idempotency keys. One deployed before them ignores `key`."""
+    try:
+        return remote.call("capabilities").get("idempotent_writes") is True
+    except remote.Unreachable:
+        raise
+    except SystemExit as e:
+        if "unknown op" in str(e.code):
+            return False
+        raise
+
+
 def push(db: sqlite3.Connection) -> int:
-    """Send queued writes in order. Each is marked sent before its request and leaves the queue only
-    after a 200. Only a request that never got a connection is unmarked again. Any other failure (an
-    error answer, a timeout, a dropped connection) may follow a committed write: the Worker answers 400
-    for any failure, even after a commit, and has no idempotency key. So a marked write is never sent
-    again on its own; the operator checks the hosted store and runs `--drop N` or `--resend N`."""
-    sent = 0
-    for seq, op, raw, sent_at in db.execute(
-            "SELECT seq, op, args, sent_at FROM outbox WHERE url = ? ORDER BY seq", (_url(),)).fetchall():
+    """Send queued writes in order. Against a Worker that honours keys, each is sent under its own
+    idempotency key, so it is applied at most once however often it is sent: a write leaves the queue
+    only after a 200, and any other answer (or none) leaves it, and the writes after it, for the next
+    `kypp sync` to send again. A row sent without a key (to an older Worker, or by an older CLI) may or
+    may not have landed, so it is never resent on its own: the operator decides it."""
+    sent, keyed = 0, None
+    for seq, op, raw, sent_at, key in db.execute(
+            "SELECT seq, op, args, sent_at, key FROM outbox WHERE url = ? ORDER BY seq", (_url(),)).fetchall():
         if op not in _QUEUEABLE:
             raise SystemExit(f"kypp: queued write #{seq} is `{op}`, which is never queued; "
                              f"drop it with `kypp sync --drop {seq}`")
         stored = json.loads(raw)
         args = {k: stored.get(k) for k in _QUEUEABLE[op]}
-        if sent_at:
-            raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at} and no 200 came back"))
+        # A row keeps a key only while every send of it went to a Worker that honours keys: it is fixed on
+        # disk before such a send and cleared before any other, so only a keyed row is resent on its own.
+        if keyed is None:
+            keyed = _keyed()
+        if sent_at and not (key and keyed):
+            why = "and the Worker no longer honours idempotency keys" if key else "without an idempotency key"
+            raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at} {why} and no 200 came back"))
+        key = (key or secrets.token_hex(16)) if keyed else None
         with db:
-            db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (_now(), seq))
+            db.execute("UPDATE outbox SET sent_at = ?, key = ? WHERE seq = ?", (_now(), key, seq))
         try:
-            remote.call(op, **args)
+            remote.call(op, key=key, **args)
         except remote.Unreachable:
-            with db:  # no connection was made, so nothing was applied
-                db.execute("UPDATE outbox SET sent_at = NULL WHERE seq = ?", (seq,))
+            with db:  # this attempt never connected; an earlier send may still have landed, so keep its mark
+                db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (sent_at, seq))
             raise
         except SystemExit as e:
-            raise SystemExit(f"{e.code}\n" + _unsure(seq, args, "the Worker didn't answer 200")) from None
+            if not key:
+                raise SystemExit(f"{e.code}\n" + _unsure(seq, args, "the Worker (which predates idempotency keys) "
+                                                               "didn't answer 200")) from None
+            raise SystemExit(f"{e.code}\nkypp: queued write #{seq} ({args.get('subject')!r}) and the writes after "
+                             f"it stay queued; the next `kypp sync` sends it again under the same key, so it lands "
+                             f"at most once. If the Worker refused it, fix the cause or run "
+                             f"`kypp sync --drop {seq}`.") from None
         with db:
             db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
         sent += 1
@@ -252,7 +287,8 @@ def sync_main():
     ap.add_argument("--drop", type=int, action="append", default=[], metavar="N",
                     help="discard queued write #N without sending it (it reached the store, or it was refused)")
     ap.add_argument("--resend", type=int, action="append", default=[], metavar="N",
-                    help="send queued write #N again: you checked that the hosted store doesn't have it")
+                    help="send queued write #N again (one sent without an idempotency key): you checked that the "
+                         "hosted store doesn't have it")
     args = ap.parse_args()
     if not remote.remote_url():
         raise SystemExit("kypp sync: set KYPP_URL; the local store needs no sync")

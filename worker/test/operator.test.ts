@@ -287,3 +287,69 @@ test("snapshot pages the operator's live view of one project by id, without reje
   assert.deepEqual(new Set([...first.body!.claims, ...rest.body!.claims].map((c: any) => c.status)), new Set(["accepted", "candidate"]));
   assert.equal((await call({ op: "snapshot", project: "nope" })).status, 400);
 });
+
+test("a remember resent with its key lands once, and a key reused for another write is refused", async () => {
+  const { db, call, row } = await setup();
+  const write = { op: "remember", subject: "deploy", content: "ship on green", project: "p", key: "k".repeat(24) };
+  const first = await call(write);
+  assert.equal(first.status, 200);
+  assert.equal(first.body!.replayed, false);
+  const again = await call(write);
+  assert.equal(again.status, 200);
+  assert.deepEqual(again.body, { id: first.body!.id, status: "candidate", key: write.key, replayed: true });
+  const n = async () => (await db.prepare("SELECT count(*) AS n FROM memory_claims WHERE subject = 'deploy'").first() as any).n;
+  assert.equal(await n(), 1);
+  const other = await call({ ...write, content: "ship any time" });
+  assert.equal(other.status, 400);
+  assert.match(other.body!.error, /already used for a different write/);
+  assert.equal(await n(), 1);
+  // A purged claim is not written back by a late resend of its key.
+  await call({ op: "purge", handle: first.body!.id, reason: "leaked" });
+  const late = await call(write);
+  assert.equal(late.body!.replayed, true);
+  assert.equal(late.body!.status, "rejected");
+  assert.equal(await n(), 0);
+  assert.equal((await row(first.body!.id)).content, "[purged]");
+});
+
+test("a send of a key that loses the race to another send of it returns the winner's claim", async () => {
+  const db = memoryD1();
+  const input = { type: "fact" as const, subject: "race", content: "one copy", scope: "global" as const, project: null,
+    confidence: 0.7, sourceIds: [], codeRefs: [], accept: false, agent: "kypp-cli", user: "owner" };
+  const key = "r".repeat(24);
+  let winner = "";
+  // The other send commits after this one checked for a receipt and before its batch runs.
+  const racing = new Proxy(db, { get: (t, p) => p !== "batch" ? (t as any)[p] : async (stmts: unknown[]) => {
+    if (!winner) winner = (await new D1Store(db).operatorClaim(input, "remember", null, key)).id;
+    return t.batch(stmts as any);
+  } });
+  const loser = await new D1Store(racing).operatorClaim(input, "remember", null, key);
+  assert.deepEqual(loser, { id: winner, superseded: 0, replayed: true });
+  assert.equal((await db.prepare("SELECT count(*) AS n FROM memory_claims WHERE subject = 'race'").first() as any).n, 1);
+});
+
+test("a malformed key is refused before anything is written, and no key keeps the old answer", async () => {
+  const { call } = await setup();
+  const bad = await call({ op: "remember", subject: "s", content: "c", project: "p", key: "short" });
+  assert.equal(bad.status, 400);
+  const plain = await call({ op: "remember", subject: "s", content: "c", project: "p" });
+  assert.deepEqual(Object.keys(plain.body!).sort(), ["id", "status"]);
+});
+
+test("a keyed correct resent after a purge reports the claim's current status and is not written back", async () => {
+  const { call, row } = await setup();
+  const write = { op: "correct", subject: "deploy", content: "ship on green", project: "p", key: "c".repeat(24) };
+  const first = await call(write);
+  assert.deepEqual(first.body, { id: first.body!.id, superseded: 0, key: write.key, replayed: false, status: "accepted" });
+  await call({ op: "purge", handle: first.body!.id, reason: "leaked" });
+  const late = await call(write);
+  assert.deepEqual(late.body, { id: first.body!.id, superseded: 0, key: write.key, replayed: true, status: "rejected" });
+  assert.equal((await row(first.body!.id)).content, "[purged]");
+  const plain = await call({ op: "correct", subject: "other", content: "x", project: "p" });
+  assert.deepEqual(Object.keys(plain.body!).sort(), ["id", "superseded"]);
+});
+
+test("capabilities says this Worker honours idempotency keys", async () => {
+  const { call } = await setup();
+  assert.deepEqual((await call({ op: "capabilities" })).body, { idempotent_writes: true });
+});

@@ -237,7 +237,9 @@ export class D1Store {
   // Only POST /v1/operator calls this; it is the hosted writer of human authority and of verify commands.
   // Correction explicitly replaces this group's live rows, including its audit, in the insert batch.
   // It is not a consolidation rank contest: tied clocks or lower confidence cannot discard it.
-  async operatorClaim(c: ClaimInput, op: "remember" | "correct", verify: string | null): Promise<{ id: string; superseded: number }> {
+  // With a key, the write lands at most once: the receipt is inserted in the claim's own batch, so a
+  // resend of the key (after a lost answer) returns the first claim instead of inserting another.
+  async operatorClaim(c: ClaimInput, op: "remember" | "correct", verify: string | null, key: string | null = null): Promise<{ id: string; superseded: number; replayed: boolean }> {
     if (!TYPES.includes(c.type)) throw new Error(`bad type ${c.type}`);
     if (!SCOPES.includes(c.scope) || c.scope === "group" || c.scope === "room") throw new Error(`bad scope ${c.scope}`);
     if (c.scope === "project" && !c.project) throw new Error("a project-scoped operator claim needs a known project");
@@ -248,7 +250,20 @@ export class D1Store {
     const project = c.scope === "project" ? c.project : null;
     const confidence = Math.min(1, Math.max(0, Number(c.confidence) || 0));
     const codeRefs = cleanCodeRefs(c.codeRefs);
+    const fingerprint = key ? await sha256(JSON.stringify([op, c.type, c.subject, c.content, c.scope, project,
+      c.project, confidence, !!c.accept, verify, c.agent, c.user])) : "";
+    const replay = async () => {
+      const r = await this.db.prepare("SELECT fingerprint, claim_id FROM operator_receipts WHERE key = ?").bind(key).first<{ fingerprint: string; claim_id: string }>();
+      if (r && r.fingerprint !== fingerprint) throw new Error(`key ${JSON.stringify(key)} was already used for a different write`);
+      return r ? { id: r.claim_id, superseded: 0, replayed: true } : null;
+    };
+    if (key) {
+      const prior = await replay();
+      if (prior) return prior;
+    }
     const statements = [
+      ...(key ? [this.db.prepare("INSERT INTO operator_receipts(key, fingerprint, claim_id, created_at) VALUES(?,?,?,?)")
+        .bind(key, fingerprint, id, ts)] : []),
       this.db.prepare(
         "INSERT INTO memory_claims(id,type,subject,content,scope,project,origin,session,agent,user,status,authority,confidence,source_ids,code_refs,metadata,verify,created_at,updated_at)"
         + " VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,'[]',?,'{}',?,?,?)",
@@ -273,8 +288,16 @@ export class D1Store {
         this.db.prepare(`UPDATE memory_claims SET status='superseded', updated_at=? WHERE ${prior}`).bind(ts, ...key),
       );
     }
-    const results = await this.db.batch(statements);
-    return { id, superseded: op === "correct" ? results[results.length - 1].meta.changes : 0 };
+    let results;
+    try {
+      results = await this.db.batch(statements);
+    } catch (e) {
+      // A concurrent send of the same key committed first: the receipt's primary key rolled this batch back.
+      const prior = key ? await replay() : null;
+      if (prior) return prior;
+      throw e;
+    }
+    return { id, superseded: op === "correct" ? results[results.length - 1].meta.changes : 0, replayed: false };
   }
 
   // Every claim the operator's `kypp verify` re-checks in this project: any status, so a rejected
@@ -782,4 +805,9 @@ export class D1Store {
     }
     return { applied, stale };
   }
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

@@ -15,6 +15,8 @@ const OPERATOR_USER = "owner";
 const SNAPSHOT_PAGE = 500;
 // A repo's bare name, as `resolveOrigin` matches the last segment of an origin like `owner/repo`.
 const PROJECT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+// An idempotency key the client makes once per write and sends again on every retry of it.
+const WRITE_KEY = /^[A-Za-z0-9_-]{16,128}$/;
 
 type Args = Record<string, any>;
 export interface OperatorOptions { s1?: S1Client | null; policy?: Policy }
@@ -63,13 +65,17 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       const where = scope === "project" ? await project() : null;
       if (scope === "project" && !where) throw new Error(`unknown project ${JSON.stringify(a.project)}; register it before writing project memory`);
       const subject = str(a.subject);
-      const { id, superseded } = await store.operatorClaim({
+      if (a.key != null && !(typeof a.key === "string" && WRITE_KEY.test(a.key))) throw new Error("key must be 16-128 letters, digits, '_' or '-'");
+      const key = a.key ?? null;
+      const { id, superseded, replayed } = await store.operatorClaim({
         type: a.type ?? "fact", subject, content: str(a.content), scope, project: where,
         confidence: a.confidence ?? (human ? HUMAN_CORRECTION_CONFIDENCE : 0.7), sourceIds: [], codeRefs: [],
         accept: !!a.accept, agent: caller.agent, user: OPERATOR_USER,
-      }, human ? "correct" : "remember", str(a.verify) || null);
-      if (!human) return { id, status: (await store.get(id, OPERATOR_USER))!.status };
-      return { id, superseded };
+      }, human ? "correct" : "remember", str(a.verify) || null, key);
+      // A replayed claim may since have been purged or moved out of the operator's view; report what it is now.
+      const status = (await store.anyClaim(id))?.status ?? "gone";
+      if (!human) return { id, status, ...(key ? { key, replayed } : {}) };
+      return { id, superseded, ...(key ? { key, replayed, status } : {}) };
     }
     case "reject": {
       const c = await store.get(str(a.handle), OPERATOR_USER);
@@ -98,6 +104,9 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       const claims = await store.snapshot(where, await store.ancestors(where), OPERATOR_USER, str(a.after), limit);
       return { project: where, claims, next: claims.length === limit ? claims[claims.length - 1].id : null };
     }
+    // What this Worker supports, so a newer CLI doesn't trust a feature an older deployment ignores.
+    case "capabilities":
+      return { idempotent_writes: true };
     case "projects":
       return { projects: await store.projects() };
     // Filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.
