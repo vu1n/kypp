@@ -239,8 +239,8 @@ def push(db: sqlite3.Connection) -> int:
         try:
             remote.call(op, key=key, **args)
         except remote.Unreachable:
-            with db:  # no connection was made, so nothing was applied
-                db.execute("UPDATE outbox SET sent_at = NULL WHERE seq = ?", (seq,))
+            with db:  # this attempt never connected; an earlier send may still have landed, so keep its mark
+                db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (sent_at, seq))
             raise
         except SystemExit as e:
             if not key:

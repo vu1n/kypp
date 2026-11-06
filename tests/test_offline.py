@@ -293,6 +293,39 @@ class OfflineTest(unittest.TestCase):
         self.assertIn("no longer honours idempotency keys", str(e.exception.code))
         self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
 
+    def test_a_resend_that_cannot_connect_keeps_the_earlier_send_on_record(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        orig, fails = remote.call, [1]
+
+        def lost(op, **args):
+            if op == "remember" and fails:
+                fails.pop()
+                orig(op, **args)  # committed; the answer never arrives
+                raise SystemExit("kypp: timed out")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+
+        def offline_resend(op, **args):
+            if op == "remember":
+                raise remote.Unreachable("kypp: can't reach it")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", offline_resend):
+            with self.assertRaises(SystemExit):
+                _run(offline.sync_main)
+        _Worker.old = True  # the Worker is downgraded: the row was sent once, so it stays the operator's call
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("no longer honours idempotency keys", str(e.exception.code))
+        self.assertEqual(len(_Worker.applied), 1)
+
     def test_a_cache_from_before_keys_gains_the_column(self):
         import sqlite3
         path = self.env["KYPP_CACHE_DB"]

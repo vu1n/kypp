@@ -31,7 +31,8 @@ operator's view of the project (`POST /v1/operator` `snapshot`, 500 claims a pag
 - A Worker deployed before keys answers `unknown op` to `capabilities` and ignores `key`, so the write
   goes without one. A row sent without a key (to such a Worker, or by an older CLI), or a keyed row the
   Worker no longer honours, may or may not have landed: it blocks the push until the operator checks and
-  runs `--drop N` or `--resend N`. A send that never connected is unmarked and goes again as new.
+  runs `--drop N` or `--resend N`. A send that never connected restores the row's earlier mark (none if
+  it was never sent), so an earlier, maybe committed send stays on record.
 - The cache is a copy, never an authority: nothing in `offline.py` accepts, promotes or supersedes. The
   Worker applies its own rules when a queued write arrives.
 - `correct`, `reject` and `purge` are refused offline (`shell._online`): they replace or retire memory
