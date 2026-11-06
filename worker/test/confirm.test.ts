@@ -166,3 +166,17 @@ test("a rating confirms only for a caller that could write at the claim's level,
   await consolidate(store, NOW, null);
   assert.equal(await status(db, id), "accepted", "a writer pinned to kypp may confirm it");
 });
+
+test("a feedback-backed promotion still waits when the S1 judge finds the claims conflicted", async () => {
+  const s1 = { systemOne: async ({ state }: any) =>
+    ({ answers: { agree: { type: "noul", noul: state.claims.some((c: any) => c.content.includes("8788")) ? 0.1 : 0.9 } } }) } as any;
+  const db = await setup(), store = new D1Store(db);
+  const id = (await agent(db, "w")("claim", LESSON)).split("\n")[0];
+  const r = agent(db, "r");
+  await r("recall", { query: "wrangler port" });
+  const echo = (await r("claim", { ...LESSON, content: "wrangler dev listens on 8788", confidence: 0.9 })).split("\n")[0];
+  await r("feedback", { ratings: [{ handle: id, ...USED }] });
+  await consolidate(store, NOW, s1);
+  assert.deepEqual([await status(db, id), await status(db, echo)], ["candidate", "candidate"],
+    "held: nothing promotes, and the echo doesn't retire the rated claim");
+});
