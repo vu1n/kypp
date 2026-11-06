@@ -406,6 +406,34 @@ class OfflineTest(unittest.TestCase):
             out, _ = _run(shell.recall_main, "lesson", "--limit", "0")
             self.assertEqual(out.strip(), "(no matching memory)")
 
+    def test_a_reject_during_a_pull_stays_out_until_a_later_sync(self):
+        self.sync()
+        orig = remote.call
+
+        def reject_mid_pull(op, **args):
+            res = orig(op, **args)
+            if op == "snapshot" and not args.get("after"):
+                offline.forget(_claim(1)["id"], purged=False)  # another process rejects mid-pull
+            return res
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", reject_mid_pull):
+            _run(offline.sync_main)
+            self.assertNotIn(_claim(1)["id"], [c["id"] for c in offline._cached(offline._db(), "p")])
+        self.sync()  # a fresh snapshot that still holds it (revived by verify) brings it back
+        with self.env_at(self.url):
+            self.assertIn(_claim(1)["id"], [c["id"] for c in offline._cached(offline._db(), "p")])
+
+    def test_show_finds_a_handle_from_any_synced_project(self):
+        with self.env_at(self.url):
+            _run(offline.sync_main, "--project", "q")
+            db = offline._db()
+            db.execute("UPDATE claims SET url = ?", (dead := _dead_url(),))
+            db.execute("UPDATE synced SET url = ?", (dead,))
+            db.commit()
+        with self.env_at(dead):  # KYPP_PROJECT is p; the handle came from q's copy
+            out, _ = _run(shell.show_main, _claim(2)["id"][:8])
+        self.assertEqual(json.loads(out)["subject"], "subject 2")
+
     def test_a_failed_pull_keeps_the_previous_copy(self):
         self.sync()
         _Worker.claims = [_claim(4), _claim(5), _claim(6)]

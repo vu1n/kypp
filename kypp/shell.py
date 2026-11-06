@@ -116,8 +116,7 @@ def show_main():
             claim = remote.call("show", handle=args.handle)["claim"]
         except remote.Unreachable as e:
             from . import offline
-            project = remote.default_project()
-            claim = offline.show(offline.open_cache(project, e), project, args.handle)
+            claim = offline.show(offline.open_cache(None, e), args.handle)
         print(json.dumps(claim, indent=2))
         return
     print(json.dumps(asdict(_resolve_handle(store_from_env(), args.handle)), indent=2))

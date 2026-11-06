@@ -15,6 +15,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -29,7 +30,8 @@ CREATE TABLE IF NOT EXISTS claims (url TEXT NOT NULL, project TEXT NOT NULL, id 
   PRIMARY KEY (url, project, id));
 CREATE TABLE IF NOT EXISTS synced (url TEXT NOT NULL, project TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (url, project));
-CREATE TABLE IF NOT EXISTS forgotten (url TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (url, id));
+CREATE TABLE IF NOT EXISTS forgotten (url TEXT NOT NULL, id TEXT NOT NULL, purged INTEGER NOT NULL, at REAL NOT NULL,
+  PRIMARY KEY (url, id));
 CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project TEXT NOT NULL,
   op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT);
 """
@@ -77,13 +79,15 @@ def _queued(db: sqlite3.Connection, project: str) -> list[dict]:
     return [{"op": op, "queued_at": at, **json.loads(a)} for op, a, at in rows]
 
 
-def open_cache(project: str, cause: remote.Unreachable) -> sqlite3.Connection:
-    """The cache for this Worker and project, announced on stderr. With no sync yet there is nothing
-    to answer from, so the original can't-reach error stands."""
+def open_cache(project: str | None, cause: remote.Unreachable) -> sqlite3.Connection:
+    """The cache for this Worker and project (None: any synced project), announced on stderr. With no
+    sync yet there is nothing to answer from, so the original can't-reach error stands."""
     db = _db()
-    at = _synced_at(db, project)
+    at = _synced_at(db, project) if project is not None else db.execute(
+        "SELECT max(at) FROM synced WHERE url = ?", (_url(),)).fetchone()[0]
     if at is None:
-        raise SystemExit(f"{cause.code}\nkypp: no offline copy of {project!r} yet; run `kypp sync` while online")
+        raise SystemExit(f"{cause.code}\nkypp: no offline copy of {project or 'any project'!r} yet; "
+                         "run `kypp sync` while online")
     print(f"kypp: offline ({cause.code.removeprefix('kypp: ')}); answering from the copy synced {at}",
           file=sys.stderr)
     return db
@@ -130,8 +134,10 @@ def briefing(db: sqlite3.Connection, project: str, limit: int) -> str:
     return "\n".join(_line(c) for c in claims[:limit]) or "(no accepted memory yet)"
 
 
-def show(db: sqlite3.Connection, project: str, handle: str) -> dict:
-    found = [c for c in _cached(db, project) if c["id"].startswith(handle)] if len(handle) >= 8 else []
+def show(db: sqlite3.Connection, handle: str) -> dict:
+    """A handle from any synced project of this Worker, as online `show` isn't project-scoped either."""
+    rows = db.execute("SELECT id, body FROM claims WHERE url = ?", (_url(),))
+    found = list({i: json.loads(b) for i, b in rows if i.startswith(handle)}.values()) if len(handle) >= 8 else []
     if len(found) != 1:
         raise SystemExit(f"kypp: no single cached claim {handle!r} ({len(found)} match)")
     return found[0]
@@ -193,8 +199,11 @@ def forget(claim_id: str, purged: bool) -> None:
         db = _db()
         with db:
             # The tombstone outlives a pull that fetched the claim before the purge and writes after it.
-            if purged:
-                db.execute("INSERT OR IGNORE INTO forgotten(url, id) VALUES(?, ?)", (_url(), claim_id))
+            # A reject's mark only fences pulls already in flight: a later snapshot may hold the claim again
+            # after `kypp verify` revives it. A purge's mark is permanent.
+            db.execute("INSERT INTO forgotten(url, id, purged, at) VALUES(?, ?, ?, ?) ON CONFLICT(url, id) DO UPDATE"
+                       " SET purged = max(purged, excluded.purged), at = excluded.at",
+                       (_url(), claim_id, int(purged), time.time()))
             db.execute("DELETE FROM claims WHERE url = ? AND id = ?", (_url(), claim_id))
 
 
@@ -243,10 +252,12 @@ def push(db: sqlite3.Connection) -> int:
 
 def pull(db: sqlite3.Connection, project: str) -> int:
     """Replace this project's copy with the Worker's current view, all pages or nothing."""
+    started = time.time()
     claims = _fetch(project)
     with db:
         db.execute("DELETE FROM claims WHERE url = ? AND project = ?", (_url(), project))
-        gone = {i for (i,) in db.execute("SELECT id FROM forgotten WHERE url = ?", (_url(),))}
+        gone = {i for (i,) in db.execute("SELECT id FROM forgotten WHERE url = ? AND (purged = 1 OR at >= ?)",
+                                         (_url(), started))}
         db.executemany("INSERT INTO claims(url, project, id, body) VALUES(?,?,?,?)",
                        [(_url(), project, c["id"], json.dumps(c)) for c in claims if c["id"] not in gone])
         db.execute("INSERT OR REPLACE INTO synced(url, project, at) VALUES(?,?,?)", (_url(), project, _now()))
