@@ -62,17 +62,18 @@ test("only claims shown to this session can be rated, and used/wrong need a note
 
   await r("expand", { handle: id });
   const bare = await r("feedback", { ratings: [
-    { handle: id, verdict: "used" }, { handle: id, verdict: "wrong", note: " " }, { handle: id, verdict: "great" }, { handle: "zz", verdict: "used", note: "x" },
+    { handle: id, verdict: "used" }, { handle: id, verdict: "wrong", note: " " }, { handle: id, verdict: "great" }, { handle: id, verdict: "constructor", note: "x" }, { handle: "zz", verdict: "used", note: "x" },
   ] });
   assert.match(bare.text, /^recorded 0 ratings/);
   assert.match(bare.text, /used needs a note/);
   assert.match(bare.text, /wrong needs a note/);
   assert.match(bare.text, /verdict must be used, not_used or wrong/);
+  assert.equal(bare.text.match(/verdict must be used, not_used or wrong/g)?.length, 2, "an inherited property name is no verdict");
   assert.match(bare.text, /bad claim handle/);
   assert.equal((await feedbackRows(db)).length, 0);
 
-  const ok = await r("feedback", { ratings: [{ handle: id, verdict: "wrong", note: "the port is 8788 now" }] });
-  assert.equal(ok.text, "recorded 1 rating");
+  const ok = await r("feedback", { ratings: [{ handle: id, verdict: "toString", note: "x" }, { handle: id, verdict: "wrong", note: "the port is 8788 now" }] });
+  assert.match(ok.text, /^recorded 1 rating\nskipped:/);
   assert.deepEqual((await feedbackRows(db)).map((x) => x.score), [-1]);
 });
 

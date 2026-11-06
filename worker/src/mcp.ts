@@ -323,7 +323,7 @@ async function feedback(store: D1Store, a: Args, session: string | null): Promis
   // Each rating stands alone: a bad one is reported and skipped, the rest are recorded.
   const checked = await Promise.all((ratings as Args[]).map(async (r) => {
     const handle = String(r?.handle ?? ""), verdict = String(r?.verdict ?? "");
-    if (!(verdict in VERDICTS)) return `${handle}: verdict must be used, not_used or wrong`;
+    if (!Object.hasOwn(VERDICTS, verdict)) return `${handle}: verdict must be used, not_used or wrong`;
     const note = typeof r.note === "string" && r.note.trim() ? r.note.trim().slice(0, MAX_NOTE) : null;
     // A bare "used" or "wrong" is cheap to rubber-stamp, so both carry what the agent checked.
     if (!note && verdict !== "not_used") return `${handle}: ${verdict} needs a note saying what you checked`;
