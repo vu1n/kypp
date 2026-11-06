@@ -9,6 +9,7 @@ the queued write reaches it.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -37,8 +38,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _path() -> str:
+    return os.environ.get("KYPP_CACHE_DB", os.path.expanduser("~/.kypp/offline.db"))
+
+
 def _db() -> sqlite3.Connection:
-    path = os.environ.get("KYPP_CACHE_DB", os.path.expanduser("~/.kypp/offline.db"))
+    path = _path()
     os.makedirs(os.path.dirname(path) or ".", mode=0o700, exist_ok=True)
     # The copy holds the owner's user-scope memory: keep it, and SQLite's journal, this OS user's only.
     old = os.umask(0o077)
@@ -165,6 +170,21 @@ _QUEUEABLE = {"remember": ("type", "subject", "content", "scope", "project", "co
                            "agent")}
 
 
+def _payload(c: dict, accepted: bool) -> tuple:
+    """What a queued remember asked for, as the hosted claim it would have become."""
+    return (c["scope"], c["type"], c["subject"], c["content"], c.get("verify") or None,
+            round(float(c["confidence"]), 6), accepted)
+
+
+def forget(claim_id: str) -> None:
+    """Drop a claim the Worker just purged or rejected from every cached project, so the offline copy
+    can't serve it again (a purge is for leaked secrets)."""
+    if remote.remote_url() and os.path.exists(_path()):
+        db = _db()
+        with db:
+            db.execute("DELETE FROM claims WHERE url = ? AND id = ?", (_url(), claim_id))
+
+
 def push(db: sqlite3.Connection) -> int:
     """Send queued writes in order. Each is marked sent before the request and leaves the queue only
     after the Worker answered it. One sent before whose answer never came (a timeout, a dropped
@@ -180,8 +200,9 @@ def push(db: sqlite3.Connection) -> int:
         args = {k: stored.get(k) for k in _QUEUEABLE[op]}
         if sent_at:
             if args["project"] not in seen:
-                seen[args["project"]] = {(c["scope"], c["subject"], c["content"]) for c in _fetch(args["project"])}
-            if (args["scope"], args["subject"], args["content"]) in seen[args["project"]]:
+                seen[args["project"]] = {_payload(c, c["status"] == "accepted") for c in _fetch(args["project"])}
+            held = seen[args["project"]]
+            if _payload(args, True) in held or (not args["accept"] and _payload(args, False) in held):
                 with db:
                     db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
                 sent += 1
@@ -191,9 +212,9 @@ def push(db: sqlite3.Connection) -> int:
         try:
             remote.call(op, **args)
         except (remote.Unreachable, remote.Refused) as e:
+            with db:  # no connection was made, or the Worker said no: either way nothing was applied
+                db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (sent_at, seq))
             if isinstance(e, remote.Unreachable):
-                with db:  # no connection was made, so nothing was applied
-                    db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (sent_at, seq))
                 raise
             raise SystemExit(f"{e.code}\nkypp: the Worker refused queued write #{seq} (`{op}` {args.get('subject')!r}); "
                              f"it and the writes after it stay queued. Fix the cause, or drop it with "
@@ -229,6 +250,12 @@ def sync_main():
     if not remote.remote_url():
         raise SystemExit("kypp sync: set KYPP_URL; the local store needs no sync")
     db = _db()
+    # One replay at a time: two syncs sending the same unsent rows would each insert them.
+    lock = open(_path() + ".lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit("kypp sync: another `kypp sync` is running against this cache") from None
     for seq in args.drop:
         row = db.execute("SELECT op, args FROM outbox WHERE url = ? AND seq = ?", (_url(), seq)).fetchone()
         if not row:

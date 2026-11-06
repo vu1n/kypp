@@ -26,6 +26,7 @@ class _Worker(http.server.BaseHTTPRequestHandler):
     seen: list = []
     refuse: set = set()  # ops answered 400
     page = 2
+    claim_reply: dict = {}
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -40,6 +41,8 @@ class _Worker(http.server.BaseHTTPRequestHandler):
             return self._send(200, {"claims": got, "next": got[-1]["id"] if len(rest) > self.page else None})
         if body["op"] == "remember":
             return self._send(200, {"id": "f" * 32, "status": "candidate"})
+        if body["op"] in ("purge", "reject"):
+            return self._send(200, self.claim_reply)
         return self._send(200, {"text": "online answer"})
 
     def _send(self, code, obj):
@@ -259,6 +262,69 @@ class OfflineTest(unittest.TestCase):
                 remote.call("recall", query="x")
         self.assertNotIsInstance(e.exception, remote.Unreachable)
         self.assertIn("TLS", str(e.exception.code))
+
+    def test_a_refused_write_is_not_mistaken_for_an_applied_one(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "subject 1", "lesson number 1", "--accept")
+        self.back_online()
+        _Worker.refuse = {"remember"}
+        with self.assertRaises(SystemExit):
+            self.sync()
+        _Worker.refuse = set()
+        _Worker.claims[0] = {**_Worker.claims[0], "status": "candidate"}  # same text, but not what was asked
+        self.sync()
+        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 2)
+
+    def test_a_lost_answer_is_re_sent_when_the_hosted_claim_differs(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "subject 1", "lesson number 1", "--type", "pitfall")
+        self.back_online()
+        with self.env_at(self.url):
+            db = offline._db()
+            db.execute("UPDATE outbox SET sent_at = 'earlier'")
+            db.commit()
+        self.sync()  # the hosted "subject 1" is a fact, so this pitfall was never applied
+        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
+
+    def test_purge_and_reject_drop_the_cached_copy(self):
+        self.sync()
+        for op, cid in (("purge", _claim(1)["id"]), ("reject", _claim(3)["id"])):
+            _Worker.claim_reply = {"claim": {"id": cid, "status": "rejected", "type": "fact", "subject": "s"}}
+            with self.env_at(self.url):
+                if op == "purge":
+                    _run(shell.purge_main, cid[:8], "--reason", "leaked")
+                else:
+                    _run(shell.reject_main, cid[:8])
+        with self.env_at(self.url):
+            left = [c["id"] for c in offline._cached(offline._db(), "p")]
+        self.assertEqual(left, [_claim(2)["id"]])
+
+    def test_only_one_sync_replays_at_a_time(self):
+        import fcntl
+        self.sync()
+        with self.env_at(self.url):
+            held = open(offline._path() + ".lock", "w")
+            fcntl.flock(held, fcntl.LOCK_EX)
+            self.addCleanup(held.close)
+            with self.assertRaises(SystemExit) as e:
+                _run(offline.sync_main)
+        self.assertIn("another `kypp sync` is running", str(e.exception.code))
+
+    def test_a_failure_while_sending_is_not_offline(self):
+        def send(conn, data):
+            if conn.sock is None:
+                conn.connect()  # connected, then the pipe breaks mid-request
+            raise BrokenPipeError("pipe")
+
+        with self.env_at(self.url), mock.patch.object(remote._HTTPConnection, "send", send):
+            with self.assertRaises(SystemExit) as e:
+                remote.call("remember", subject="s", content="c", project="p")
+        self.assertNotIsInstance(e.exception, remote.Unreachable)
+        self.assertIn("while sending", str(e.exception.code))
 
     def test_a_failed_pull_keeps_the_previous_copy(self):
         self.sync()
