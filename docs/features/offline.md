@@ -29,6 +29,9 @@ operator's view of the project (`POST /v1/operator` `snapshot`, 500 claims a pag
   claim applied and then rejected or superseded before the next sync can still come back as a second row.
 - `remember` is queued only for a project synced before, since online an unregistered one is refused at
   once. A write the Worker refuses stops the push but not the pull; `kypp sync --drop N` discards it.
+- A TLS failure is not "offline": a certificate that fails to verify may be interception, so it errors.
+- Replay sends only `remember`, with its arguments rebuilt from a fixed key list (`_QUEUEABLE`), so an
+  outbox row edited on disk can't become a correct, purge or other operator write.
 - The cache file is created mode 600: it holds the owner's user-scope memory.
 - A pull replaces the project's copy only after every page arrived; a failed pull keeps the old copy.
 - Offline recall is a word match ranked by matched words, then the hosted tie-breaks. It has no FTS5,

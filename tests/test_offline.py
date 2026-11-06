@@ -219,6 +219,47 @@ class OfflineTest(unittest.TestCase):
         self.assertIn("sent 1 queued write(s)", out)
         self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
 
+    def test_a_tampered_queue_row_never_becomes_another_operator_write(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        with self.env_at(self.url):
+            db = offline._db()
+            db.execute("UPDATE outbox SET args = json_set(args, '$.authority', 'human')")
+            db.execute("INSERT INTO outbox(url, project, op, args, queued_at) VALUES(?, 'p', 'purge', '{}', 'x')",
+                       (self.url,))
+            db.commit()
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("never queued", str(e.exception.code))
+        sent = [b for b in _Worker.seen if b["op"] not in ("snapshot",)]
+        self.assertEqual([b["op"] for b in sent], ["remember"])
+        self.assertNotIn("authority", sent[0])
+
+    def test_a_cursor_that_does_not_advance_is_refused(self):
+        orig = remote.call
+
+        def stuck(op, **args):
+            res = orig(op, **args)
+            return {**res, "next": "0"} if op == "snapshot" else res
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", stuck):
+            with self.assertRaises(SystemExit) as e:
+                _run(offline.sync_main)
+        self.assertIn("did not advance", str(e.exception.code))
+
+    def test_a_tls_failure_is_not_offline(self):
+        import ssl
+        import urllib.error
+        err = urllib.error.URLError(ssl.SSLCertVerificationError("certificate verify failed"))
+        with self.env_at("https://kypp.example"), mock.patch.object(remote._opener, "open", side_effect=err):
+            with self.assertRaises(SystemExit) as e:
+                remote.call("recall", query="x")
+        self.assertNotIsInstance(e.exception, remote.Unreachable)
+        self.assertIn("TLS", str(e.exception.code))
+
     def test_a_failed_pull_keeps_the_previous_copy(self):
         self.sync()
         _Worker.claims = [_claim(4), _claim(5), _claim(6)]

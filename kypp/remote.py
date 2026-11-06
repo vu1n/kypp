@@ -9,6 +9,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -73,6 +74,9 @@ def call(op: str, **args) -> dict:
             pass
         raise Refused(f"kypp: {url} answered {e.code}: {text.strip()}")
     except urllib.error.URLError as e:
+        # A certificate that fails to verify is a possible interception, never just "offline".
+        if isinstance(e.reason, ssl.SSLError):
+            raise SystemExit(f"kypp: TLS to {url} failed, not falling back to the offline copy: {e.reason}")
         raise Unreachable(f"kypp: can't reach {url}: {e.reason}")
     except TimeoutError:
         raise SystemExit(f"kypp: {url} did not answer in time")

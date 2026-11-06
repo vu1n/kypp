@@ -40,8 +40,12 @@ def _now() -> str:
 def _db() -> sqlite3.Connection:
     path = os.environ.get("KYPP_CACHE_DB", os.path.expanduser("~/.kypp/offline.db"))
     os.makedirs(os.path.dirname(path) or ".", mode=0o700, exist_ok=True)
-    db = sqlite3.connect(path)
-    # The copy holds the owner's user-scope memory: keep it readable by this OS user only.
+    # The copy holds the owner's user-scope memory: keep it, and SQLite's journal, this OS user's only.
+    old = os.umask(0o077)
+    try:
+        db = sqlite3.connect(path)
+    finally:
+        os.umask(old)
     os.chmod(path, 0o600)
     db.executescript(_SCHEMA)
     return db
@@ -130,6 +134,8 @@ def show(db: sqlite3.Connection, project: str, handle: str) -> dict:
 def queue(project: str, op: str, args: dict, cause: remote.Unreachable) -> int:
     """Hold a write for the next `kypp sync`. Returns how many writes are now waiting. Only a project
     synced before is queued: online, an unregistered one would be refused on the spot."""
+    if op not in _QUEUEABLE:
+        raise ValueError(f"{op} is never queued")
     db = _db()
     if _synced_at(db, project) is None:
         raise SystemExit(f"{cause.code}\nkypp: not queued: no offline copy of {project!r}, so it isn't known "
@@ -141,14 +147,22 @@ def queue(project: str, op: str, args: dict, cause: remote.Unreachable) -> int:
 
 
 def _fetch(project: str) -> list[dict]:
-    """The Worker's current view of a project, every page."""
+    """The Worker's current view of a project, every page. The cursor must move forward each page."""
     claims, after = [], ""
     while True:
         page = remote.call("snapshot", project=project, after=after or None)
         claims += page["claims"]
         if not page.get("next"):
             return claims
+        if page["next"] <= after:
+            raise SystemExit(f"kypp: the Worker's snapshot cursor did not advance past {after!r}; not caching")
         after = page["next"]
+
+
+# Only an agent-authority `remember` is ever queued; replay rebuilds its arguments from these keys, so a
+# row edited on disk can't become a human or privileged operator write.
+_QUEUEABLE = {"remember": ("type", "subject", "content", "scope", "project", "confidence", "accept", "verify",
+                           "agent")}
 
 
 def push(db: sqlite3.Connection) -> int:
@@ -159,11 +173,15 @@ def push(db: sqlite3.Connection) -> int:
     sent, seen = 0, {}
     for seq, op, raw, sent_at in db.execute(
             "SELECT seq, op, args, sent_at FROM outbox WHERE url = ? ORDER BY seq", (_url(),)).fetchall():
-        args = json.loads(raw)
-        if sent_at and op == "remember":
+        if op not in _QUEUEABLE:
+            raise SystemExit(f"kypp: queued write #{seq} is `{op}`, which is never queued; "
+                             f"drop it with `kypp sync --drop {seq}`")
+        stored = json.loads(raw)
+        args = {k: stored.get(k) for k in _QUEUEABLE[op]}
+        if sent_at:
             if args["project"] not in seen:
-                seen[args["project"]] = {(c["subject"], c["content"]) for c in _fetch(args["project"])}
-            if (args["subject"], args["content"]) in seen[args["project"]]:
+                seen[args["project"]] = {(c["scope"], c["subject"], c["content"]) for c in _fetch(args["project"])}
+            if (args["scope"], args["subject"], args["content"]) in seen[args["project"]]:
                 with db:
                     db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
                 sent += 1
