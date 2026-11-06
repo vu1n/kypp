@@ -191,7 +191,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   in `mcp.ts`: not read-only, inside a pin, the caller's own user or room lane, or a repo the room is linked to), because a session id
   is not bound to a credential and read visibility alone would let a reader confirm another lane's
   claim. Rows from before the mark never confirm, and a later unmarked `wrong` still withdraws. An unstamped survivor (an echo) never supersedes a stamped candidate until the group
-  promotes, so the claim the echo reply tells the agent to rate stays live. The plan
+  promotes, so the claim the echo reply tells the agent to rate stays live. An echo that changes the
+  content (whitespace aside) and is newer than the survivor is a pending update (`echoUpdate`): kept
+  through the survivor's promotion, matched by `created_at` because promotion bumps `updated_at`, and
+  promoted like any update once it recurs. A plain copy is still superseded. The plan
   carries the ratings it counted (`GroupPlan.confirmed`) and `apply` refuses it if any is no longer
   that session's newest verdict at the same time (`created_at`, then `rowid`), because a rating never touches the
   claim rows the version guard reads. This is the only way a session that was
