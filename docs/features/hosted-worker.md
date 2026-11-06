@@ -193,7 +193,7 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   claim. Rows from before the mark never confirm, and a later unmarked `wrong` still withdraws. An unstamped survivor (an echo) never supersedes a stamped candidate until the group
   promotes, so the claim the echo reply tells the agent to rate stays live. The plan
   carries the ratings it counted (`GroupPlan.confirmed`) and `apply` refuses it if any is no longer
-  that session's newest verdict (`created_at`, then `rowid`), because a rating never touches the
+  that session's newest verdict at the same time (`created_at`, then `rowid`), because a rating never touches the
   claim rows the version guard reads. This is the only way a session that was
   shown a candidate can help accept it: its re-claim is an echo, and the claim reply says so. The
   Python arbiter doesn't count ratings, so local and hosted promote differently here.

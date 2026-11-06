@@ -762,9 +762,10 @@ export class D1Store {
           + " AND c.status IN ('candidate','accepted') AND c.subject = ? AND c.scope = ? AND c.project IS ?"
           + " AND (c.scope NOT IN ('user','room') OR c.user IS ?)))",
         ).bind(JSON.stringify([...p.supersede, ...p.promote]), subject, scope, project, user),
-        // A `used` rating the promotion counted must still be that session's verdict: a later rating doesn't touch the claim rows.
+        // A `used` rating the promotion counted must still be that session's verdict, at the time the plan counted
+        // (recurrence is timed by it): a later rating doesn't touch the claim rows the version guard reads.
         ...(p.confirmed?.length ? [this.db.prepare(
-          `INSERT INTO consolidation_guard(ok) SELECT 0 WHERE EXISTS (SELECT 1 FROM json_each(?) t WHERE IFNULL((SELECT ${CONFIRMING} FROM claim_usages u`
+          `INSERT INTO consolidation_guard(ok) SELECT 0 WHERE EXISTS (SELECT 1 FROM json_each(?) t WHERE IFNULL((SELECT CASE WHEN u.created_at = json_extract(t.value, '$.at') THEN ${CONFIRMING} END FROM claim_usages u`
           + ` WHERE u.surface = 'feedback' AND u.claim_id = json_extract(t.value, '$.claim') AND u.consumer = json_extract(t.value, '$.session')`
           + " ORDER BY u.created_at DESC, u.rowid DESC LIMIT 1), 0) != 1)",
         ).bind(JSON.stringify(p.confirmed))] : []),

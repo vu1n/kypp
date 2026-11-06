@@ -126,10 +126,10 @@ export interface GroupKey { subject: string; scope: Scope; project: string | nul
 // `support` is the claims whose recurrence justifies the promotion, for an agreement check.
 // `confirmed` is the (claim, session) `used` ratings the promotion counted; apply() refuses the plan if one was withdrawn since.
 export interface GroupPlan { key: GroupKey; version: string; supersede: string[]; promote: string[]; support: string[]; confirmed?: Rated[] }
-export interface Rated { claim: string; session: string }
+export interface Rated { claim: string; session: string; at: string }
 
 const countedConfirmations = (members: Claim[]): Rated[] =>
-  members.flatMap((m) => (m.confirmations ?? []).filter((c) => c.session !== m.session).map((c) => ({ claim: m.id, session: c.session })));
+  members.flatMap((m) => (m.confirmations ?? []).filter((c) => c.session !== m.session).map((c) => ({ claim: m.id, session: c.session, at: c.at })));
 
 export function groupVersion(members: Claim[]): string {
   return `${members.length}:${members.reduce((m, c) => (c.updated_at > m ? c.updated_at : m), "")}`;

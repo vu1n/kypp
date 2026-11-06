@@ -208,3 +208,16 @@ test("a room unlinked between the check and the insert gets no writable mark", a
   const marks = (await db.prepare("SELECT consumer, metadata FROM claim_usages WHERE surface = 'feedback' ORDER BY rowid").all()).results as any[];
   assert.deepEqual(marks.map((m) => [m.consumer, JSON.parse(m.metadata).writable ?? false]), [["rs", false], ["rs2", true]]);
 });
+
+test("re-rating a counted used before apply moves its time, so the stale plan is refused", async () => {
+  const db = await setup(), store = new D1Store(db);
+  const id = (await agent(db, "w")("claim", LESSON)).split("\n")[0];
+  const r = agent(db, "r");
+  await r("recall", { query: "wrangler port" });
+  await r("feedback", { ratings: [{ handle: id, ...USED }] });
+  await db.prepare("UPDATE claim_usages SET created_at = '2026-01-01T00:00:00.000Z' WHERE surface = 'feedback'").run();
+  const plans = await plan(store, NOW, null);
+  assert.deepEqual(plans.flatMap((p) => p.promote), [id]);
+  await r("feedback", { ratings: [{ handle: id, ...USED }] });   // still used, but newer
+  assert.deepEqual(await store.apply(plans), { applied: 0, stale: 1 });
+});
