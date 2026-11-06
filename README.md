@@ -89,7 +89,8 @@ tools for `kypp` before assuming they're missing; if there are none, carry on wi
 - **Before you finish a task:** if you learned something the next agent would otherwise
   rediscover (a trap, the reason behind a choice, a non-obvious procedure), `claim` it in a
   sentence or two under a short noun-phrase `subject`. Reuse an existing subject to update it. Not
-  status, not a transcript: git holds those.
+  status, not a transcript: git holds those. Then call `feedback` once on the handles you were
+  shown: `used` (with a note on what you checked), `not_used`, or `wrong` (with what was wrong).
 - **Process vs. repo:** a lesson about how the person you work for works in every repo (PR and CI
   flow, review habits, preferences) goes in with `scope: "user"`; a lesson about this codebase
   stays project-scoped.

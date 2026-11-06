@@ -330,6 +330,8 @@ export class D1Store {
       this.db.prepare("UPDATE claim_usages SET query = NULL WHERE query IN (SELECT query FROM claim_usages WHERE claim_id = ? AND query IS NOT NULL)").bind(id),
       // Earlier free-text reasons (a reject's) may quote the leaked text; the actions and times stay.
       this.db.prepare("UPDATE defrag_log SET reason = NULL WHERE claim_id = ?").bind(id),
+      // A feedback note may quote the claim too; the verdict and score stay.
+      this.db.prepare("UPDATE claim_usages SET metadata = json_remove(metadata, '$.note') WHERE claim_id = ? AND surface = 'feedback'").bind(id),
       this.logOperator(id, "purge", null, reason),
     ]);
   }
@@ -457,6 +459,27 @@ export class D1Store {
     await this.db.batch(claims.map((c) => this.db.prepare(
       "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,query,created_at) VALUES(?,?,?,?,?,?,?,?)",
     ).bind(uid(), consumer, c.id, project, c.scope, surface, query, ts)));
+  }
+
+  // The shown claim `handle` names for this session: one a read showed it, never a claim it only knows the id of.
+  async shownTo(consumer: string, handle: string): Promise<{ id: string; project: string | null; scope: string } | null> {
+    if (!HANDLE.test(handle)) throw new Error(`bad claim handle ${JSON.stringify(handle)} (expected 8-32 hex chars)`);
+    const { results } = await this.db.prepare(
+      "SELECT claim_id AS id, MAX(project) AS project, MAX(scope) AS scope FROM claim_usages"
+      + " WHERE consumer = ? AND claim_id LIKE ? AND surface != 'feedback' GROUP BY claim_id LIMIT 2",
+    ).bind(consumer, `${handle}%`).all();
+    if (results.length > 1) throw new Error(`ambiguous claim handle ${handle} (use more chars)`);
+    return results.length ? results[0] as { id: string; project: string | null; scope: string } : null;
+  }
+
+  // A session's verdict on claims it was shown: its own usage rows (surface "feedback"), never a change
+  // to the claim. The newest row per consumer and claim is the verdict; earlier ones stay as history.
+  async recordFeedback(consumer: string, rated: { id: string; project: string | null; scope: string; score: number; verdict: string; note: string | null }[]): Promise<void> {
+    if (!rated.length) return;
+    const ts = now();
+    await this.db.batch(rated.map((r) => this.db.prepare(
+      "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,score,metadata,created_at) VALUES(?,?,?,?,?,'feedback',?,?,?)",
+    ).bind(uid(), consumer, r.id, r.project, r.scope, r.score, JSON.stringify(r.note ? { verdict: r.verdict, note: r.note } : { verdict: r.verdict }), ts)));
   }
 
   // Every group or org `project` rolls up to, nearest first, through parents of parents up to three

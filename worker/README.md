@@ -3,7 +3,8 @@
 The same memory as local kypp, reachable from cloud sessions: a Cloudflare Worker over D1, served as
 a remote MCP server with OAuth. Local kypp is unchanged; this is the optional hosted store.
 
-- **Tools:** `briefing`, `recall`, `claim`, `expand`, `correct` (same contract as `kypp serve`).
+- **Tools:** `briefing`, `recall`, `claim`, `expand`, `correct` (same contract as `kypp serve`), plus
+  `feedback`, hosted only: a session rates the claims it was shown as `used`, `not_used` or `wrong`.
 - **Placement:** an agent says which repo it is in and never picks how widely a lesson is shared.
   A claim records that origin for good and is filed into the matching row of the `projects` table.
   A missing or unknown name (say "dev") is not an error and never creates a project: the claim

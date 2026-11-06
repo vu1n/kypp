@@ -13,11 +13,12 @@ tests:
   - "worker/test/scenarios.test.ts"
   - "worker/test/keycard.test.ts"
   - "worker/test/readonly.test.ts"
+  - "worker/test/feedback.test.ts"
 ---
 # Hosted Worker
 
 The optional hosted store: a Cloudflare Worker over D1 serving `briefing`, `recall`, `claim`,
-`expand` and `correct` as a remote MCP server behind OAuth, so cloud sessions share one memory.
+`expand`, `feedback` and `correct` as a remote MCP server behind OAuth, so cloud sessions share one memory.
 `worker/src/memory.ts` ports the arbiter's ranking and promotion rules; an hourly cron runs the
 defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It adds a `user` scope (the signed-in person, every repo) beside `project` and
 `global`, and an optional System One write gate (`worker/src/s1.ts`, TypeSafe JS SDK).
@@ -170,3 +171,13 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 - A read-only caller (`Caller.readOnly`, a `name!ro` static token) is stopped in `callTool` before
   any routing, and `WRITES` in `mcp.ts` lists the tools it can't use. A new tool that writes memory
   goes in `WRITES`, or read-only tokens can call it.
+- `feedback` writes `claim_usages` rows with `surface = 'feedback'`, `score` 1 (used), 0 (not_used)
+  or -1 (wrong) and `metadata` `{verdict, note}`; the newest row per consumer and claim is the
+  verdict. It resolves handles only among claims a read already showed that session
+  (`store.shownTo`), so it needs no lane or pin check of its own, and it is not in `WRITES`: it
+  rates reads and never changes a claim. `used` and `wrong` need a note. Any count of what a
+  session was shown must exclude `surface = 'feedback'`. Purge strips notes on the purged claim.
+  The local `kypp serve` has no `feedback` yet.
+- `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
+  caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
+  a tool it lacks.

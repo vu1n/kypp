@@ -601,7 +601,7 @@ test("hosted MCP tools are still the claim surface", async () => {
   }), db, { user: "owner", agent: "contract" });
   const body = await response.json() as { result?: { tools?: { name: string; inputSchema?: { properties?: Record<string, unknown> } }[] } };
   const tools = body.result?.tools ?? [];
-  assert.deepEqual(tools.map((tool) => tool.name), ["briefing", "recall", "claim", "expand", "correct"]);
+  assert.deepEqual(tools.map((tool) => tool.name), ["briefing", "recall", "claim", "expand", "feedback", "correct"]);
   for (const tool of tools) {
     const props = tool.inputSchema?.properties ?? {};
     assert.equal(Object.hasOwn(props, "verify"), false, tool.name);

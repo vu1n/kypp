@@ -52,7 +52,7 @@ async function connect(auth) {
 // 1. static token: tools list, claim from two sessions, promotion by the scheduled pass
 const a = await connect(TOKEN);
 const tools = (await rpc(TOKEN, null, "tools/list", {})).body.result.tools.map((t) => t.name);
-assert.deepEqual(tools.sort(), ["briefing", "claim", "correct", "expand", "recall"]);
+assert.deepEqual(tools.sort(), ["briefing", "claim", "correct", "expand", "feedback", "recall"]);
 await a("claim", { project: "smoke", subject: `${subject} port`, content: "the dev server uses port 1" });
 const id1 = await a("claim", { project: "smoke", subject, content: "retry the flaky upload once", type: "pitfall" });
 assert.ok(!(await a("briefing", { project: "smoke" })).includes(subject), "a fresh claim is a candidate");

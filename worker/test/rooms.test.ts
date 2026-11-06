@@ -237,7 +237,7 @@ test("a room is offered only its own tools", async () => {
   const req = new Request("https://k/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
   const { result } = await (await handleMcp(req, db, caller)).json() as any;
   const tools = result.tools.map((t: any) => t.name);
-  assert.deepEqual(tools, ["briefing", "recall", "claim", "expand"]);
+  assert.deepEqual(tools, ["briefing", "recall", "claim", "expand", "feedback"]);
   const claim = result.tools.find((t: any) => t.name === "claim");
   assert.deepEqual(Object.keys(claim.inputSchema.properties).sort(), ["confidence", "content", "share_to", "subject", "type"]);
   assert.equal((await call(db, caller, "s1")("correct", { subject: "x", content: "y" })).error, true);

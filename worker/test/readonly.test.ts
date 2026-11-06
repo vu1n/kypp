@@ -1,5 +1,5 @@
 // Read-only static tokens (KYPP_API_TOKENS "name!ro:token"): briefing, recall and expand work as for
-// any token; claim and correct are hidden from tools/list and refused on tools/call.
+// any token, and so does feedback (it rates reads, never memory); claim and correct are hidden from tools/list and refused on tools/call.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Caller, handleMcp } from "../src/mcp.ts";
@@ -34,7 +34,7 @@ test("a read-only token reads memory but can't see or call claim and correct", a
   const id = (await tool(db, OWNER, "claim", { subject: "wrangler port", content: "wrangler dev listens on 8787" })).text.split("\n")[0];
 
   const names = (await rpc(db, REVIEWER, "tools/list")).tools.map((t: any) => t.name);
-  assert.deepEqual(names.sort(), ["briefing", "expand", "recall"]);
+  assert.deepEqual(names.sort(), ["briefing", "expand", "feedback", "recall"]);
   assert.doesNotMatch((await rpc(db, REVIEWER, "initialize", { protocolVersion: "2025-06-18" })).instructions, /claim`/);
 
   assert.match((await tool(db, REVIEWER, "recall", { query: "wrangler", include_candidates: true })).text, /wrangler port/);
