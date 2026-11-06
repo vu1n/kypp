@@ -38,7 +38,8 @@ a remote MCP server with OAuth. Local kypp is unchanged; this is the optional ho
 - **Categories:** the claim types (pitfall, decision, procedure, preference, fact, artifact,
   hypothesis). The briefing is grouped by type.
 - **Promotion:** a claim is accepted once it recurs in two sessions at least
-  `KYPP_RECUR_GAP_MINUTES` (default 60) apart. That measures repetition, not independent evidence:
+  `KYPP_RECUR_GAP_MINUTES` (default 60) apart. A session that was shown the claim and rated it
+  `used` with `feedback` counts as one of them; re-claiming what it was shown doesn't. That measures repetition, not independent evidence:
   one client can open two sessions, so the gap just makes faking it slow. Session ids are signed,
   so a client can't invent one. A newer claim on an accepted subject waits as a pending update and
   replaces the old answer once it recurs.

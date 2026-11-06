@@ -19,7 +19,15 @@ export async function planWithJudge(live: Claim[], policy: Policy, s1: S1Client 
   return plans;
 }
 
-export async function consolidate(store: D1Store, policy: Policy, s1: S1Client | null,
-  filter?: Parameters<D1Store["liveClaims"]>[0]) {
-  return store.apply(await planWithJudge(await store.liveClaims({ ...filter, filed: true }), policy, s1));
+type Filter = Parameters<D1Store["liveClaims"]>[0];
+
+// Live filed claims, each candidate carrying the sessions whose current verdict on it is `used`.
+export async function plan(store: D1Store, policy: Policy, s1: S1Client | null, filter?: Filter): Promise<GroupPlan[]> {
+  const live = await store.liveClaims({ ...filter, filed: true });
+  const confirmed = await store.confirmations(live.filter((c) => c.status === "candidate").map((c) => c.id));
+  return planWithJudge(live.map((c) => confirmed.has(c.id) ? { ...c, confirmations: confirmed.get(c.id) } : c), policy, s1);
+}
+
+export async function consolidate(store: D1Store, policy: Policy, s1: S1Client | null, filter?: Filter) {
+  return store.apply(await plan(store, policy, s1, filter));
 }

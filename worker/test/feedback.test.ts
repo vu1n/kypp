@@ -44,8 +44,8 @@ test("a session rates what it was shown; each verdict is a feedback row with its
   assert.equal(out.text, "recorded 2 ratings");
   const rows = await feedbackRows(db);
   assert.deepEqual(rows.map((r) => [r.consumer, r.claim_id, r.project, r.score]), [["r", a, "kypp", 1], ["r", b, "kypp", 0]]);
-  assert.deepEqual(JSON.parse(rows[0].metadata), { verdict: "used", note: "ran wrangler dev; it answered on 8787" });
-  assert.deepEqual(JSON.parse(rows[1].metadata), { verdict: "not_used" });
+  assert.deepEqual(JSON.parse(rows[0].metadata), { verdict: "used", note: "ran wrangler dev; it answered on 8787", writable: true });
+  assert.deepEqual(JSON.parse(rows[1].metadata), { verdict: "not_used", writable: true });
 
   const claims = (await db.prepare("SELECT status FROM memory_claims").all()).results as any[];
   assert.ok(claims.every((c) => c.status === "candidate"), "feedback changes no claim");
@@ -114,7 +114,7 @@ test("feedback after a purge keeps the verdict but drops the note", async () => 
   await new D1Store(db).operatorPurge(id, "leaked key");
   assert.equal((await r("feedback", { ratings: [{ handle: id, verdict: "wrong", note: "sk-123 leaked" }] })).text, "recorded 1 rating");
   const [row] = await feedbackRows(db);
-  assert.deepEqual(JSON.parse(row.metadata), { verdict: "wrong" });
+  assert.deepEqual(JSON.parse(row.metadata), { verdict: "wrong", writable: true });
 });
 
 test("purge strips feedback notes on the claim but keeps the verdicts", async () => {
@@ -126,7 +126,7 @@ test("purge strips feedback notes on the claim but keeps the verdicts", async ()
   await new D1Store(db).operatorPurge(id, "leaked key");
   const [row] = await feedbackRows(db);
   assert.equal(row.score, -1);
-  assert.deepEqual(JSON.parse(row.metadata), { verdict: "wrong" });
+  assert.deepEqual(JSON.parse(row.metadata), { verdict: "wrong", writable: true });
 });
 
 test("instructions name feedback for every caller that has it", async () => {

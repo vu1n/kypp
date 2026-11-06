@@ -14,6 +14,7 @@ tests:
   - "worker/test/keycard.test.ts"
   - "worker/test/readonly.test.ts"
   - "worker/test/feedback.test.ts"
+  - "worker/test/confirm.test.ts"
 ---
 # Hosted Worker
 
@@ -182,6 +183,20 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   and the feedback insert drops the note itself when the claim carries `metadata.purged_at`. One
   call keeps only the last rating per claim, so `created_at` orders a session's verdicts.
   The local `kypp serve` has no `feedback` yet.
+- A `used` rating confirms: consolidate loads each candidate's newest-verdict `used` raters
+  (`store.confirmations`) and `recurs` counts each as that session's support at the rating's time, so
+  the recurrence gap still applies. The claim's own writer never confirms it. A session's verdict is
+  its newest rating, and it confirms only if that rating is `used` and marked `writable`. `feedback`
+  marks a rating writable only when the current caller could write at the claim's level (`mayWrite`
+  in `mcp.ts`: not read-only, inside a pin, the caller's own user or room lane, or a repo the room is linked to), because a session id
+  is not bound to a credential and read visibility alone would let a reader confirm another lane's
+  claim. Rows from before the mark never confirm, and a later unmarked `wrong` still withdraws. An unstamped survivor (an echo) never supersedes a stamped candidate until the group
+  promotes, so the claim the echo reply tells the agent to rate stays live. The plan
+  carries the ratings it counted (`GroupPlan.confirmed`) and `apply` refuses it if any is no longer
+  that session's newest verdict at the same time (`created_at`, then `rowid`), because a rating never touches the
+  claim rows the version guard reads. This is the only way a session that was
+  shown a candidate can help accept it: its re-claim is an echo, and the claim reply says so. The
+  Python arbiter doesn't count ratings, so local and hosted promote differently here.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
   a tool it lacks.
