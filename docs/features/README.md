@@ -14,6 +14,7 @@ python3 scripts/featuremap.py check                         # CI: every pointer 
 | [claim-transition-contract](claim-transition-contract.md) | Claim lifecycle contract and the staged command adapters |
 | [store](store.md) | The `ClaimStore` and its pyturso, libsql and sqlite adapters |
 | [recall](recall.md) | `recall`, `briefing`, handles and the remote client |
+| [offline](offline.md) | `kypp sync`: the hosted store's offline cache and write queue |
 | [mcp](mcp.md) | `kypp serve`, the agent-facing MCP surface |
 | [hosted-worker](hosted-worker.md) | The Cloudflare Worker over D1: hosted memory, OAuth, System One |
 | [portable-cooperation](portable-cooperation.md) | Handoffs and evidence references shared by Python and the Worker |

@@ -27,6 +27,12 @@ def default_project() -> str:
     return os.environ.get("KYPP_PROJECT") or os.path.basename(os.path.abspath(os.path.expanduser(root)))
 
 
+class Unreachable(SystemExit):
+    """The Worker could not be reached at all: the request never got a connection (refused, DNS,
+    connect timeout), so nothing was applied. Only this failure may fall back to the offline cache
+    or queue; an answer from the Worker, even an error, and a connection lost mid-request, may not."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     # Why: urllib re-sends every header but Content-* on a redirect, to any host, so following one
     # would hand the operator token (and the verify commands we then run) to wherever it points.
@@ -63,7 +69,7 @@ def call(op: str, **args) -> dict:
             pass
         raise SystemExit(f"kypp: {url} answered {e.code}: {text.strip()}")
     except urllib.error.URLError as e:
-        raise SystemExit(f"kypp: can't reach {url}: {e.reason}")
+        raise Unreachable(f"kypp: can't reach {url}: {e.reason}")
     except TimeoutError:
         raise SystemExit(f"kypp: {url} did not answer in time")
     except ValueError:

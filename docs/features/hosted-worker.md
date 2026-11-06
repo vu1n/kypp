@@ -40,6 +40,8 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   reaches any claim by handle (`anyClaim`, every scope and lane) and logs only the reason. Keep
   `D1Store.operatorClaim`, `markVerified` and `operatorReject` off every MCP path, and log each in
   `defrag_log`. `markVerified` mirrors `MemoryStore.mark_verified`: change one, change both.
+- The operator `snapshot` op is `kypp sync`'s read-only pull: recall's visibility with every
+  candidate (`visible(..., "all")`), paged by id. A field the offline cache needs must be in `CLAIM_COLUMNS`.
 - Hosted operator `correct` is an explicit replacement in the existing `memory_claims` store,
   not a rank contest. Insert, FTS/pointers, exact-group supersession and audit share one D1 batch;
   the returned superseded count comes from that transaction. Equal clocks, query order and lower
