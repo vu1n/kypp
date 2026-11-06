@@ -18,9 +18,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from . import remote
-from .view import compact_line
+from .view import _BRIEFING_PRIORITY, compact_line
 
-_BRIEFING_PRIORITY = {"pitfall": 0, "decision": 1, "procedure": 2}
 _SCOPE_NEAR = {"room": 0, "project": 0, "group": 1, "user": 2, "global": 3}
 _WORD = re.compile(r"\w+")
 
@@ -108,7 +107,8 @@ def recall(db: sqlite3.Connection, project: str, query: str, types: list[str] | 
             and (not words or matched(c))]
     lines = [_line(c) for c in _ordered(hits, lambda c: -matched(c))[:limit]]
     lines += [f"(queued) [{q.get('type', 'fact')}] {q['subject']} — {q['content']}" for q in _queued(db, project)
-              if q["op"] == "remember" and (not words or matched(q))]
+              if q["op"] == "remember" and (not types or q.get("type", "fact") in types)
+              and (not words or matched(q))]
     return "\n".join(lines) or "(no matching memory)"
 
 
