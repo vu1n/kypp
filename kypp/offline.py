@@ -57,9 +57,16 @@ def _db() -> sqlite3.Connection:
         os.umask(old)
     os.chmod(path, 0o600)
     db.executescript(_SCHEMA)
-    # A cache made before writes carried keys gains the column; push gives each row its key.
-    if "key" not in {r[1] for r in db.execute("PRAGMA table_info(outbox)")}:
-        db.execute("ALTER TABLE outbox ADD COLUMN key TEXT")
+    # A cache made before writes carried keys gains the column; push gives each row its key. The check
+    # and the ALTER share one write transaction, so two CLIs opening an old cache can't both add it.
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        if "key" not in {r[1] for r in db.execute("PRAGMA table_info(outbox)")}:
+            db.execute("ALTER TABLE outbox ADD COLUMN key TEXT")
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
     return db
 
 

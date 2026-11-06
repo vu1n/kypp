@@ -9,6 +9,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 from unittest import mock
@@ -372,6 +373,47 @@ class OfflineTest(unittest.TestCase):
         old.close()
         out, _ = self.sync()
         self.assertIn("sent 1 queued write(s)", out)
+
+    def test_clis_opening_an_old_cache_at_once_add_the_column_once(self):
+        import sqlite3
+        path = self.env["KYPP_CACHE_DB"]
+        connect = sqlite3.connect
+
+        class Slow(sqlite3.Connection):
+            # Widens the gap between reading the schema and changing it, where a second CLI could step in.
+            def execute(self, sql, *a):
+                cur = super().execute(sql, *a)
+                if sql.startswith("PRAGMA table_info"):
+                    time.sleep(0.05)
+                return cur
+
+        def slow(*a, **kw):
+            return connect(*a, factory=Slow, **kw)
+
+        for round_ in range(3):
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(path)
+            old = sqlite3.connect(path)
+            old.execute("CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project "
+                        "TEXT NOT NULL, op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT)")
+            old.commit()
+            old.close()
+            gate, errors = threading.Barrier(6), []
+
+            def open_it():
+                gate.wait()
+                try:
+                    offline._db().close()
+                except Exception as e:  # noqa: BLE001 - the test reports any failure
+                    errors.append(e)
+
+            with mock.patch.dict(os.environ, self.env), mock.patch.object(offline.sqlite3, "connect", slow):
+                threads = [threading.Thread(target=open_it) for _ in range(6)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+            self.assertEqual(errors, [], f"round {round_}")
 
     def test_drop_discards_a_write_the_worker_keeps_refusing(self):
         dead = _dead_url()
