@@ -35,10 +35,6 @@ class Unreachable(SystemExit):
     or queue; an answer from the Worker, even an error, and a connection lost mid-request, may not."""
 
 
-class Refused(SystemExit):
-    """The Worker answered 4xx: it saw the request and did not apply it."""
-
-
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     # Why: urllib re-sends every header but Content-* on a redirect, to any host, so following one
     # would hand the operator token (and the verify commands we then run) to wherever it points.
@@ -101,12 +97,7 @@ def call(op: str, **args) -> dict:
             text = json.loads(text).get("error", text)
         except (ValueError, AttributeError):
             pass
-        msg = f"kypp: {url} answered {e.code}: {text.strip()}"
-        # Only a 4xx is the Worker saying no. A 5xx (or a gateway's 502/504, or a 408) can follow a write
-        # that was committed, so it is ambiguous, never a refusal.
-        if 400 <= e.code < 500 and e.code != 408:
-            raise Refused(msg)
-        raise SystemExit(msg)
+        raise SystemExit(f"kypp: {url} answered {e.code}: {text.strip()}")
     except urllib.error.URLError as e:
         # A certificate that fails to verify is a possible interception, never just "offline".
         if isinstance(e.reason, ssl.SSLError):

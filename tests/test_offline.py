@@ -169,57 +169,64 @@ class OfflineTest(unittest.TestCase):
             self.assertIn("not queued offline", str(e.exception.code))
             with self.assertRaises(SystemExit) as e:
                 _run(offline.sync_main)
-            self.assertIn("2 write(s) stay queued", str(e.exception.code))
+            self.assertIn("2 write(s) stay queued", str(e.exception.code))  # unreachable: nothing marked
         self.back_online()
-        _Worker.refuse = {"remember"}
-        _Worker.claims = [_claim(4)]
-        with self.assertRaises(SystemExit) as e:
-            self.sync()
-        self.assertIn("refused queued write #1", str(e.exception.code))
-        self.assertIn("cached 1 claim(s)", str(e.exception.code))  # a stuck write doesn't freeze the copy
-        _Worker.refuse = set()
         out, _ = self.sync()
         self.assertIn("sent 2 queued write(s)", out)
-        sent = [b for b in _Worker.seen if b["op"] == "remember"]
-        self.assertEqual([b["subject"] for b in sent], ["a", "a", "b"])  # refused once, then each once
+        self.assertEqual([b["subject"] for b in _Worker.seen if b["op"] == "remember"], ["a", "b"])
         self.assertNotIn("correct", [b["op"] for b in _Worker.seen])
         out, _ = self.sync()
         self.assertIn("sent 0 queued write(s)", out)
 
-    def test_a_refused_write_can_be_dropped(self):
+    def test_a_write_without_a_200_is_never_sent_again_on_its_own(self):
+        # An error answer, a gateway error or a lost reply may follow a committed write (the Worker answers
+        # 400 even after a commit, and has no idempotency key), so only the operator decides.
+        for failure in ("refused", "lost"):
+            with self.subTest(failure=failure):
+                self.setUp()
+                dead = _dead_url()
+                self.offline_copy(dead)
+                with self.env_at(dead):
+                    _run(shell.remember_main, "leaked", "the token is abc")
+                    _run(shell.remember_main, "b", "second")
+                self.back_online()
+                orig = remote.call
+
+                def fail(op, **args):
+                    if op == "remember":
+                        _Worker.seen.append({"op": op, **args})
+                        raise SystemExit("kypp: answered 400" if failure == "refused" else "kypp: timed out")
+                    return orig(op, **args)
+
+                with self.env_at(self.url), mock.patch.object(remote, "call", fail):
+                    with self.assertRaises(SystemExit) as e:
+                        _run(offline.sync_main)
+                self.assertIn("may already be in the hosted store", str(e.exception.code))
+                self.assertIn("cached", str(e.exception.code))  # the copy still refreshed
+                for _ in range(2):  # e.g. the operator purged it meanwhile: still not re-sent
+                    with self.assertRaises(SystemExit) as e:
+                        self.sync()
+                    self.assertIn("--resend 1", str(e.exception.code))
+                self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
+                with self.env_at(self.url):
+                    out, _ = _run(offline.sync_main, "--drop", "1")
+                self.assertIn("dropped queued write #1", out)
+                self.assertIn("sent 1 queued write(s)", out)  # "b" goes once the operator decided
+
+    def test_resend_sends_a_write_the_operator_checked(self):
         dead = _dead_url()
         self.offline_copy(dead)
         with self.env_at(dead):
             _run(shell.remember_main, "a", "first")
         self.back_online()
-        _Worker.refuse = {"remember"}
+        with self.env_at(self.url):
+            db = offline._db()
+            db.execute("UPDATE outbox SET sent_at = 'earlier'")
+            db.commit()
         with self.assertRaises(SystemExit):
             self.sync()
         with self.env_at(self.url):
-            out, _ = _run(offline.sync_main, "--drop", "1")
-        self.assertIn("dropped queued write #1", out)
-        self.assertIn("sent 0 queued write(s)", out)
-
-    def test_a_write_whose_answer_was_lost_is_not_sent_twice(self):
-        dead = _dead_url()
-        self.offline_copy(dead)
-        with self.env_at(dead):
-            _run(shell.remember_main, "a", "first")
-        self.back_online()
-        orig = remote.call
-
-        def lost(op, **args):
-            res = orig(op, **args)
-            if op == "remember":  # applied, then the answer never arrives
-                _Worker.claims.append(_claim(9, subject=args["subject"], content=args["content"]))
-                raise SystemExit("kypp: timed out")
-            return res
-
-        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
-            with self.assertRaises(SystemExit) as e:
-                _run(offline.sync_main)
-        self.assertIn("no answer for queued write #1", str(e.exception.code))
-        out, _ = self.sync()
+            out, _ = _run(offline.sync_main, "--resend", "1")
         self.assertIn("sent 1 queued write(s)", out)
         self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
 
@@ -263,33 +270,6 @@ class OfflineTest(unittest.TestCase):
                 remote.call("recall", query="x")
         self.assertNotIsInstance(e.exception, remote.Unreachable)
         self.assertIn("TLS", str(e.exception.code))
-
-    def test_a_refused_write_is_not_mistaken_for_an_applied_one(self):
-        dead = _dead_url()
-        self.offline_copy(dead)
-        with self.env_at(dead):
-            _run(shell.remember_main, "subject 1", "lesson number 1", "--accept")
-        self.back_online()
-        _Worker.refuse = {"remember"}
-        with self.assertRaises(SystemExit):
-            self.sync()
-        _Worker.refuse = set()
-        _Worker.claims[0] = {**_Worker.claims[0], "status": "candidate"}  # same text, but not what was asked
-        self.sync()
-        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 2)
-
-    def test_a_lost_answer_is_re_sent_when_the_hosted_claim_differs(self):
-        dead = _dead_url()
-        self.offline_copy(dead)
-        with self.env_at(dead):
-            _run(shell.remember_main, "subject 1", "lesson number 1", "--type", "pitfall")
-        self.back_online()
-        with self.env_at(self.url):
-            db = offline._db()
-            db.execute("UPDATE outbox SET sent_at = 'earlier'")
-            db.commit()
-        self.sync()  # the hosted "subject 1" is a fact, so this pitfall was never applied
-        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
 
     def test_purge_and_reject_drop_the_cached_copy(self):
         self.sync()
@@ -341,49 +321,6 @@ class OfflineTest(unittest.TestCase):
             _run(offline.sync_main)
             ids = [c["id"] for c in offline._cached(offline._db(), "p")]
         self.assertNotIn(_claim(1)["id"], ids)
-
-    def test_a_lost_answer_with_out_of_range_confidence_is_not_sent_twice(self):
-        dead = _dead_url()
-        self.offline_copy(dead)
-        with self.env_at(dead):
-            _run(shell.remember_main, "subject 1", "lesson number 1", "--confidence", "2")
-        self.back_online()
-        _Worker.claims[0] = {**_Worker.claims[0], "status": "candidate", "confidence": 1}
-        with self.env_at(self.url):
-            db = offline._db()
-            db.execute("UPDATE outbox SET sent_at = 'earlier'")
-            db.commit()
-        self.sync()
-        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 0)
-
-    def test_a_gateway_error_after_a_committed_write_is_not_sent_twice(self):
-        dead = _dead_url()
-        self.offline_copy(dead)
-        with self.env_at(dead):
-            _run(shell.remember_main, "subject 1", "lesson number 1")
-        self.back_online()
-        orig = remote.call
-
-        def gateway(op, **args):
-            if op == "remember":  # committed upstream, then the gateway answers 502
-                _Worker.seen.append({"op": op, **args})
-                raise SystemExit("kypp: answered 502: bad gateway")
-            return orig(op, **args)
-
-        with self.env_at(self.url), mock.patch.object(remote, "call", gateway):
-            with self.assertRaises(SystemExit) as e:
-                _run(offline.sync_main)
-        self.assertIn("no answer for queued write #1", str(e.exception.code))
-        self.sync()  # the snapshot already holds it, so it isn't re-sent
-        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
-
-    def test_only_a_4xx_is_a_refusal(self):
-        for code, refused in ((400, True), (401, True), (408, False), (502, False), (504, False)):
-            err = urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(b"{}"))
-            with self.env_at(self.url), mock.patch.object(remote._opener, "open", side_effect=err):
-                with self.assertRaises(SystemExit) as e:
-                    remote.call("remember", subject="s")
-            self.assertEqual(isinstance(e.exception, remote.Refused), refused, code)
 
     def test_a_rejected_claim_comes_back_when_the_worker_revives_it(self):
         self.sync()

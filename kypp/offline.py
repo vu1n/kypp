@@ -177,21 +177,6 @@ _QUEUEABLE = {"remember": ("type", "subject", "content", "scope", "project", "co
                            "agent")}
 
 
-def _payload(c: dict, accepted: bool) -> tuple:
-    """What a queued remember asked for, as the hosted claim it would have become."""
-    return (c["scope"], c["type"], c["subject"], c["content"], c.get("verify") or None,
-            round(_confidence(c["confidence"]), 6), accepted)
-
-
-def _confidence(v) -> float:
-    # As operatorClaim stores it: clamped to [0, 1], and anything unreadable is 0.
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return 0.0
-    return 0.0 if f != f else min(1.0, max(0.0, f))
-
-
 def forget(claim_id: str, purged: bool) -> None:
     """Drop a claim the Worker just purged or rejected from every cached project. A purge (for leaked
     secrets) also leaves a tombstone; a rejected claim can come back through `kypp verify`, so it doesn't."""
@@ -208,11 +193,12 @@ def forget(claim_id: str, purged: bool) -> None:
 
 
 def push(db: sqlite3.Connection) -> int:
-    """Send queued writes in order. Each is marked sent before the request and leaves the queue only
-    after the Worker answered it. One sent before whose answer never came (a timeout, a dropped
-    connection) may have been applied, so it is re-sent only if the project doesn't already hold that
-    claim. Any failure stops the push with it and the rest still queued."""
-    sent, seen = 0, {}
+    """Send queued writes in order. Each is marked sent before its request and leaves the queue only
+    after a 200. Only a request that never got a connection is unmarked again. Any other failure (an
+    error answer, a timeout, a dropped connection) may follow a committed write: the Worker answers 400
+    for any failure, even after a commit, and has no idempotency key. So a marked write is never sent
+    again on its own; the operator checks the hosted store and runs `--drop N` or `--resend N`."""
+    sent = 0
     for seq, op, raw, sent_at in db.execute(
             "SELECT seq, op, args, sent_at FROM outbox WHERE url = ? ORDER BY seq", (_url(),)).fetchall():
         if op not in _QUEUEABLE:
@@ -221,33 +207,27 @@ def push(db: sqlite3.Connection) -> int:
         stored = json.loads(raw)
         args = {k: stored.get(k) for k in _QUEUEABLE[op]}
         if sent_at:
-            if args["project"] not in seen:
-                seen[args["project"]] = {_payload(c, c["status"] == "accepted") for c in _fetch(args["project"])}
-            held = seen[args["project"]]
-            if _payload(args, True) in held or (not args["accept"] and _payload(args, False) in held):
-                with db:
-                    db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
-                sent += 1
-                continue
+            raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at} and no 200 came back"))
         with db:
             db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (_now(), seq))
         try:
             remote.call(op, **args)
-        except (remote.Unreachable, remote.Refused) as e:
-            with db:  # no connection was made, or the Worker said no: either way nothing was applied
-                db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (sent_at, seq))
-            if isinstance(e, remote.Unreachable):
-                raise
-            raise SystemExit(f"{e.code}\nkypp: the Worker refused queued write #{seq} (`{op}` {args.get('subject')!r}); "
-                             f"it and the writes after it stay queued. Fix the cause, or drop it with "
-                             f"`kypp sync --drop {seq}`") from None
+        except remote.Unreachable:
+            with db:  # no connection was made, so nothing was applied
+                db.execute("UPDATE outbox SET sent_at = NULL WHERE seq = ?", (seq,))
+            raise
         except SystemExit as e:
-            raise SystemExit(f"{e.code}\nkypp: no answer for queued write #{seq}; it stays queued and is checked "
-                             "against the hosted store before it is sent again") from None
+            raise SystemExit(f"{e.code}\n" + _unsure(seq, args, "the Worker didn't answer 200")) from None
         with db:
             db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
         sent += 1
     return sent
+
+
+def _unsure(seq: int, args: dict, why: str) -> str:
+    return (f"kypp: queued write #{seq} ({args.get('subject')!r}) may already be in the hosted store: {why}. "
+            f"It and the writes after it stay queued. Check with `kypp recall --candidates`, then run "
+            f"`kypp sync --drop {seq}` if it's there or `kypp sync --resend {seq}` if it isn't.")
 
 
 def pull(db: sqlite3.Connection, project: str) -> int:
@@ -270,7 +250,9 @@ def sync_main():
                     "copy of the project so recall/briefing/show work when the Worker can't be reached")
     ap.add_argument("--project", default=remote.default_project())
     ap.add_argument("--drop", type=int, action="append", default=[], metavar="N",
-                    help="discard queued write #N (one the Worker refused) without sending it")
+                    help="discard queued write #N without sending it (it reached the store, or it was refused)")
+    ap.add_argument("--resend", type=int, action="append", default=[], metavar="N",
+                    help="send queued write #N again: you checked that the hosted store doesn't have it")
     args = ap.parse_args()
     if not remote.remote_url():
         raise SystemExit("kypp sync: set KYPP_URL; the local store needs no sync")
@@ -288,6 +270,10 @@ def sync_main():
         with db:
             db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
         print(f"dropped queued write #{seq}: {row[0]} {json.loads(row[1]).get('subject')!r}")
+    for seq in args.resend:
+        with db:
+            if not db.execute("UPDATE outbox SET sent_at = NULL WHERE url = ? AND seq = ?", (_url(), seq)).rowcount:
+                raise SystemExit(f"kypp sync: no queued write #{seq}")
     try:
         sent, failed = push(db), None
     except remote.Unreachable as e:
