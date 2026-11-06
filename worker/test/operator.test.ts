@@ -335,3 +335,16 @@ test("a malformed key is refused before anything is written, and no key keeps th
   const plain = await call({ op: "remember", subject: "s", content: "c", project: "p" });
   assert.deepEqual(Object.keys(plain.body!).sort(), ["id", "status"]);
 });
+
+test("a keyed correct resent after a purge reports the claim's current status and is not written back", async () => {
+  const { call, row } = await setup();
+  const write = { op: "correct", subject: "deploy", content: "ship on green", project: "p", key: "c".repeat(24) };
+  const first = await call(write);
+  assert.deepEqual(first.body, { id: first.body!.id, superseded: 0, key: write.key, replayed: false, status: "accepted" });
+  await call({ op: "purge", handle: first.body!.id, reason: "leaked" });
+  const late = await call(write);
+  assert.deepEqual(late.body, { id: first.body!.id, superseded: 0, key: write.key, replayed: true, status: "rejected" });
+  assert.equal((await row(first.body!.id)).content, "[purged]");
+  const plain = await call({ op: "correct", subject: "other", content: "x", project: "p" });
+  assert.deepEqual(Object.keys(plain.body!).sort(), ["id", "superseded"]);
+});

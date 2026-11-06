@@ -75,7 +75,7 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       // A replayed claim may since have been purged or moved out of the operator's view; report what it is now.
       const status = (await store.anyClaim(id))?.status ?? "gone";
       if (!human) return { id, status, ...(key ? { key, replayed } : {}) };
-      return { id, superseded, ...(key ? { key, replayed } : {}) };
+      return { id, superseded, ...(key ? { key, replayed, status } : {}) };
     }
     case "reject": {
       const c = await store.get(str(a.handle), OPERATOR_USER);
