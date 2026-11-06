@@ -221,3 +221,28 @@ test("re-rating a counted used before apply moves its time, so the stale plan is
   await r("feedback", { ratings: [{ handle: id, ...USED }] });   // still used, but newer
   assert.deepEqual(await store.apply(plans), { applied: 0, stale: 1 });
 });
+
+test("an echo that changes the claim is kept as a pending update, and replaces it once the update is confirmed", async () => {
+  const db = await setup(), store = new D1Store(db);
+  const id = (await agent(db, "w")("claim", LESSON)).split("\n")[0];
+  const r = agent(db, "r");
+  await r("recall", { query: "wrangler port" });
+  const copy = (await r("claim", { ...LESSON, content: "wrangler dev  listens on 8787" })).split("\n")[0];
+  await consolidate(store, NOW, null);
+  assert.equal(await status(db, copy), "superseded", "a copy of what it was shown is still dropped");
+
+  const update = (await r("claim", { ...LESSON, content: "wrangler dev listens on 8787; pass --port to change it" })).split("\n")[0];
+  await consolidate(store, NOW, null);
+  assert.equal(await status(db, update), "candidate", "the change is kept");
+  await r("feedback", { ratings: [{ handle: id, ...USED }] });
+  await consolidate(store, NOW, null);
+  assert.deepEqual([await status(db, id), await status(db, update)], ["accepted", "candidate"], "the confirmed claim promotes; the change waits as its update");
+
+  for (const s of ["s1", "s2"]) {
+    const reader = agent(db, s);
+    await reader("recall", { query: "wrangler port" });
+    await reader("feedback", { ratings: [{ handle: update, verdict: "used", note: "--port 9000 moved it" }] });
+  }
+  await consolidate(store, NOW, null);
+  assert.deepEqual([await status(db, id), await status(db, update)], ["superseded", "accepted"], "two confirmations promote the update");
+});

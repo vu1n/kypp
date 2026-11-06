@@ -148,11 +148,18 @@ export function groupKey(c: Claim): GroupKey {
 // - an accepted survivor keeps newer candidates of the same authority alive as pending UPDATES (an
 //   older accepted claim must not silently eat its own correction). Once the updates recur, the
 //   strongest update is promoted and the old answer superseded.
+// An echo that changes what it echoes is a pending update to the survivor: it has no recurrence credit, but its
+// change is kept, not superseded, until updates recur or a later pass retires it.
+const sameText = (a: string, b: string) => a.split(WHITESPACE).filter(Boolean).join(" ") === b.split(WHITESPACE).filter(Boolean).join(" ");
+const echoUpdate = (m: Claim, best: Claim) => m.status === "candidate" && !m.source_ids.length && m.authority === best.authority
+  && m.created_at > best.created_at && !sameText(m.content, best.content);
+
 export function planGroup(members: Claim[], policy: Policy = DEFAULT_POLICY): GroupPlan {
   const best = survivor(members);
   const plan: GroupPlan = { key: groupKey(best), version: groupVersion(members), supersede: [], promote: [], support: [] };
+  // Promotion bumps the survivor's updated_at, so an echo update kept through it is matched by when it was written.
   const updates = best.status === "accepted"
-    ? members.filter((m) => m.status === "candidate" && m.authority === best.authority && m.updated_at > best.updated_at)
+    ? members.filter((m) => m.status === "candidate" && m.authority === best.authority && (m.updated_at > best.updated_at || echoUpdate(m, best)))
     : [];
   if (updates.length && recurs(updates, policy.k, policy.minGapMs) && policy.autoAccept(best)) {
     const winner = survivor(updates);
@@ -166,7 +173,7 @@ export function planGroup(members: Claim[], policy: Policy = DEFAULT_POLICY): Gr
   const promoting = best.status === "candidate" && recurs(members, policy.k, policy.minGapMs) && policy.autoAccept(best);
   // An unstamped survivor (an echo) never retires a stamped candidate: that claim is the subject's evidence, and the
   // one a later `used` rating names.
-  const keep = new Set(updates.map((u) => u.id));
+  const keep = new Set([...updates, ...members.filter((m) => echoUpdate(m, best))].map((u) => u.id));
   if (!promoting && best.status === "candidate" && !best.source_ids.length) {
     for (const m of members) if (m.status === "candidate" && m.source_ids.length) keep.add(m.id);
   }
