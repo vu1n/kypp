@@ -37,8 +37,8 @@ operator's view of the project (`POST /v1/operator` `snapshot`, 500 claims a pag
   confidence clamped to [0, 1] as the Worker stores it, and accepted if `--accept`), and a refusal clears the sent mark: it was not applied.
 - Replay holds an exclusive lock (`offline.db.lock`); a second `kypp sync` exits instead of re-sending.
 - A successful hosted `purge` or `reject` drops that claim from every cached project (`offline.forget`).
-  It also leaves a tombstone (`forgotten`) that every later pull skips, so a sync that fetched the claim
-  before the purge can't write it back.
+  A purge also leaves a tombstone (`forgotten`) that every later pull skips, so a sync that fetched the
+  claim before the purge can't write it back. A reject leaves none: `kypp verify` can revive the claim.
 - A TLS failure is not "offline": a certificate that fails to verify may be interception, so it errors.
 - Replay sends only `remember`, with its arguments rebuilt from a fixed key list (`_QUEUEABLE`), so an
   outbox row edited on disk can't become a correct, purge or other operator write.

@@ -243,7 +243,7 @@ def reject_main():
     if remote.remote_url():
         c = _online("reject", "reject", handle=args.handle, reason=args.reason)["claim"]
         from . import offline
-        offline.forget(c["id"])
+        offline.forget(c["id"], purged=False)
         cid, status, ctype, subject = c["id"], c["status"], c["type"], c["subject"]
     else:
         store = store_from_env()
@@ -266,7 +266,7 @@ def purge_main():
         if remote.remote_url():
             cid = _online("purge", "purge", handle=handle, reason=args.reason)["claim"]["id"]
             from . import offline
-            offline.forget(cid)
+            offline.forget(cid, purged=True)
         else:
             store = store_from_env()
             cid = _resolve_handle(store, handle).id

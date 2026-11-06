@@ -117,11 +117,11 @@ def recall(db: sqlite3.Connection, project: str, query: str, types: list[str] | 
     hits = [c for c in _cached(db, project)
             if (candidates or c["status"] == "accepted") and (not types or c["type"] in types)
             and (not words or matched(c))]
-    lines = [_line(c) for c in _ordered(hits, lambda c: -matched(c))[:limit]]
+    lines = [_line(c) for c in _ordered(hits, lambda c: -matched(c))]
     lines += [f"(queued) [{q.get('type', 'fact')}] {q['subject']} — {q['content']}" for q in _queued(db, project)
               if q["op"] == "remember" and (not types or q.get("type", "fact") in types)
               and (not words or matched(q))]
-    return "\n".join(lines) or "(no matching memory)"
+    return "\n".join(lines[:max(limit, 0)]) or "(no matching memory)"
 
 
 def briefing(db: sqlite3.Connection, project: str, limit: int) -> str:
@@ -186,14 +186,15 @@ def _confidence(v) -> float:
     return 0.0 if f != f else min(1.0, max(0.0, f))
 
 
-def forget(claim_id: str) -> None:
-    """Drop a claim the Worker just purged or rejected from every cached project, so the offline copy
-    can't serve it again (a purge is for leaked secrets)."""
+def forget(claim_id: str, purged: bool) -> None:
+    """Drop a claim the Worker just purged or rejected from every cached project. A purge (for leaked
+    secrets) also leaves a tombstone; a rejected claim can come back through `kypp verify`, so it doesn't."""
     if remote.remote_url() and os.path.exists(_path()):
         db = _db()
         with db:
             # The tombstone outlives a pull that fetched the claim before the purge and writes after it.
-            db.execute("INSERT OR IGNORE INTO forgotten(url, id) VALUES(?, ?)", (_url(), claim_id))
+            if purged:
+                db.execute("INSERT OR IGNORE INTO forgotten(url, id) VALUES(?, ?)", (_url(), claim_id))
             db.execute("DELETE FROM claims WHERE url = ? AND id = ?", (_url(), claim_id))
 
 

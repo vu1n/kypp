@@ -334,7 +334,7 @@ class OfflineTest(unittest.TestCase):
         def purge_mid_pull(op, **args):
             res = orig(op, **args)
             if op == "snapshot" and not args.get("after"):
-                offline.forget(_claim(1)["id"])  # another process purges after this page was fetched
+                offline.forget(_claim(1)["id"], purged=True)  # another process purges after this page was fetched
             return res
 
         with self.env_at(self.url), mock.patch.object(remote, "call", purge_mid_pull):
@@ -384,6 +384,27 @@ class OfflineTest(unittest.TestCase):
                 with self.assertRaises(SystemExit) as e:
                     remote.call("remember", subject="s")
             self.assertEqual(isinstance(e.exception, remote.Refused), refused, code)
+
+    def test_a_rejected_claim_comes_back_when_the_worker_revives_it(self):
+        self.sync()
+        _Worker.claim_reply = {"claim": {"id": _claim(3)["id"], "status": "rejected", "type": "fact", "subject": "s"}}
+        with self.env_at(self.url):
+            _run(shell.reject_main, _claim(3)["id"][:8])
+        self.sync()  # `kypp verify` passed in between: the Worker still serves it
+        with self.env_at(self.url):
+            ids = [c["id"] for c in offline._cached(offline._db(), "p")]
+        self.assertIn(_claim(3)["id"], ids)
+
+    def test_the_recall_limit_covers_queued_writes(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            for i in range(3):
+                _run(shell.remember_main, f"queued {i}", "lesson queued")
+            out, _ = _run(shell.recall_main, "lesson", "--candidates", "--limit", "4")
+            self.assertEqual(len(out.strip().splitlines()), 4)
+            out, _ = _run(shell.recall_main, "lesson", "--limit", "0")
+            self.assertEqual(out.strip(), "(no matching memory)")
 
     def test_a_failed_pull_keeps_the_previous_copy(self):
         self.sync()
