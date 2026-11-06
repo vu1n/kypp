@@ -474,12 +474,16 @@ export class D1Store {
 
   // A session's verdict on claims it was shown: its own usage rows (surface "feedback"), never a change
   // to the claim. The newest row per consumer and claim is the verdict; earlier ones stay as history.
+  // One call holds at most one rating per claim (the caller dedupes), so created_at orders them.
   async recordFeedback(consumer: string, rated: { id: string; project: string | null; scope: string; score: number; verdict: string; note: string | null }[]): Promise<void> {
     if (!rated.length) return;
     const ts = now();
+    // A purged claim's tombstone is checked in the insert itself, so a note can't bring erased text back.
     await this.db.batch(rated.map((r) => this.db.prepare(
-      "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,score,metadata,created_at) VALUES(?,?,?,?,?,'feedback',?,?,?)",
-    ).bind(uid(), consumer, r.id, r.project, r.scope, r.score, JSON.stringify(r.note ? { verdict: r.verdict, note: r.note } : { verdict: r.verdict }), ts)));
+      "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,score,metadata,created_at)"
+      + " SELECT ?,?,?,?,?,'feedback',?,CASE WHEN json_extract(metadata, '$.purged_at') IS NULL THEN ? ELSE ? END,? FROM memory_claims WHERE id = ?",
+    ).bind(uid(), consumer, r.id, r.project, r.scope, r.score,
+      JSON.stringify(r.note ? { verdict: r.verdict, note: r.note } : { verdict: r.verdict }), JSON.stringify({ verdict: r.verdict }), ts, r.id)));
   }
 
   // Every group or org `project` rolls up to, nearest first, through parents of parents up to three

@@ -331,7 +331,9 @@ async function feedback(store: D1Store, a: Args, session: string | null): Promis
     try { shown = await store.shownTo(session, handle); } catch (e) { return `${handle}: ${(e as Error).message}`; }
     return shown ? { ...shown, score: VERDICTS[verdict], verdict, note } : `${handle}: not shown to this session`;
   }));
-  const rated = checked.filter((c) => typeof c !== "string"), skipped = checked.filter((c) => typeof c === "string");
+  // Two ratings of one claim in a call (a prefix and the full id, say): the last one listed wins.
+  const rated = [...new Map(checked.filter((c) => typeof c !== "string").map((c) => [c.id, c])).values()];
+  const skipped = checked.filter((c) => typeof c === "string");
   await store.recordFeedback(session, rated);
   return `recorded ${rated.length} rating${rated.length === 1 ? "" : "s"}` + (skipped.length ? `\nskipped:\n${skipped.join("\n")}` : "");
 }

@@ -26,7 +26,7 @@ function agent(db: D1Database, session: string | null, caller: Caller = OWNER) {
 }
 
 const feedbackRows = async (db: D1Database) =>
-  (await db.prepare("SELECT consumer, claim_id, project, score, metadata FROM claim_usages WHERE surface = 'feedback' ORDER BY created_at").all()).results as any[];
+  (await db.prepare("SELECT consumer, claim_id, project, score, metadata FROM claim_usages WHERE surface = 'feedback' ORDER BY created_at, rowid").all()).results as any[];
 
 test("a session rates what it was shown; each verdict is a feedback row with its score", async () => {
   const db = await setup();
@@ -94,6 +94,27 @@ test("a read-only token can rate what it read", async () => {
   const ro = agent(db, "ro", { user: "owner", agent: "reviewer", readOnly: true });
   await ro("expand", { handle: id });
   assert.equal((await ro("feedback", { ratings: [{ handle: id, verdict: "not_used" }] })).text, "recorded 1 rating");
+});
+
+test("two ratings of one claim in a call: the last one listed is the verdict", async () => {
+  const db = await setup();
+  const id = (await agent(db, "w")("claim", { subject: "s", content: "a lesson about ports" })).text.split("\n")[0];
+  const r = agent(db, "r");
+  await r("expand", { handle: id });
+  const out = await r("feedback", { ratings: [{ handle: id.slice(0, 8), verdict: "used", note: "worked" }, { handle: id, verdict: "wrong", note: "it did not" }] });
+  assert.equal(out.text, "recorded 1 rating");
+  assert.deepEqual((await feedbackRows(db)).map((x) => x.score), [-1]);
+});
+
+test("feedback after a purge keeps the verdict but drops the note", async () => {
+  const db = await setup();
+  const id = (await agent(db, "w")("claim", { subject: "s", content: "token sk-123 works" })).text.split("\n")[0];
+  const r = agent(db, "r");
+  await r("expand", { handle: id });
+  await new D1Store(db).operatorPurge(id, "leaked key");
+  assert.equal((await r("feedback", { ratings: [{ handle: id, verdict: "wrong", note: "sk-123 leaked" }] })).text, "recorded 1 rating");
+  const [row] = await feedbackRows(db);
+  assert.deepEqual(JSON.parse(row.metadata), { verdict: "wrong" });
 });
 
 test("purge strips feedback notes on the claim but keeps the verdicts", async () => {

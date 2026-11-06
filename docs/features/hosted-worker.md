@@ -176,7 +176,9 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   verdict. It resolves handles only among claims a read already showed that session
   (`store.shownTo`), so it needs no lane or pin check of its own, and it is not in `WRITES`: it
   rates reads and never changes a claim. `used` and `wrong` need a note. Any count of what a
-  session was shown must exclude `surface = 'feedback'`. Purge strips notes on the purged claim.
+  session was shown must exclude `surface = 'feedback'`. Purge strips notes on the purged claim,
+  and the feedback insert drops the note itself when the claim carries `metadata.purged_at`. One
+  call keeps only the last rating per claim, so `created_at` orders a session's verdicts.
   The local `kypp serve` has no `feedback` yet.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
