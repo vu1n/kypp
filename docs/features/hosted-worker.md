@@ -188,7 +188,7 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   the recurrence gap still applies. The claim's own writer never confirms it. A session's verdict is
   its newest rating, and it confirms only if that rating is `used` and marked `writable`. `feedback`
   marks a rating writable only when the current caller could write at the claim's level (`mayWrite`
-  in `mcp.ts`: not read-only, inside a pin, the caller's own user or room lane), because a session id
+  in `mcp.ts`: not read-only, inside a pin, the caller's own user or room lane, or a repo the room is linked to), because a session id
   is not bound to a credential and read visibility alone would let a reader confirm another lane's
   claim. Rows from before the mark never confirm, and a later unmarked `wrong` still withdraws. An unstamped survivor (an echo) never supersedes a stamped candidate until the group
   promotes, so the claim the echo reply tells the agent to rate stays live. The plan

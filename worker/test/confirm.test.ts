@@ -180,3 +180,20 @@ test("a feedback-backed promotion still waits when the S1 judge finds the claims
   assert.deepEqual([await status(db, id), await status(db, echo)], ["candidate", "candidate"],
     "held: nothing promotes, and the echo doesn't retire the rated claim");
 });
+
+test("a room confirms claims in the repos it is linked to, and not in others", async () => {
+  const db = await setup(), store = new D1Store(db);
+  await db.prepare("INSERT INTO projects(name, description, created_at) VALUES('other', '', '2026-11-06T00:00:00Z')").run();
+  await db.prepare("INSERT INTO room_links(room, project, created_at) VALUES('huddles:r', 'kypp', '2026-11-06T00:00:00Z')").run();
+  const room: Caller = { user: "room:huddles:r", agent: "room:huddles:r", room: "huddles:r" };
+  const id = (await agent(db, "w")("claim", LESSON)).split("\n")[0];
+  const otherId = (await agent(db, "w2")("claim", { ...LESSON, project: "other" })).split("\n")[0];
+  // The room session is shown both (the second through a read-only token carrying the same session id).
+  const bot = agent(db, "rs", room);
+  await bot("recall", { query: "wrangler port", include_candidates: true });
+  await agent(db, "rs", { ...OWNER, readOnly: true })("recall", { query: "wrangler port", project: "other", include_candidates: true });
+  assert.equal(await bot("feedback", { ratings: [{ handle: id, ...USED }, { handle: otherId, ...USED }] }), "recorded 2 ratings");
+  await consolidate(store, NOW, null);
+  assert.equal(await status(db, id), "accepted", "kypp is linked to the room");
+  assert.equal(await status(db, otherId), "candidate", "other isn't");
+});

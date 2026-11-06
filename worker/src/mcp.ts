@@ -323,9 +323,10 @@ const MAX_RATINGS = 50, MAX_NOTE = 300;
 
 // Whether this caller could have written a claim at `c`'s level: only such a caller's `used` can confirm it.
 // Read visibility is not enough, because one session id can be carried across credentials.
-function mayWrite(caller: Caller, c: { scope: string; project: string | null; user: string | null }): boolean {
+// A room writes its own lane, and project claims only in the repos it is linked to (share_to).
+function mayWrite(caller: Caller, c: { scope: string; project: string | null; user: string | null }, roomLinks: string[]): boolean {
   if (caller.readOnly) return false;
-  if (caller.room) return c.scope === "room" && c.user === caller.user;
+  if (caller.room) return c.scope === "room" ? c.user === caller.user : c.scope === "project" && c.project !== null && roomLinks.includes(c.project);
   if (c.scope === "user") return c.user !== null && c.user === caller.user;
   if (c.scope !== "project") return false;
   return !caller.projects || (c.project !== null && caller.projects.includes(c.project));
@@ -350,8 +351,8 @@ async function feedback(store: D1Store, a: Args, session: string | null, caller:
   // Two ratings of one claim in a call (a prefix and the full id, say): the last one listed wins.
   const shown = [...new Map(checked.filter((c) => typeof c !== "string").map((c) => [c.id, c])).values()];
   const skipped = checked.filter((c) => typeof c === "string");
-  const lanes = await store.lanes(shown.map((r) => r.id));
-  const rated = shown.map((r) => ({ ...r, writable: !!lanes.get(r.id) && mayWrite(caller, lanes.get(r.id)!) }));
+  const [lanes, links] = await Promise.all([store.lanes(shown.map((r) => r.id)), caller.room ? store.roomLinks(caller.room) : []]);
+  const rated = shown.map((r) => ({ ...r, writable: !!lanes.get(r.id) && mayWrite(caller, lanes.get(r.id)!, links) }));
   await store.recordFeedback(session, rated);
   return `recorded ${rated.length} rating${rated.length === 1 ? "" : "s"}` + (skipped.length ? `\nskipped:\n${skipped.join("\n")}` : "");
 }
