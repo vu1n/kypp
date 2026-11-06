@@ -61,7 +61,11 @@ export interface Claim {
   updated_at: string;
   verify?: string | null; // the operator's freshness command; set only through POST /v1/operator
   pointer?: boolean;      // set by recall when a path, anchor or doc:// ref in the query matched the claim, not its words
+  confirmations?: Confirmation[]; // set by consolidate: other sessions whose newest feedback on this claim is `used`
 }
+
+// A session that was shown the claim, acted on it, and rated it `used` with a note on what it checked.
+export interface Confirmation { session: string; at: string }
 
 // Rank survivors by authority first; agent < verified < human.
 export function rank(c: Claim): [number, number, number, number, string] {
@@ -91,12 +95,16 @@ export function corroboration(members: Claim[]): number {
 // The two-session rule measures recurrence, not independent evidence: one client can open two
 // sessions. Requiring the supporting sessions to span `minGapMs` makes "it came up again later" the
 // thing being counted, and makes faking it slow.
+// A `used` rating counts as its session's support at the rating's time, because the rater checked the
+// claim against its own work; re-claiming what it was shown (an echo) still counts for nothing.
 export function recurs(members: Claim[], k: number, minGapMs: number): boolean {
-  if (members.length < k) return false;
   const firstSeen = new Map<string, number>();
+  const seen = (s: string, t: number) => firstSeen.set(s, Math.min(firstSeen.get(s) ?? t, t));
   for (const m of members) {
     const t = Date.parse(m.created_at);
-    for (const s of m.source_ids) firstSeen.set(s, Math.min(firstSeen.get(s) ?? t, t));
+    for (const s of m.source_ids) seen(s, t);
+    // A session never confirms its own claim.
+    for (const c of m.confirmations ?? []) if (c.session !== m.session) seen(`session:${c.session}`, Date.parse(c.at));
   }
   if (firstSeen.size < k) return false;
   const times = [...firstSeen.values()];
@@ -116,7 +124,12 @@ export interface GroupKey { subject: string; scope: Scope; project: string | nul
 // `version` is the group's live-row count and newest updated_at at read time; apply() refuses a plan
 // whose group changed since (a correction or new claim landed), so a stale plan can't undo it.
 // `support` is the claims whose recurrence justifies the promotion, for an agreement check.
-export interface GroupPlan { key: GroupKey; version: string; supersede: string[]; promote: string[]; support: string[] }
+// `confirmed` is the (claim, session) `used` ratings the promotion counted; apply() refuses the plan if one was withdrawn since.
+export interface GroupPlan { key: GroupKey; version: string; supersede: string[]; promote: string[]; support: string[]; confirmed?: Rated[] }
+export interface Rated { claim: string; session: string }
+
+const countedConfirmations = (members: Claim[]): Rated[] =>
+  members.flatMap((m) => (m.confirmations ?? []).filter((c) => c.session !== m.session).map((c) => ({ claim: m.id, session: c.session })));
 
 export function groupVersion(members: Claim[]): string {
   return `${members.length}:${members.reduce((m, c) => (c.updated_at > m ? c.updated_at : m), "")}`;
@@ -145,15 +158,23 @@ export function planGroup(members: Claim[], policy: Policy = DEFAULT_POLICY): Gr
     const winner = survivor(updates);
     plan.promote.push(winner.id);
     plan.support = updates.map((u) => u.id);
+    plan.confirmed = countedConfirmations(updates);
     plan.supersede.push(...members.filter((m) => m.id !== winner.id).map((m) => m.id));
     return plan;
   }
-  const pending = new Set(updates.map((u) => u.id));
-  plan.supersede.push(...members.filter((m) => m.id !== best.id && !pending.has(m.id)).map((m) => m.id));
   // Why: accept only when >= K distinct claims from distinct sessions agree; one session's guess must not become the swarm's truth.
-  if (best.status === "candidate" && recurs(members, policy.k, policy.minGapMs) && policy.autoAccept(best)) {
+  const promoting = best.status === "candidate" && recurs(members, policy.k, policy.minGapMs) && policy.autoAccept(best);
+  // An unstamped survivor (an echo) never retires a stamped candidate: that claim is the subject's evidence, and the
+  // one a later `used` rating names.
+  const keep = new Set(updates.map((u) => u.id));
+  if (!promoting && best.status === "candidate" && !best.source_ids.length) {
+    for (const m of members) if (m.status === "candidate" && m.source_ids.length) keep.add(m.id);
+  }
+  plan.supersede.push(...members.filter((m) => m.id !== best.id && !keep.has(m.id)).map((m) => m.id));
+  if (promoting) {
     plan.promote.push(best.id);
     plan.support = members.map((m) => m.id);
+    plan.confirmed = countedConfirmations(members);
   }
   return plan;
 }

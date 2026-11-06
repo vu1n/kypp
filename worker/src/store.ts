@@ -1,5 +1,5 @@
 // store.ts — the D1 side of kypp/store.py: claim, recall, get, usage, live claims, status writes.
-import { type Claim, type ClaimType, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope, ftsQuery, resolveOrigin } from "./memory.ts";
+import { type Claim, type ClaimType, type Confirmation, type GroupPlan, SCOPES, type Scope, TYPES, ownedScope, ftsQuery, resolveOrigin } from "./memory.ts";
 import { normalizedContent } from "./claim-machine.ts";
 import type { ProjectInfo } from "./s1.ts";
 
@@ -109,6 +109,8 @@ function hydrate(r: Record<string, unknown>): Claim {
 }
 
 const UNSORTED = "scope = 'project' AND project IS NULL";
+// A session's verdict is its newest rating of the claim; it confirms only if that rating is `used` and marked writable.
+const CONFIRMING = "CASE WHEN json_extract(u.metadata, '$.writable') = 1 THEN u.score END";
 
 /** A claim's level, keyed the way its group is: a project, a person's own scope, or a room's lane. */
 export type Lane = { project: string } | { user: string } | { room: string };
@@ -483,10 +485,22 @@ export class D1Store {
     return results.length ? results[0] as { id: string; project: string | null; scope: string } : null;
   }
 
+  // Each claim's level, for an authorization check on what was shown.
+  async lanes(ids: string[]): Promise<Map<string, { scope: string; project: string | null; user: string | null }>> {
+    if (!ids.length) return new Map();
+    const { results } = await this.db.prepare(
+      "SELECT c.id, c.scope, c.project, c.user FROM memory_claims c JOIN json_each(?) j ON j.value = c.id",
+    ).bind(JSON.stringify(ids)).all();
+    return new Map(results.map((r) => [r.id as string, { scope: r.scope as string, project: r.project as string | null, user: r.user as string | null }]));
+  }
+
   // A session's verdict on claims it was shown: its own usage rows (surface "feedback"), never a change
   // to the claim. The newest row per consumer and claim is the verdict; earlier ones stay as history.
-  // One call holds at most one rating per claim (the caller dedupes), so created_at orders them.
-  async recordFeedback(consumer: string, rated: { id: string; project: string | null; scope: string; score: number; verdict: string; note: string | null }[]): Promise<void> {
+  // One call holds at most one rating per claim (the caller dedupes); rowid breaks created_at ties between calls.
+  // Only a rating from a caller that may write at the claim's level is marked `writable`, and only a marked
+  // rating confirms a claim; a rating stored before the mark can't show who made it.
+  async recordFeedback(consumer: string,
+    rated: { id: string; project: string | null; scope: string; score: number; verdict: string; note: string | null; writable: boolean }[]): Promise<void> {
     if (!rated.length) return;
     const ts = now();
     // A purged claim's tombstone is checked in the insert itself, so a note can't bring erased text back.
@@ -494,7 +508,27 @@ export class D1Store {
       "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,score,metadata,created_at)"
       + " SELECT ?,?,?,?,?,'feedback',?,CASE WHEN json_extract(metadata, '$.purged_at') IS NULL THEN ? ELSE ? END,? FROM memory_claims WHERE id = ?",
     ).bind(uid(), consumer, r.id, r.project, r.scope, r.score,
-      JSON.stringify(r.note ? { verdict: r.verdict, note: r.note } : { verdict: r.verdict }), JSON.stringify({ verdict: r.verdict }), ts, r.id)));
+      JSON.stringify({ verdict: r.verdict, ...(r.note ? { note: r.note } : {}), ...(r.writable ? { writable: true } : {}) }),
+      JSON.stringify({ verdict: r.verdict, ...(r.writable ? { writable: true } : {}) }), ts, r.id)));
+  }
+
+  // Per claim, the sessions whose newest rating of it is a writable `used`, with when they rated it.
+  async confirmations(ids: string[]): Promise<Map<string, Confirmation[]>> {
+    const out = new Map<string, Confirmation[]>();
+    if (!ids.length) return out;
+    const { results } = await this.db.prepare(
+      `SELECT u.claim_id, u.consumer, ${CONFIRMING} AS score, u.created_at FROM claim_usages u JOIN json_each(?) j ON j.value = u.claim_id`
+      + " WHERE u.surface = 'feedback' ORDER BY u.created_at, u.rowid",
+    ).bind(JSON.stringify(ids)).all();
+    // The newest row per (consumer, claim) is that session's verdict; a later not_used or wrong withdraws a used.
+    const latest = new Map<string, Record<string, unknown>>();
+    for (const r of results) latest.set(`${r.claim_id}\u0000${r.consumer}`, r);
+    for (const r of latest.values()) {
+      if (r.score !== 1) continue;
+      const id = r.claim_id as string;
+      out.set(id, [...(out.get(id) ?? []), { session: r.consumer as string, at: r.created_at as string }]);
+    }
+    return out;
   }
 
   // Every group or org `project` rolls up to, nearest first, through parents of parents up to three
@@ -723,6 +757,12 @@ export class D1Store {
           + " AND c.status IN ('candidate','accepted') AND c.subject = ? AND c.scope = ? AND c.project IS ?"
           + " AND (c.scope NOT IN ('user','room') OR c.user IS ?)))",
         ).bind(JSON.stringify([...p.supersede, ...p.promote]), subject, scope, project, user),
+        // A `used` rating the promotion counted must still be that session's verdict: a later rating doesn't touch the claim rows.
+        ...(p.confirmed?.length ? [this.db.prepare(
+          `INSERT INTO consolidation_guard(ok) SELECT 0 WHERE EXISTS (SELECT 1 FROM json_each(?) t WHERE IFNULL((SELECT ${CONFIRMING} FROM claim_usages u`
+          + ` WHERE u.surface = 'feedback' AND u.claim_id = json_extract(t.value, '$.claim') AND u.consumer = json_extract(t.value, '$.session')`
+          + " ORDER BY u.created_at DESC, u.rowid DESC LIMIT 1), 0) != 1)",
+        ).bind(JSON.stringify(p.confirmed))] : []),
         ...p.supersede.map((id) => this.db.prepare("UPDATE memory_claims SET status='superseded', updated_at=? WHERE id=?").bind(ts, id)),
         ...p.promote.map((id) => this.db.prepare("UPDATE memory_claims SET status='accepted', updated_at=? WHERE id=?").bind(ts, id)),
       ];

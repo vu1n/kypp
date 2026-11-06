@@ -25,7 +25,8 @@ const STEPS: { tool?: string; text: string }[] = [
   { text: "BEFORE non-trivial work — `recall(\"<what you're about to touch>\")`; `expand(handle)` for the full claim." },
   { tool: "claim", text: `WHEN YOU LEARN SOMETHING DURABLE — \`claim\` a distilled, model-agnostic lesson. \`subject\` is its
    identity: reuse a subject to update it. Claims land as candidates; one is accepted once a second
-   session claims the same subject. Don't store status ("shipped", "PR merged") — git holds that.
+   session claims the same subject or rates it \`used\` with \`feedback\`. Don't store status
+   ("shipped", "PR merged") — git holds that.
    WHERE IT GOES: you don't choose. Say which repo you are in and the server files and shares the
    lesson. Set \`scope: "user"\` only for how this person works, in every repo.
    Reads show other agents' unconfirmed (?) claims in this repo: weigh them. Don't re-claim a lesson
@@ -35,7 +36,7 @@ const STEPS: { tool?: string; text: string }[] = [
   { tool: "feedback", text: `BEFORE YOU FINISH — \`feedback\` on the handles you were shown: \`used\` if it held up in
    your work (say what you checked in \`note\`), \`not_used\` if it didn't bear on the task, \`wrong\` if it
    misled you (say how in \`note\`, and claim the fix under the same subject). One call with every
-   handle; the ratings tune what memory shows.` },
+   handle; the ratings tune what memory shows, and a \`used\` from another session confirms a claim.` },
 ];
 const INTRO = `kypp is shared memory for coding agents — durable lessons governed by status
 (candidate → accepted), authority (human > verified > agent) and provenance.`;
@@ -235,6 +236,11 @@ async function afterClaim(store: D1Store, at: Lane, id: string, subject: string,
     + (near.length ? `\nnearby subjects here: ${near.map((n) => JSON.stringify(n)).join(", ")}. If one is the same lesson, claim it again with the same content under that subject; this claim is then withdrawn.` : "");
 }
 
+// Why: an echo used to be stored with no sign it earned nothing, so agents kept re-claiming to agree.
+const echoNote = (echoOf: string[]) => echoOf.length
+  ? `\necho: this session was shown another session's unconfirmed claim on this subject, so this one doesn't count toward accepting it. If that claim held up in your work, rate it \`used\` with \`feedback\`; that does count.`
+  : "";
+
 // What this claim counts as: an echo when the session was shown the subject, or when it renames a
 // claim that was itself an echo (a rename must not launder relayed content into recurrence).
 // A session shown another session's candidate on this subject doesn't count toward accepting it.
@@ -300,7 +306,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
         confidence: a.confidence ?? 0.7, sourceIds: stamp, codeRefs: [],
         accept: false, agent: identity, user: identity, metadata, ...(share !== null ? { sharedFrom: key } : {}),
       });
-      return id + await afterClaim(store, at, id, subject, content, ctx.session, prior);
+      return id + echoNote(echoOf) + await afterClaim(store, at, id, subject, content, ctx.session, prior);
     }
     case "expand": {
       const c = await store.get(String(a.handle ?? ""), identity, ctx.session, room);
@@ -315,7 +321,17 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
 const VERDICTS: Record<string, number> = { used: 1, not_used: 0, wrong: -1 };
 const MAX_RATINGS = 50, MAX_NOTE = 300;
 
-async function feedback(store: D1Store, a: Args, session: string | null): Promise<string> {
+// Whether this caller could have written a claim at `c`'s level: only such a caller's `used` can confirm it.
+// Read visibility is not enough, because one session id can be carried across credentials.
+function mayWrite(caller: Caller, c: { scope: string; project: string | null; user: string | null }): boolean {
+  if (caller.readOnly) return false;
+  if (caller.room) return c.scope === "room" && c.user === caller.user;
+  if (c.scope === "user") return c.user !== null && c.user === caller.user;
+  if (c.scope !== "project") return false;
+  return !caller.projects || (c.project !== null && caller.projects.includes(c.project));
+}
+
+async function feedback(store: D1Store, a: Args, session: string | null, caller: Caller): Promise<string> {
   if (!session) throw new Error("feedback needs the session id from initialize: it rates what this session was shown");
   const ratings: unknown[] = Array.isArray(a.ratings) ? a.ratings : [];
   if (!ratings.length) throw new Error("ratings must list at least one {handle, verdict}");
@@ -332,8 +348,10 @@ async function feedback(store: D1Store, a: Args, session: string | null): Promis
     return shown ? { ...shown, score: VERDICTS[verdict], verdict, note } : `${handle}: not shown to this session`;
   }));
   // Two ratings of one claim in a call (a prefix and the full id, say): the last one listed wins.
-  const rated = [...new Map(checked.filter((c) => typeof c !== "string").map((c) => [c.id, c])).values()];
+  const shown = [...new Map(checked.filter((c) => typeof c !== "string").map((c) => [c.id, c])).values()];
   const skipped = checked.filter((c) => typeof c === "string");
+  const lanes = await store.lanes(shown.map((r) => r.id));
+  const rated = shown.map((r) => ({ ...r, writable: !!lanes.get(r.id) && mayWrite(caller, lanes.get(r.id)!) }));
   await store.recordFeedback(session, rated);
   return `recorded ${rated.length} rating${rated.length === 1 ? "" : "s"}` + (skipped.length ? `\nskipped:\n${skipped.join("\n")}` : "");
 }
@@ -345,7 +363,7 @@ const visibleTools = (ctx: ToolCtx) => ctx.caller.room ? ROOM_TOOLS
 
 export async function callTool(store: D1Store, name: string, a: Args, ctx: ToolCtx): Promise<string> {
   // Feedback reaches only claims a read already showed this session, so every lane's visibility rule still holds.
-  if (name === "feedback") return feedback(store, a, ctx.session);
+  if (name === "feedback") return feedback(store, a, ctx.session, ctx.caller);
   if (ctx.caller.room) return roomTool(store, name, a, ctx, ctx.caller.room);
   if (ctx.caller.readOnly && WRITES.has(name)) throw new Error(`this token is read-only: ${name} is not available`);
   // The caller says where it is; only a registered project is a place, so an unknown name can't start a separate memory.
@@ -450,7 +468,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         accept: false, agent: ctx.caller.agent, user, metadata,
       });
       // Why: clients that can't send a header shouldn't wait an hour for defrag to file their claim.
-      if (at) return id + await afterClaim(store, at, id, subject, content, ctx.session, prior);
+      if (at) return id + echoNote(echoOf) + await afterClaim(store, at, id, subject, content, ctx.session, prior);
       try {
         if (await fileClaim(store, ctx.s1, { id, subject, content, origin }, projects)) return id;
       } catch (e) {

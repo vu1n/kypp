@@ -146,7 +146,9 @@ test("repeating a candidate you were shown doesn't count toward accepting it", a
   await client(db, "kypp", "a")("claim", { subject: "heron", content: "heron cache goes stale on rename" });
   const b = client(db, "kypp", "b");
   await b("recall", { query: "heron" });                          // b is shown a's candidate
-  const echo = await b("claim", { subject: "heron", content: "heron cache goes stale on rename" });
+  const reply = await b("claim", { subject: "heron", content: "heron cache goes stale on rename" });
+  assert.match(reply, /\necho: /, "the reply says the claim earned nothing");
+  const echo = reply.split("\n")[0];
   const row = await db.prepare("SELECT source_ids, metadata FROM memory_claims WHERE id = ?").bind(echo).first() as any;
   assert.equal(row.source_ids, "[]");
   assert.equal(JSON.parse(row.metadata).echo_of.length, 1);
