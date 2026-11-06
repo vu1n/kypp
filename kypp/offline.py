@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import time
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS synced (url TEXT NOT NULL, project TEXT NOT NULL, at 
 CREATE TABLE IF NOT EXISTS forgotten (url TEXT NOT NULL, id TEXT NOT NULL, purged INTEGER NOT NULL, at REAL NOT NULL,
   PRIMARY KEY (url, id));
 CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project TEXT NOT NULL,
-  op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT);
+  op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT, key TEXT);
 """
 
 
@@ -56,6 +57,9 @@ def _db() -> sqlite3.Connection:
         os.umask(old)
     os.chmod(path, 0o600)
     db.executescript(_SCHEMA)
+    # A cache made before writes carried keys gains the column; push gives each row its key.
+    if "key" not in {r[1] for r in db.execute("PRAGMA table_info(outbox)")}:
+        db.execute("ALTER TABLE outbox ADD COLUMN key TEXT")
     return db
 
 
@@ -193,31 +197,35 @@ def forget(claim_id: str, purged: bool) -> None:
 
 
 def push(db: sqlite3.Connection) -> int:
-    """Send queued writes in order. Each is marked sent before its request and leaves the queue only
-    after a 200. Only a request that never got a connection is unmarked again. Any other failure (an
-    error answer, a timeout, a dropped connection) may follow a committed write: the Worker answers 400
-    for any failure, even after a commit, and has no idempotency key. So a marked write is never sent
-    again on its own; the operator checks the hosted store and runs `--drop N` or `--resend N`."""
+    """Send queued writes in order, each under its own idempotency key, so the Worker
+    applies it at most once however often it is sent. A write leaves the queue only after a 200; any
+    other answer (or none) leaves it, and the writes after it, for the next `kypp sync` to send again.
+    Only a row from before keys that was already sent can't be resent safely: the operator decides it."""
     sent = 0
-    for seq, op, raw, sent_at in db.execute(
-            "SELECT seq, op, args, sent_at FROM outbox WHERE url = ? ORDER BY seq", (_url(),)).fetchall():
+    for seq, op, raw, sent_at, key in db.execute(
+            "SELECT seq, op, args, sent_at, key FROM outbox WHERE url = ? ORDER BY seq", (_url(),)).fetchall():
         if op not in _QUEUEABLE:
             raise SystemExit(f"kypp: queued write #{seq} is `{op}`, which is never queued; "
                              f"drop it with `kypp sync --drop {seq}`")
         stored = json.loads(raw)
         args = {k: stored.get(k) for k in _QUEUEABLE[op]}
-        if sent_at:
-            raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at} and no 200 came back"))
+        # The key is fixed, on disk, before the row's first send and reused on every later one.
+        if not key:
+            if sent_at:
+                raise SystemExit(_unsure(seq, args, f"it was sent at {sent_at}, before writes carried keys, "
+                                                    "and no 200 came back"))
+            key = secrets.token_hex(16)
         with db:
-            db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (_now(), seq))
+            db.execute("UPDATE outbox SET sent_at = ?, key = ? WHERE seq = ?", (_now(), key, seq))
         try:
-            remote.call(op, **args)
+            remote.call(op, key=key, **args)
         except remote.Unreachable:
-            with db:  # no connection was made, so nothing was applied
-                db.execute("UPDATE outbox SET sent_at = NULL WHERE seq = ?", (seq,))
-            raise
+            raise  # still offline: sync_main reports it as such
         except SystemExit as e:
-            raise SystemExit(f"{e.code}\n" + _unsure(seq, args, "the Worker didn't answer 200")) from None
+            raise SystemExit(f"{e.code}\nkypp: queued write #{seq} ({args.get('subject')!r}) and the writes after "
+                             f"it stay queued; the next `kypp sync` sends it again under the same key, so it lands "
+                             f"at most once. If the Worker refused it, fix the cause or run "
+                             f"`kypp sync --drop {seq}`.") from None
         with db:
             db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
         sent += 1
@@ -252,7 +260,8 @@ def sync_main():
     ap.add_argument("--drop", type=int, action="append", default=[], metavar="N",
                     help="discard queued write #N without sending it (it reached the store, or it was refused)")
     ap.add_argument("--resend", type=int, action="append", default=[], metavar="N",
-                    help="send queued write #N again: you checked that the hosted store doesn't have it")
+                    help="send queued write #N again (one queued before writes carried keys): you checked that the "
+                         "hosted store doesn't have it")
     args = ap.parse_args()
     if not remote.remote_url():
         raise SystemExit("kypp sync: set KYPP_URL; the local store needs no sync")
