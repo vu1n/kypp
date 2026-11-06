@@ -36,7 +36,7 @@ class Unreachable(SystemExit):
 
 
 class Refused(SystemExit):
-    """The Worker answered with an error status: it saw the request and did not apply it."""
+    """The Worker answered 4xx: it saw the request and did not apply it."""
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -101,7 +101,12 @@ def call(op: str, **args) -> dict:
             text = json.loads(text).get("error", text)
         except (ValueError, AttributeError):
             pass
-        raise Refused(f"kypp: {url} answered {e.code}: {text.strip()}")
+        msg = f"kypp: {url} answered {e.code}: {text.strip()}"
+        # Only a 4xx is the Worker saying no. A 5xx (or a gateway's 502/504, or a 408) can follow a write
+        # that was committed, so it is ambiguous, never a refusal.
+        if 400 <= e.code < 500 and e.code != 408:
+            raise Refused(msg)
+        raise SystemExit(msg)
     except urllib.error.URLError as e:
         # A certificate that fails to verify is a possible interception, never just "offline".
         if isinstance(e.reason, ssl.SSLError):

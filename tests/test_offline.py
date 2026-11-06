@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
 from unittest import mock
 
 from kypp import offline, remote, shell
@@ -354,6 +355,35 @@ class OfflineTest(unittest.TestCase):
             db.commit()
         self.sync()
         self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 0)
+
+    def test_a_gateway_error_after_a_committed_write_is_not_sent_twice(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "subject 1", "lesson number 1")
+        self.back_online()
+        orig = remote.call
+
+        def gateway(op, **args):
+            if op == "remember":  # committed upstream, then the gateway answers 502
+                _Worker.seen.append({"op": op, **args})
+                raise SystemExit("kypp: answered 502: bad gateway")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", gateway):
+            with self.assertRaises(SystemExit) as e:
+                _run(offline.sync_main)
+        self.assertIn("no answer for queued write #1", str(e.exception.code))
+        self.sync()  # the snapshot already holds it, so it isn't re-sent
+        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
+
+    def test_only_a_4xx_is_a_refusal(self):
+        for code, refused in ((400, True), (401, True), (408, False), (502, False), (504, False)):
+            err = urllib.error.HTTPError("u", code, "x", {}, io.BytesIO(b"{}"))
+            with self.env_at(self.url), mock.patch.object(remote._opener, "open", side_effect=err):
+                with self.assertRaises(SystemExit) as e:
+                    remote.call("remember", subject="s")
+            self.assertEqual(isinstance(e.exception, remote.Refused), refused, code)
 
     def test_a_failed_pull_keeps_the_previous_copy(self):
         self.sync()

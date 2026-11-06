@@ -19,7 +19,9 @@ operator's view of the project (`POST /v1/operator` `snapshot`, 500 claims a pag
 ## Gotchas
 - Only `remote.Unreachable` (no connection was made) falls back. urllib wraps a failure while sending
   in `URLError` too, so `remote.py` records whether `connect()` finished (`_conn.made`); after it, a
-  failure is ambiguous and never falls back. An error answer, a read timeout or a
+  failure is ambiguous and never falls back.
+- Only a 4xx (not 408) is `remote.Refused`. A 5xx or a gateway's 502/504 can follow a committed write, so
+  push treats it like a lost answer and re-checks the snapshot before sending again. An error answer, a read timeout or a
   connection dropped mid-request may have been applied, so they fail as before and nothing is queued.
 - The cache is a copy, never an authority: nothing in `offline.py` accepts, promotes or supersedes. The
   Worker applies its own rules when a queued write arrives.
