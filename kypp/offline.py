@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS claims (url TEXT NOT NULL, project TEXT NOT NULL, id 
   PRIMARY KEY (url, project, id));
 CREATE TABLE IF NOT EXISTS synced (url TEXT NOT NULL, project TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (url, project));
+CREATE TABLE IF NOT EXISTS forgotten (url TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (url, id));
 CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project TEXT NOT NULL,
   op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT);
 """
@@ -173,7 +174,16 @@ _QUEUEABLE = {"remember": ("type", "subject", "content", "scope", "project", "co
 def _payload(c: dict, accepted: bool) -> tuple:
     """What a queued remember asked for, as the hosted claim it would have become."""
     return (c["scope"], c["type"], c["subject"], c["content"], c.get("verify") or None,
-            round(float(c["confidence"]), 6), accepted)
+            round(_confidence(c["confidence"]), 6), accepted)
+
+
+def _confidence(v) -> float:
+    # As operatorClaim stores it: clamped to [0, 1], and anything unreadable is 0.
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if f != f else min(1.0, max(0.0, f))
 
 
 def forget(claim_id: str) -> None:
@@ -182,6 +192,8 @@ def forget(claim_id: str) -> None:
     if remote.remote_url() and os.path.exists(_path()):
         db = _db()
         with db:
+            # The tombstone outlives a pull that fetched the claim before the purge and writes after it.
+            db.execute("INSERT OR IGNORE INTO forgotten(url, id) VALUES(?, ?)", (_url(), claim_id))
             db.execute("DELETE FROM claims WHERE url = ? AND id = ?", (_url(), claim_id))
 
 
@@ -233,8 +245,9 @@ def pull(db: sqlite3.Connection, project: str) -> int:
     claims = _fetch(project)
     with db:
         db.execute("DELETE FROM claims WHERE url = ? AND project = ?", (_url(), project))
+        gone = {i for (i,) in db.execute("SELECT id FROM forgotten WHERE url = ?", (_url(),))}
         db.executemany("INSERT INTO claims(url, project, id, body) VALUES(?,?,?,?)",
-                       [(_url(), project, c["id"], json.dumps(c)) for c in claims])
+                       [(_url(), project, c["id"], json.dumps(c)) for c in claims if c["id"] not in gone])
         db.execute("INSERT OR REPLACE INTO synced(url, project, at) VALUES(?,?,?)", (_url(), project, _now()))
     return len(claims)
 

@@ -326,6 +326,35 @@ class OfflineTest(unittest.TestCase):
         self.assertNotIsInstance(e.exception, remote.Unreachable)
         self.assertIn("while sending", str(e.exception.code))
 
+    def test_a_purge_during_a_pull_stays_purged(self):
+        self.sync()
+        orig = remote.call
+
+        def purge_mid_pull(op, **args):
+            res = orig(op, **args)
+            if op == "snapshot" and not args.get("after"):
+                offline.forget(_claim(1)["id"])  # another process purges after this page was fetched
+            return res
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", purge_mid_pull):
+            _run(offline.sync_main)
+            ids = [c["id"] for c in offline._cached(offline._db(), "p")]
+        self.assertNotIn(_claim(1)["id"], ids)
+
+    def test_a_lost_answer_with_out_of_range_confidence_is_not_sent_twice(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "subject 1", "lesson number 1", "--confidence", "2")
+        self.back_online()
+        _Worker.claims[0] = {**_Worker.claims[0], "status": "candidate", "confidence": 1}
+        with self.env_at(self.url):
+            db = offline._db()
+            db.execute("UPDATE outbox SET sent_at = 'earlier'")
+            db.commit()
+        self.sync()
+        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 0)
+
     def test_a_failed_pull_keeps_the_previous_copy(self):
         self.sync()
         _Worker.claims = [_claim(4), _claim(5), _claim(6)]
