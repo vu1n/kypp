@@ -65,7 +65,7 @@ function forwardingDb(base: D1Database, forwarded: { value: string | null }): D1
 function rpc(method: string, params?: unknown) {
   return new Request("https://k/mcp", {
     method: "POST",
-    headers: { "X-Kypp-Project": "pillbox" },
+    headers: { "X-Kypp-Project": "pillbox", "Mcp-Session-Id": "contract" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
 }
@@ -91,7 +91,7 @@ test("declared tools have no verifier parameter and every tool is called", async
   const tools = listed?.tools ?? [];
   assert.ok(tools.length > 0);
   const names = tools.map((tool) => tool.name);
-  assert.deepEqual(names, ["briefing", "recall", "claim", "expand", "correct"]);
+  assert.deepEqual(names, ["briefing", "recall", "claim", "expand", "feedback", "correct"]);
   for (const tool of tools) {
     const props = tool.inputSchema?.properties ?? {};
     assert.equal(Object.hasOwn(props, "verify"), false, tool.name);
@@ -109,6 +109,7 @@ test("declared tools have no verifier parameter and every tool is called", async
   const claimId = claim?.content?.[0]?.text ?? "";
   assert.match(claimId, /^[0-9a-f]{32}/);
   positive.expand = { handle: claimId.slice(0, 8) };
+  positive.feedback = { ratings: [{ handle: claimId.slice(0, 8), verdict: "used", note: "read it back" }] };
   const called = ["claim"];
   for (const name of names) {
     if (name === "claim") continue;
