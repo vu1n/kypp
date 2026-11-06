@@ -500,16 +500,21 @@ export class D1Store {
   // Only a rating from a caller that may write at the claim's level is marked `writable`, and only a marked
   // rating confirms a claim; a rating stored before the mark can't show who made it.
   async recordFeedback(consumer: string,
-    rated: { id: string; project: string | null; scope: string; score: number; verdict: string; note: string | null; writable: boolean }[]): Promise<void> {
+    rated: { id: string; project: string | null; scope: string; score: number; verdict: string; note: string | null; writable: boolean }[],
+    room: string | null = null): Promise<void> {
     if (!rated.length) return;
     const ts = now();
     // A purged claim's tombstone is checked in the insert itself, so a note can't bring erased text back.
+    // A room's link to the claim's repo is rechecked in the insert too, so an unlink can't race a writable mark.
     await this.db.batch(rated.map((r) => this.db.prepare(
       "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,score,metadata,created_at)"
-      + " SELECT ?,?,?,?,?,'feedback',?,CASE WHEN json_extract(metadata, '$.purged_at') IS NULL THEN ? ELSE ? END,? FROM memory_claims WHERE id = ?",
-    ).bind(uid(), consumer, r.id, r.project, r.scope, r.score,
-      JSON.stringify({ verdict: r.verdict, ...(r.note ? { note: r.note } : {}), ...(r.writable ? { writable: true } : {}) }),
-      JSON.stringify({ verdict: r.verdict, ...(r.writable ? { writable: true } : {}) }), ts, r.id)));
+      + " SELECT ?,?,?,?,?,'feedback',?,CASE WHEN ? = 1 AND (? IS NULL OR c.scope = 'room'"
+      + " OR EXISTS (SELECT 1 FROM room_links l WHERE l.room = ? AND l.project = c.project))"
+      + " THEN json_set(c.m, '$.writable', json('true')) ELSE c.m END, ?"
+      + " FROM (SELECT scope, project, CASE WHEN json_extract(metadata, '$.purged_at') IS NULL THEN ? ELSE ? END AS m"
+      + " FROM memory_claims WHERE id = ?) c",
+    ).bind(uid(), consumer, r.id, r.project, r.scope, r.score, r.writable ? 1 : 0, room, room, ts,
+      JSON.stringify({ verdict: r.verdict, ...(r.note ? { note: r.note } : {}) }), JSON.stringify({ verdict: r.verdict }), r.id)));
   }
 
   // Per claim, the sessions whose newest rating of it is a writable `used`, with when they rated it.

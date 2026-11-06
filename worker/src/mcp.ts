@@ -353,7 +353,7 @@ async function feedback(store: D1Store, a: Args, session: string | null, caller:
   const skipped = checked.filter((c) => typeof c === "string");
   const [lanes, links] = await Promise.all([store.lanes(shown.map((r) => r.id)), caller.room ? store.roomLinks(caller.room) : []]);
   const rated = shown.map((r) => ({ ...r, writable: !!lanes.get(r.id) && mayWrite(caller, lanes.get(r.id)!, links) }));
-  await store.recordFeedback(session, rated);
+  await store.recordFeedback(session, rated, caller.room ?? null);
   return `recorded ${rated.length} rating${rated.length === 1 ? "" : "s"}` + (skipped.length ? `\nskipped:\n${skipped.join("\n")}` : "");
 }
 

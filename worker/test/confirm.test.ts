@@ -197,3 +197,14 @@ test("a room confirms claims in the repos it is linked to, and not in others", a
   assert.equal(await status(db, id), "accepted", "kypp is linked to the room");
   assert.equal(await status(db, otherId), "candidate", "other isn't");
 });
+
+test("a room unlinked between the check and the insert gets no writable mark", async () => {
+  const db = await setup(), store = new D1Store(db);
+  const id = (await agent(db, "w")("claim", LESSON)).split("\n")[0];
+  const row = { id, project: "kypp", scope: "project", score: 1, verdict: "used", note: "checked", writable: true };
+  await store.recordFeedback("rs", [row], "huddles:r");   // no link: the insert's own check refuses the mark
+  await db.prepare("INSERT INTO room_links(room, project, created_at) VALUES('huddles:r', 'kypp', '2026-11-06T00:00:00Z')").run();
+  await store.recordFeedback("rs2", [row], "huddles:r");
+  const marks = (await db.prepare("SELECT consumer, metadata FROM claim_usages WHERE surface = 'feedback' ORDER BY rowid").all()).results as any[];
+  assert.deepEqual(marks.map((m) => [m.consumer, JSON.parse(m.metadata).writable ?? false]), [["rs", false], ["rs2", true]]);
+});
