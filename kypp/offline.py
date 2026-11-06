@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS claims (url TEXT NOT NULL, project TEXT NOT NULL, id 
 CREATE TABLE IF NOT EXISTS synced (url TEXT NOT NULL, project TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (url, project));
 CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, project TEXT NOT NULL,
-  op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL);
+  op TEXT NOT NULL, args TEXT NOT NULL, queued_at TEXT NOT NULL, sent_at TEXT);
 """
 
 
@@ -39,8 +39,10 @@ def _now() -> str:
 
 def _db() -> sqlite3.Connection:
     path = os.environ.get("KYPP_CACHE_DB", os.path.expanduser("~/.kypp/offline.db"))
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(path) or ".", mode=0o700, exist_ok=True)
     db = sqlite3.connect(path)
+    # The copy holds the owner's user-scope memory: keep it readable by this OS user only.
+    os.chmod(path, 0o600)
     db.executescript(_SCHEMA)
     return db
 
@@ -125,29 +127,62 @@ def show(db: sqlite3.Connection, project: str, handle: str) -> dict:
     return found[0]
 
 
-def queue(project: str, op: str, args: dict) -> int:
-    """Hold a write for the next `kypp sync`. Returns how many writes are now waiting."""
+def queue(project: str, op: str, args: dict, cause: remote.Unreachable) -> int:
+    """Hold a write for the next `kypp sync`. Returns how many writes are now waiting. Only a project
+    synced before is queued: online, an unregistered one would be refused on the spot."""
     db = _db()
+    if _synced_at(db, project) is None:
+        raise SystemExit(f"{cause.code}\nkypp: not queued: no offline copy of {project!r}, so it isn't known "
+                         "to be a hosted project; run `kypp sync` while online first")
     with db:
         db.execute("INSERT INTO outbox(url, project, op, args, queued_at) VALUES(?,?,?,?,?)",
                    (_url(), project, op, json.dumps(args), _now()))
     return db.execute("SELECT count(*) FROM outbox WHERE url = ?", (_url(),)).fetchone()[0]
 
 
+def _fetch(project: str) -> list[dict]:
+    """The Worker's current view of a project, every page."""
+    claims, after = [], ""
+    while True:
+        page = remote.call("snapshot", project=project, after=after or None)
+        claims += page["claims"]
+        if not page.get("next"):
+            return claims
+        after = page["next"]
+
+
 def push(db: sqlite3.Connection) -> int:
-    """Send queued writes in order. Each leaves the queue only after the Worker answered it, so a
-    crash re-sends instead of dropping. Any failure stops the push with the rest still queued."""
-    sent = 0
-    for seq, op, args in db.execute("SELECT seq, op, args FROM outbox WHERE url = ? ORDER BY seq",
-                                    (_url(),)).fetchall():
+    """Send queued writes in order. Each is marked sent before the request and leaves the queue only
+    after the Worker answered it. One sent before whose answer never came (a timeout, a dropped
+    connection) may have been applied, so it is re-sent only if the project doesn't already hold that
+    claim. Any failure stops the push with it and the rest still queued."""
+    sent, seen = 0, {}
+    for seq, op, raw, sent_at in db.execute(
+            "SELECT seq, op, args, sent_at FROM outbox WHERE url = ? ORDER BY seq", (_url(),)).fetchall():
+        args = json.loads(raw)
+        if sent_at and op == "remember":
+            if args["project"] not in seen:
+                seen[args["project"]] = {(c["subject"], c["content"]) for c in _fetch(args["project"])}
+            if (args["subject"], args["content"]) in seen[args["project"]]:
+                with db:
+                    db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
+                sent += 1
+                continue
+        with db:
+            db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (_now(), seq))
         try:
-            remote.call(op, **json.loads(args))
-        except remote.Unreachable:
-            raise
+            remote.call(op, **args)
+        except (remote.Unreachable, remote.Refused) as e:
+            if isinstance(e, remote.Unreachable):
+                with db:  # no connection was made, so nothing was applied
+                    db.execute("UPDATE outbox SET sent_at = ? WHERE seq = ?", (sent_at, seq))
+                raise
+            raise SystemExit(f"{e.code}\nkypp: the Worker refused queued write #{seq} (`{op}` {args.get('subject')!r}); "
+                             f"it and the writes after it stay queued. Fix the cause, or drop it with "
+                             f"`kypp sync --drop {seq}`") from None
         except SystemExit as e:
-            left = db.execute("SELECT count(*) FROM outbox WHERE url = ?", (_url(),)).fetchone()[0]
-            raise SystemExit(f"{e.code}\nkypp: the Worker refused a queued `{op}`; it and {left - 1} after it "
-                             "stay queued") from None
+            raise SystemExit(f"{e.code}\nkypp: no answer for queued write #{seq}; it stays queued and is checked "
+                             "against the hosted store before it is sent again") from None
         with db:
             db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
         sent += 1
@@ -156,13 +191,7 @@ def push(db: sqlite3.Connection) -> int:
 
 def pull(db: sqlite3.Connection, project: str) -> int:
     """Replace this project's copy with the Worker's current view, all pages or nothing."""
-    claims, after = [], ""
-    while True:
-        page = remote.call("snapshot", project=project, after=after or None)
-        claims += page["claims"]
-        if not page.get("next"):
-            break
-        after = page["next"]
+    claims = _fetch(project)
     with db:
         db.execute("DELETE FROM claims WHERE url = ? AND project = ?", (_url(), project))
         db.executemany("INSERT INTO claims(url, project, id, body) VALUES(?,?,?,?)",
@@ -176,14 +205,28 @@ def sync_main():
         description="send writes queued while offline to the hosted store (KYPP_URL), then pull a local "
                     "copy of the project so recall/briefing/show work when the Worker can't be reached")
     ap.add_argument("--project", default=remote.default_project())
+    ap.add_argument("--drop", type=int, action="append", default=[], metavar="N",
+                    help="discard queued write #N (one the Worker refused) without sending it")
     args = ap.parse_args()
     if not remote.remote_url():
         raise SystemExit("kypp sync: set KYPP_URL; the local store needs no sync")
     db = _db()
+    for seq in args.drop:
+        row = db.execute("SELECT op, args FROM outbox WHERE url = ? AND seq = ?", (_url(), seq)).fetchone()
+        if not row:
+            raise SystemExit(f"kypp sync: no queued write #{seq}")
+        with db:
+            db.execute("DELETE FROM outbox WHERE seq = ?", (seq,))
+        print(f"dropped queued write #{seq}: {row[0]} {json.loads(row[1]).get('subject')!r}")
     try:
-        sent = push(db)
+        sent, failed = push(db), None
     except remote.Unreachable as e:
         n = db.execute("SELECT count(*) FROM outbox WHERE url = ?", (_url(),)).fetchone()[0]
         raise SystemExit(f"{e.code}\nkypp: still offline; {n} write(s) stay queued") from None
+    except SystemExit as e:
+        sent, failed = None, e
+    # A stuck write must not also freeze the copy: refresh it, then report the failure.
     got = pull(db, args.project)
+    if failed:
+        raise SystemExit(f"{failed.code}\nkypp: cached {got} claim(s) of {args.project!r} anyway")
     print(f"sent {sent} queued write(s); cached {got} claim(s) of {args.project!r}")

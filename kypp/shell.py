@@ -145,7 +145,7 @@ def remember_main():
             res = remote.call("remember", **op)
         except remote.Unreachable as e:
             from . import offline
-            waiting = offline.queue(args.project, "remember", op)
+            waiting = offline.queue(args.project, "remember", op, e)
             print(f"queued [{args.type}] {args.subject} — {e.code.removeprefix('kypp: ')}; "
                   f"`kypp sync` sends it ({waiting} waiting)")
             return

@@ -129,25 +129,50 @@ class OfflineTest(unittest.TestCase):
         self.assertIn("can't reach", str(e.exception.code))
         self.assertIn("kypp sync", str(e.exception.code))
 
+    def offline_copy(self, dead):
+        """Sync online, then file the copy under the dead URL so the CLI finds it while offline."""
+        self.sync()
+        with self.env_at(self.url):
+            db = offline._db()
+            db.execute("UPDATE synced SET url = ?", (dead,))
+            db.execute("UPDATE claims SET url = ?", (dead,))
+            db.commit()
+
+    def back_online(self):
+        with self.env_at(self.url):
+            db = offline._db()
+            db.execute("UPDATE outbox SET url = ?", (self.url,))
+            db.commit()
+
+    def test_offline_remember_needs_a_synced_project(self):
+        with self.env_at(_dead_url()):
+            with self.assertRaises(SystemExit) as e:
+                _run(shell.remember_main, "a", "first")
+            self.assertIn("not queued", str(e.exception.code))
+            self.assertEqual(offline._queued(offline._db(), "p"), [])
+
     def test_queued_writes_leave_the_queue_only_once_the_worker_answers(self):
         dead = _dead_url()
+        self.offline_copy(dead)
         with self.env_at(dead):
             out, _ = _run(shell.remember_main, "a", "first")
             self.assertIn("queued", out)
             _run(shell.remember_main, "b", "second")
+            out, _ = _run(shell.recall_main, "first")
+            self.assertIn("(queued)", out)
             with self.assertRaises(SystemExit) as e:
                 _run(shell.correct_main, "a", "human answer")
             self.assertIn("not queued offline", str(e.exception.code))
             with self.assertRaises(SystemExit) as e:
                 _run(offline.sync_main)
             self.assertIn("2 write(s) stay queued", str(e.exception.code))
-            db = offline._db()
-            db.execute("UPDATE outbox SET url = ?", (self.url,))
-            db.commit()
+        self.back_online()
         _Worker.refuse = {"remember"}
+        _Worker.claims = [_claim(4)]
         with self.assertRaises(SystemExit) as e:
             self.sync()
-        self.assertIn("1 after it stay queued", str(e.exception.code))
+        self.assertIn("refused queued write #1", str(e.exception.code))
+        self.assertIn("cached 1 claim(s)", str(e.exception.code))  # a stuck write doesn't freeze the copy
         _Worker.refuse = set()
         out, _ = self.sync()
         self.assertIn("sent 2 queued write(s)", out)
@@ -156,6 +181,43 @@ class OfflineTest(unittest.TestCase):
         self.assertNotIn("correct", [b["op"] for b in _Worker.seen])
         out, _ = self.sync()
         self.assertIn("sent 0 queued write(s)", out)
+
+    def test_a_refused_write_can_be_dropped(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        _Worker.refuse = {"remember"}
+        with self.assertRaises(SystemExit):
+            self.sync()
+        with self.env_at(self.url):
+            out, _ = _run(offline.sync_main, "--drop", "1")
+        self.assertIn("dropped queued write #1", out)
+        self.assertIn("sent 0 queued write(s)", out)
+
+    def test_a_write_whose_answer_was_lost_is_not_sent_twice(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        orig = remote.call
+
+        def lost(op, **args):
+            res = orig(op, **args)
+            if op == "remember":  # applied, then the answer never arrives
+                _Worker.claims.append(_claim(9, subject=args["subject"], content=args["content"]))
+                raise SystemExit("kypp: timed out")
+            return res
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
+            with self.assertRaises(SystemExit) as e:
+                _run(offline.sync_main)
+        self.assertIn("no answer for queued write #1", str(e.exception.code))
+        out, _ = self.sync()
+        self.assertIn("sent 1 queued write(s)", out)
+        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
 
     def test_a_failed_pull_keeps_the_previous_copy(self):
         self.sync()

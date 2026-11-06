@@ -33,6 +33,10 @@ class Unreachable(SystemExit):
     or queue; an answer from the Worker, even an error, and a connection lost mid-request, may not."""
 
 
+class Refused(SystemExit):
+    """The Worker answered with an error status: it saw the request and did not apply it."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     # Why: urllib re-sends every header but Content-* on a redirect, to any host, so following one
     # would hand the operator token (and the verify commands we then run) to wherever it points.
@@ -67,7 +71,7 @@ def call(op: str, **args) -> dict:
             text = json.loads(text).get("error", text)
         except (ValueError, AttributeError):
             pass
-        raise SystemExit(f"kypp: {url} answered {e.code}: {text.strip()}")
+        raise Refused(f"kypp: {url} answered {e.code}: {text.strip()}")
     except urllib.error.URLError as e:
         raise Unreachable(f"kypp: can't reach {url}: {e.reason}")
     except TimeoutError:

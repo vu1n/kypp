@@ -23,8 +23,13 @@ operator's view of the project (`POST /v1/operator` `snapshot`, 500 claims a pag
   Worker applies its own rules when a queued write arrives.
 - `correct`, `reject` and `purge` are refused offline (`shell._online`): they replace or retire memory
   and must meet the Worker's current state, not a stale copy's.
-- A queued write is deleted only after the Worker answered it, so a crash between that answer and the
-  delete re-sends it once. The operator `remember` has no command id yet, so that re-send is a second row.
+- A queued write is marked sent before its request and deleted only after the Worker answered it. One
+  sent before with no answer (timeout, dropped connection, crash) is re-sent only if the project's live
+  claims don't already hold its subject and content. The operator `remember` has no command id yet, so a
+  claim applied and then rejected or superseded before the next sync can still come back as a second row.
+- `remember` is queued only for a project synced before, since online an unregistered one is refused at
+  once. A write the Worker refuses stops the push but not the pull; `kypp sync --drop N` discards it.
+- The cache file is created mode 600: it holds the owner's user-scope memory.
 - A pull replaces the project's copy only after every page arrived; a failed pull keeps the old copy.
 - Offline recall is a word match ranked by matched words, then the hosted tie-breaks. It has no FTS5,
   pointer hits or rerank, so it is a fallback, not the same answer.
