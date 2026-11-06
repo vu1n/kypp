@@ -20,15 +20,18 @@ operator's view of the project (`POST /v1/operator` `snapshot`, 500 claims a pag
 - Only `remote.Unreachable` (no connection was made) falls back to the cache or queue. urllib wraps a
   failure while sending in `URLError` too, so `remote.py` records whether `connect()` finished
   (`_conn.made`); after it, a failure is ambiguous and never falls back.
-- Each queued write gets an idempotency key, saved on disk before its first send and sent again on
-  every retry. The Worker stores the key in `operator_receipts` in the claim's own batch and answers a
-  repeat with the first claim, so a write is resent automatically after any failure (an error answer,
-  a timeout, a lost reply) and still lands once; a purged claim is never written back by a late
-  resend. A write leaves the queue only after a 200 and blocks the writes behind it until then; a write
-  the Worker keeps refusing stays until `kypp sync --drop N`. The pull still runs, so a stuck write
-  doesn't freeze the copy.
-- A row already sent by a client from before keys has none, so it may or may not have landed: it blocks
-  the push until the operator checks and runs `--drop N` or `--resend N`.
+- Before a push, `kypp sync` asks the Worker for `capabilities`. Against one that honours keys, each
+  queued write gets an idempotency key, saved on disk before its first send and sent again on every
+  retry. The Worker stores the key in `operator_receipts` in the claim's own batch and answers a repeat
+  with the first claim, so a write is resent automatically after any failure (an error answer, a
+  timeout, a lost reply) and still lands once; a purged claim is never written back by a late resend.
+  A write leaves the queue only after a 200 and blocks the writes behind it until then; a write the
+  Worker keeps refusing stays until `kypp sync --drop N`. The pull still runs, so a stuck write doesn't
+  freeze the copy.
+- A Worker deployed before keys answers `unknown op` to `capabilities` and ignores `key`, so the write
+  goes without one. A row sent without a key (to such a Worker, or by an older CLI), or a keyed row the
+  Worker no longer honours, may or may not have landed: it blocks the push until the operator checks and
+  runs `--drop N` or `--resend N`. A send that never connected is unmarked and goes again as new.
 - The cache is a copy, never an authority: nothing in `offline.py` accepts, promotes or supersedes. The
   Worker applies its own rules when a queued write arrives.
 - `correct`, `reject` and `purge` are refused offline (`shell._online`): they replace or retire memory

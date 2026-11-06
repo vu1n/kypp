@@ -29,6 +29,7 @@ class _Worker(http.server.BaseHTTPRequestHandler):
     page = 2
     claim_reply: dict = {}
     applied: dict = {}  # idempotency key -> claim id, as the Worker's operator_receipts
+    old = False  # a Worker deployed before idempotency keys: no `capabilities`, `key` ignored
 
 
     def do_POST(self):
@@ -42,6 +43,13 @@ class _Worker(http.server.BaseHTTPRequestHandler):
             rest = [c for c in self.claims if c["id"] > body.get("after", "")]
             got = rest[:self.page]
             return self._send(200, {"claims": got, "next": got[-1]["id"] if len(rest) > self.page else None})
+        if body["op"] == "capabilities":
+            if self.old:
+                return self._send(400, {"error": 'unknown op "capabilities"'})
+            return self._send(200, {"idempotent_writes": True})
+        if body["op"] == "remember" and self.old:
+            self.applied[len(self.applied)] = body["subject"]
+            return self._send(200, {"id": "e" * 32, "status": "candidate"})
         if body["op"] == "remember":
             replayed = body.get("key") in self.applied
             cid = self.applied.setdefault(body.get("key"), f"{len(self.applied):032x}")
@@ -81,7 +89,7 @@ def _run(main, *argv) -> tuple[str, str]:
 class OfflineTest(unittest.TestCase):
     def setUp(self):
         _Worker.claims = [_claim(1), _claim(2, status="candidate"), _claim(3, type="pitfall")]
-        _Worker.seen, _Worker.refuse, _Worker.page, _Worker.applied = [], set(), 2, {}
+        _Worker.seen, _Worker.refuse, _Worker.page, _Worker.applied, _Worker.old = [], set(), 2, {}, False
         self.srv = http.server.HTTPServer(("127.0.0.1", 0), _Worker)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.addCleanup(self.srv.server_close)
@@ -233,13 +241,57 @@ class OfflineTest(unittest.TestCase):
         for _ in range(2):
             with self.assertRaises(SystemExit) as e:
                 self.sync()
-            self.assertIn("before writes carried keys", str(e.exception.code))
+            self.assertIn("without an idempotency key", str(e.exception.code))
             self.assertIn("--resend 1", str(e.exception.code))
         self.assertEqual([b for b in _Worker.seen if b["op"] == "remember"], [])
         with self.env_at(self.url):
             out, _ = _run(offline.sync_main, "--resend", "1")
         self.assertIn("sent 2 queued write(s)", out)  # an unsent row from before keys gets one
         self.assertTrue(all(b.get("key") for b in _Worker.seen if b["op"] == "remember"))
+
+    def test_a_lost_reply_from_a_worker_without_keys_is_never_resent_on_its_own(self):
+        # A Worker deployed before keys ignores `key`; a resend after a committed write would duplicate it.
+        _Worker.old = True
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        orig, fails = remote.call, [1]
+
+        def lost(op, **args):
+            if op == "remember" and fails:
+                fails.pop()
+                orig(op, **args)  # committed; the answer never arrives
+                raise SystemExit("kypp: timed out")
+            return orig(op, **args)
+
+        with self.env_at(self.url), mock.patch.object(remote, "call", lost):
+            with self.assertRaises(SystemExit) as e:
+                _run(offline.sync_main)
+        self.assertIn("predates idempotency keys", str(e.exception.code))
+        _Worker.old = False  # even once the Worker is upgraded, the unkeyed send stays the operator's call
+        for _ in range(2):
+            with self.assertRaises(SystemExit) as e:
+                self.sync()
+            self.assertIn("--resend 1", str(e.exception.code))
+        self.assertEqual(len(_Worker.applied), 1)
+        self.assertNotIn("key", [k for b in _Worker.seen if b["op"] == "remember" for k in b])
+
+    def test_a_keyed_row_is_not_resent_to_a_worker_that_stopped_honouring_keys(self):
+        dead = _dead_url()
+        self.offline_copy(dead)
+        with self.env_at(dead):
+            _run(shell.remember_main, "a", "first")
+        self.back_online()
+        _Worker.refuse = {"remember"}
+        with self.assertRaises(SystemExit):
+            self.sync()
+        _Worker.refuse, _Worker.old = set(), True
+        with self.assertRaises(SystemExit) as e:
+            self.sync()
+        self.assertIn("no longer honours idempotency keys", str(e.exception.code))
+        self.assertEqual(len([b for b in _Worker.seen if b["op"] == "remember"]), 1)
 
     def test_a_cache_from_before_keys_gains_the_column(self):
         import sqlite3
@@ -286,7 +338,7 @@ class OfflineTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as e:
             self.sync()
         self.assertIn("never queued", str(e.exception.code))
-        sent = [b for b in _Worker.seen if b["op"] not in ("snapshot",)]
+        sent = [b for b in _Worker.seen if b["op"] not in ("snapshot", "capabilities")]
         self.assertEqual([b["op"] for b in sent], ["remember"])
         self.assertNotIn("authority", sent[0])
 

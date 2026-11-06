@@ -46,7 +46,8 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 - Operator `remember`/`correct` take an optional idempotency `key`. Its `operator_receipts` row goes
   in the claim's own batch, so a repeat (or a racing send whose batch lost on the primary key) returns
   the first claim with `replayed: true` and its current `status`; the same key with a different write is refused. Receipts are
-  kept for good: a write queued offline may be resent at any later sync.
+  kept for good: a write queued offline may be resent at any later sync. The `capabilities` op
+  (`idempotent_writes: true`) is how the CLI tells this Worker from one that ignores `key`.
 - Hosted operator `correct` is an explicit replacement in the existing `memory_claims` store,
   not a rank contest. Insert, FTS/pointers, exact-group supersession and audit share one D1 batch;
   the returned superseded count comes from that transaction. Equal clocks, query order and lower

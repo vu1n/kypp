@@ -104,6 +104,9 @@ async function run(store: D1Store, a: Args, opts: OperatorOptions): Promise<unkn
       const claims = await store.snapshot(where, await store.ancestors(where), OPERATOR_USER, str(a.after), limit);
       return { project: where, claims, next: claims.length === limit ? claims[claims.length - 1].id : null };
     }
+    // What this Worker supports, so a newer CLI doesn't trust a feature an older deployment ignores.
+    case "capabilities":
+      return { idempotent_writes: true };
     case "projects":
       return { projects: await store.projects() };
     // Filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.

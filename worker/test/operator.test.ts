@@ -348,3 +348,8 @@ test("a keyed correct resent after a purge reports the claim's current status an
   const plain = await call({ op: "correct", subject: "other", content: "x", project: "p" });
   assert.deepEqual(Object.keys(plain.body!).sort(), ["id", "superseded"]);
 });
+
+test("capabilities says this Worker honours idempotency keys", async () => {
+  const { call } = await setup();
+  assert.deepEqual((await call({ op: "capabilities" })).body, { idempotent_writes: true });
+});
