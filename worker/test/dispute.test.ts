@@ -113,3 +113,21 @@ test("disputed claims don't use up a section's limit: the briefing fills past th
   assert.match(recent, /older lesson/, `the older undisputed candidate fills the section: ${recent}`);
   assert.doesNotMatch(recent, /lesson (one|two|three)/);
 });
+
+test("the briefing finds undisputed memory past more disputed claims than one query returns", async () => {
+  const db = await setup();
+  const disputed: string[] = [];
+  for (let i = 0; i < 55; i++) disputed.push(await accepted(db, `trap ${i}`, `a trap about ports, number ${i}`));
+  const keep = await accepted(db, "a lesson that held", "this one was never rated wrong");
+  // The undisputed claim is the oldest, so it ranks after every disputed one.
+  await db.prepare("UPDATE memory_claims SET updated_at = '2000-01-01T00:00:00Z' WHERE id = ?").bind(keep).run();
+  // Session "a" was shown every claim, so it may rate them.
+  await db.prepare("INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,created_at)"
+    + " SELECT 'shown-' || id, 'a', id, 'kypp', 'project', 'recall', '2026-11-07T00:00:00Z' FROM memory_claims").run();
+  const a = agent(db, "a");
+  await a("feedback", { ratings: disputed.slice(0, 50).map((handle) => ({ handle, ...WRONG })) });
+  await a("feedback", { ratings: disputed.slice(50).map((handle) => ({ handle, ...WRONG })) });
+  const brief = await agent(db, "x")("briefing", { limit: 30 });
+  assert.match(brief, /a lesson that held/);
+  assert.doesNotMatch(brief, /trap \d/);
+});

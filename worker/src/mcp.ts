@@ -173,25 +173,11 @@ function claimDict(c: Claim, dispute?: Dispute) {
     ...(dispute ? { rated_wrong: dispute } : {}) };
 }
 
-// A claim a session rated `wrong` stays out of the briefing, which every session loads, until a later
-// `used` from a session clears it or a new version under its subject replaces it. Recall still shows it, marked.
+// A claim a session rated `wrong` stays out of the briefing, which every session loads (its queries pass
+// `undisputed`), until a later `used` clears it or a new version replaces it. Recall still shows it, marked.
 async function markDisputed(store: D1Store, claims: Claim[]): Promise<void> {
   const d = await store.disputes(claims.map((c) => c.id));
   for (const c of claims) if (d.has(c.id)) c.disputed = true;
-}
-const undisputed = (cs: Claim[]) => cs.filter((c) => !c.disputed);
-
-// Fetches `want` claims, marks the disputed ones, and fetches a wider page while too few undisputed
-// ones came back, so disputed claims can't use up a section's query limit. Returns every fetched claim.
-const FILL_ROUNDS = 4;
-async function filled(store: D1Store, fetch: (n: number) => Promise<Claim[]>, want: number): Promise<Claim[]> {
-  let n = want, got: Claim[] = [];
-  for (let round = 0; round < FILL_ROUNDS; round++, n *= 4) {
-    got = await fetch(n);
-    await markDisputed(store, got);
-    if (got.length < n || undisputed(got).length >= want) break;
-  }
-  return got;
 }
 
 async function expanded(store: D1Store, c: Claim): Promise<string> {
@@ -248,7 +234,7 @@ const NEAR_SUBJECTS = 3;
 async function orgRules(store: D1Store, groups: string[]): Promise<{ orgs: Set<string>; org: Claim[] }> {
   const orgs = await store.orgs(groups);
   if (!orgs.size) return { orgs, org: [] };
-  const org = await filled(store, (limit) => store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit }), ORG_RULES);
+  const org = await store.recall("", null, null, { candidates: "none", groups: groups.filter((g) => orgs.has(g)), limit: ORG_RULES, undisputed: true });
   return { orgs, org: org.filter((c) => c.scope === "group" && orgs.has(c.project ?? "")) };
 }
 
@@ -290,12 +276,11 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       const limit = Math.min(a.limit ?? 12, 30);
       // Why a read of its own, as in a repo briefing: recall ranks the org last, so a busy room's
       // capped list would crowd its rules out.
-      const [all, { orgs, org: allOrg }, allYours] = await Promise.all([
-        filled(store, (n) => store.recall("", null, null, { room, candidates: "none", limit: n }), limit * 3),
+      const [settled, { orgs, org }, yours] = await Promise.all([
+        store.recall("", null, null, { room, candidates: "none", limit: limit * 3, undisputed: true }),
         orgRules(store, groups),
-        filled(store, (n) => store.recentUserCandidates(identity, ctx.session, n, "room"), RECENT_USER),
+        store.recentUserCandidates(identity, ctx.session, RECENT_USER, "room"),
       ]);
-      const [settled, org, yours] = [undisputed(all), undisputed(allOrg).slice(0, ORG_RULES), undisputed(allYours).slice(0, RECENT_USER)];
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours]], "briefing", null);
@@ -444,16 +429,14 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
       // An org's rules apply to every contributor, so they come first under their own heading.
-      const [all, { orgs, org: allOrg }, allRecent, allYours] = await Promise.all([
-        filled(store, (n) => store.recall("", project, user, { candidates: "none", groups, limit: n }), limit * 3),
+      const [settled, { orgs, org }, recent, yours] = await Promise.all([
+        store.recall("", project, user, { candidates: "none", groups, limit: limit * 3, undisputed: true }),
         orgRules(store, groups),
         // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
-        project ? filled(store, (n) => store.recentCandidates(project, ctx.session, n), RECENT) : [],
+        project ? store.recentCandidates(project, ctx.session, RECENT) : [],
         // User scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
-        user ? filled(store, (n) => store.recentUserCandidates(user, ctx.session, n), RECENT_USER) : [],
+        user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
       ]);
-      const [settled, org, recent, yours] = [undisputed(all), undisputed(allOrg).slice(0, ORG_RULES),
-        undisputed(allRecent).slice(0, RECENT), undisputed(allYours).slice(0, RECENT_USER)];
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       // In the order the reply renders them: yours comes before recent.
