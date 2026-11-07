@@ -136,11 +136,11 @@ test("instructions name feedback for every caller that has it", async () => {
     return ((await (await handleMcp(req, db, caller, { s1: null, correct })).json()) as any).result.instructions as string;
   };
   const off = await init(OWNER, false);
-  assert.match(off, /\n4\. BEFORE YOU FINISH — `feedback`/);
+  assert.match(off, /\n4\. Before you finish, one `feedback` call/);
   assert.doesNotMatch(off, /correct\(/);
-  assert.match(await init(OWNER, true), /\n4\. A HUMAN GAVE YOU[\s\S]*\n5\. BEFORE YOU FINISH/);
+  assert.match(await init(OWNER, true), /\n4\. When a person gives you[\s\S]*\n5\. Before you finish/);
   const ro = await init({ ...OWNER, readOnly: true }, true);
-  assert.match(ro, /\n3\. BEFORE YOU FINISH — `feedback`/);
+  assert.match(ro, /\n3\. Before you finish, one `feedback` call/);
   assert.doesNotMatch(ro, /claim`/);
 });
 
