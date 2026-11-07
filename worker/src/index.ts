@@ -4,6 +4,7 @@
 import { AuthorizationError, ExternalTokenError, OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { type Caller, handleMcp } from "./mcp.ts";
 import { defrag } from "./defrag.ts";
+import { type RewriteEnv, rewriterFrom } from "./rewrite.ts";
 import { type Policy } from "./memory.ts";
 import { type S1Env, s1Client } from "./s1.ts";
 import { D1Store } from "./store.ts";
@@ -17,7 +18,7 @@ import { type ApiToken, apiTokens, tokenPins } from "./tokens.ts";
 import { PAIRS_PATH, PAIR_PATH, type PairingDeps, handlePair, handlePairs, pairedGrant } from "./pairing.ts";
 import { escape, htmlResponse, icon, passphrase, render } from "./page.ts";
 
-export interface Env extends S1Env, KeycardEnv {
+export interface Env extends S1Env, KeycardEnv, RewriteEnv {
   DB: D1Database;
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: any; // injected by OAuthProvider for the default handler
@@ -261,6 +262,6 @@ export default {
   // The defrag pass: file unsorted claims, supersede duplicates and promote subjects that recur
   // across sessions. Groups that changed while it ran are skipped and picked up next hour.
   async scheduled(_event: ScheduledController, env: Env) {
-    await defrag(new D1Store(env.DB), policyFrom(env), s1Client(env), tokenPins(env.KYPP_API_TOKENS));
+    await defrag(new D1Store(env.DB), policyFrom(env), s1Client(env), tokenPins(env.KYPP_API_TOKENS), rewriterFrom(env));
   },
 };

@@ -1,8 +1,10 @@
-// defrag.ts — the hourly pass: judge claims the write gate missed, file unsorted claims into a known
-// project, then consolidate (supersede duplicates, promote subjects that recur).
+// defrag.ts — the hourly pass: judge claims the write gate missed, draft corrections for claims rated
+// wrong, file unsorted claims into a known project, then consolidate (supersede duplicates, promote
+// subjects that recur).
 import { consolidate } from "./consolidate.ts";
 import { type Claim, type Policy, gatedText, resolveOrigin } from "./memory.ts";
 import { CONTROL_ABOVE, type ProjectInfo, type S1Client, fileUnder, judge } from "./s1.ts";
+import { type Rewriter, rewriteDisputed } from "./rewrite.ts";
 import type { D1Store } from "./store.ts";
 
 // Filing puts an unsorted claim into a known project; origin is kept, the move is logged, and an unsure claim stays unsorted.
@@ -44,13 +46,15 @@ const within = (projects: ProjectInfo[], c: Pick<Claim, "user" | "agent">, pins:
   return pin ? projects.filter((p) => pin.includes(p.name)) : projects;
 };
 
-export async function defrag(store: D1Store, policy: Policy, s1: S1Client | null, pins: Map<string, string[]> = new Map()) {
+export async function defrag(store: D1Store, policy: Policy, s1: S1Client | null, pins: Map<string, string[]> = new Map(),
+  rewriter: Rewriter | null = null) {
   const held = await judgeLate(store, s1);
+  const rewritten = await rewriteDisputed(store, rewriter, s1);
   const projects = await store.projects();
   let filed = 0;
   for (const c of await store.unsorted(BATCH)) {
     if (await fileClaim(store, s1, c, within(projects, c, pins))) filed++;
     else await store.fileTried(c.id);
   }
-  return { held, filed, ...(await consolidate(store, policy, s1)) };
+  return { held, filed, rewritten, ...(await consolidate(store, policy, s1)) };
 }
