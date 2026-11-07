@@ -5,7 +5,7 @@ import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, T
 import { consolidate } from "./consolidate.ts";
 import { fileClaim } from "./defrag.ts";
 import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, RERANK_POOL, type S1Client, judge, rankForQuery } from "./s1.ts";
-import { type Lane, type Renamed, type RoomScope, D1Store } from "./store.ts";
+import { type Dispute, type Lane, type Renamed, type RoomScope, D1Store } from "./store.ts";
 import { roomIdentity } from "./rooms.ts";
 
 export interface Caller {
@@ -87,7 +87,7 @@ const TOOLS = [
   },
   {
     name: "feedback",
-    description: "Rate the claims this session was shown (by briefing, recall or expand), once, before you finish: `used` you acted on it and it held (say what you checked in `note`), `not_used` it was shown but didn't bear on the task, `wrong` it misled you (say how in `note`). Changes no claim; the ratings tune what memory shows. Rate again to change a verdict.",
+    description: "Rate the claims this session was shown (by briefing, recall or expand), once, before you finish: `used` you acted on it and it held (say what you checked in `note`), `not_used` it was shown but didn't bear on the task, `wrong` it misled you (say how in `note`). Changes no claim, but a `wrong` keeps it out of every briefing until another session rates it `used` or a new version replaces it. Rate again to change a verdict.",
     inputSchema: {
       type: "object", required: ["ratings"],
       properties: {
@@ -167,9 +167,23 @@ const ROOM_TOOLS = [
 type Args = Record<string, any>;
 type Rpc = { jsonrpc: "2.0"; id?: string | number | null; method: string; params?: any };
 
-function claimDict(c: Claim) {
+function claimDict(c: Claim, dispute?: Dispute) {
   const { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at } = c;
-  return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at };
+  return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at,
+    ...(dispute ? { rated_wrong: dispute } : {}) };
+}
+
+// A claim a session rated `wrong` stays out of the briefing, which every session loads, until a later
+// `used` from a session clears it or a new version under its subject replaces it. Recall still shows it, marked.
+async function markDisputed(store: D1Store, claims: Claim[]): Promise<void> {
+  const d = await store.disputes(claims.map((c) => c.id));
+  for (const c of claims) if (d.has(c.id)) c.disputed = true;
+}
+const undisputed = (cs: Claim[]) => cs.filter((c) => !c.disputed);
+
+async function expanded(store: D1Store, c: Claim): Promise<string> {
+  const d = (await store.disputes([c.id])).get(c.id);
+  return JSON.stringify(claimDict(c, d), null, 2);
 }
 
 // Search pulls a wide pool and System One reranks it; ranking never changes what a caller may see.
@@ -263,11 +277,13 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       const limit = Math.min(a.limit ?? 12, 30);
       // Why a read of its own, as in a repo briefing: recall ranks the org last, so a busy room's
       // capped list would crowd its rules out.
-      const [settled, { orgs, org }, yours] = await Promise.all([
+      const [all, { orgs, org: allOrg }, allYours] = await Promise.all([
         store.recall("", null, null, { room, candidates: "none", limit: limit * 3 }),
         orgRules(store, groups),
         store.recentUserCandidates(identity, ctx.session, RECENT_USER, "room"),
       ]);
+      await markDisputed(store, [...all, ...allOrg, ...allYours]);
+      const [settled, org, yours] = [undisputed(all), undisputed(allOrg), undisputed(allYours)];
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours]], "briefing", null);
@@ -278,7 +294,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       const query = String(a.query ?? ""), limit = recallLimit(a.limit);
       const claims = await rankForQuery(ctx.s1, query, await store.recall(query, null, null,
         { room, candidates: a.include_candidates ? "all" : "origin", types: a.types, limit: poolSize(ctx.s1, query, limit), session: ctx.session }), limit);
-      await store.recordUsage(ctx.session, [["results", claims]], "recall", null, a.query || null);
+      await Promise.all([markDisputed(store, claims), store.recordUsage(ctx.session, [["results", claims]], "recall", null, a.query || null)]);
       return renderClaims(claims);
     }
     case "claim": {
@@ -312,7 +328,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       const c = await store.get(String(a.handle ?? ""), identity, ctx.session, room);
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
       await store.recordUsage(ctx.session, [["expand", [c]]], "expand", c.project);
-      return JSON.stringify(claimDict(c), null, 2);
+      return expanded(store, c);
     }
   }
   throw new Error(`unknown tool ${name}`);
@@ -398,7 +414,7 @@ async function pinnedTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, p
     const visible = c && (c.scope === "project" ? c.project === null || names.includes(c.project) : c.scope === "group" ? groups.has(c.project ?? "") : true);
     if (!c || !visible) throw new Error(`unknown claim handle ${a.handle}`);
     await store.recordUsage(ctx.session, [["expand", [c]]], "expand", c.project);
-    return JSON.stringify(claimDict(c), null, 2);
+    return expanded(store, c);
   }
   // Why: an unsorted claim from a pinned token could be filed anywhere, so it must name its project.
   if (!project && name === "claim" && a.scope !== "user") throw new Error(`say which project this lesson is about: ${mayUse}`);
@@ -416,7 +432,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
       // An org's rules apply to every contributor, so they come first under their own heading.
-      const [settled, { orgs, org }, recent, yours] = await Promise.all([
+      const [all, { orgs, org: allOrg }, allRecent, allYours] = await Promise.all([
         store.recall("", project, user, { candidates: "none", groups, limit: limit * 3 }),
         orgRules(store, groups),
         // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
@@ -424,6 +440,8 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         // User scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
         user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
       ]);
+      await markDisputed(store, [...all, ...allOrg, ...allRecent, ...allYours]);
+      const [settled, org, recent, yours] = [undisputed(all), undisputed(allOrg), undisputed(allRecent), undisputed(allYours)];
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       // In the order the reply renders them: yours comes before recent.
@@ -436,7 +454,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
       const query = String(a.query ?? ""), limit = recallLimit(a.limit);
       const claims = await rankForQuery(ctx.s1, query, await store.recall(query, project, user,
         { candidates: a.include_candidates ? "all" : "origin", groups, types: a.types, agent: a.agent, limit: poolSize(ctx.s1, query, limit), session: ctx.session }), limit);
-      await store.recordUsage(ctx.session, [["results", claims]], "recall", project, a.query || null);
+      await Promise.all([markDisputed(store, claims), store.recordUsage(ctx.session, [["results", claims]], "recall", project, a.query || null)]);
       return note + renderClaims(claims);
     }
     case "claim": {
@@ -484,7 +502,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
       const c = await store.get(String(a.handle ?? ""), user, ctx.session);
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
       await store.recordUsage(ctx.session, [["expand", [c]]], "expand", c.project);
-      return JSON.stringify(claimDict(c), null, 2);
+      return expanded(store, c);
     }
     case "correct": {
       if (!ctx.correct) throw new Error("correct is turned off on this server; use claim instead");

@@ -62,6 +62,7 @@ export interface Claim {
   verify?: string | null; // the operator's freshness command; set only through POST /v1/operator
   pointer?: boolean;      // set by recall when a path, anchor or doc:// ref in the query matched the claim, not its words
   confirmations?: Confirmation[]; // set by consolidate: other sessions whose newest feedback on this claim is `used`
+  disputed?: boolean;     // set by reads: a session rated it `wrong` and no later `used` cleared it
 }
 
 // A session that was shown the claim, acted on it, and rated it `used` with a note on what it checked.
@@ -213,6 +214,7 @@ export function compactLine(c: Claim): string {
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
   const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
   if (path) line += ` → ${path}`;
+  if (c.disputed) line += ` ⚠ rated wrong (expand ${c.id.slice(0, 8)} for why)`;
   return line;
 }
 
