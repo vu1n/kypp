@@ -21,8 +21,8 @@ tools for `kypp` before assuming they're missing; if there are none, carry on wi
   `expand` a handle only when you act on it.
 - **Before you finish a task:** if you learned something the next agent would otherwise
   rediscover (a trap, the reason behind a choice, a non-obvious procedure), `claim` it in a
-  sentence or two under a short noun-phrase `subject`. Reuse an existing subject to update it. Not
-  status, not a transcript: git holds those. Then call `feedback` once on the handles you were
+  sentence or two under a short noun-phrase `subject`, and say how you know it in `evidence`. Reuse an
+  existing subject to update it. Not status, not a transcript: git holds those. Then call `feedback` once on the handles you were
   shown: if a claim held up in your work, rate it `used` with what you checked; if it was wrong,
   rate it `wrong` and claim the fix under the same subject; otherwise `not_used`. Don't re-claim a
   lesson just to agree with it.
