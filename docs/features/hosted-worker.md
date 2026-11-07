@@ -215,10 +215,12 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   Python arbiter doesn't count ratings, so local and hosted promote differently here.
 - A `wrong` rating disputes its claim (`store.disputes`): while some session's newest writable verdict
   is `wrong` and no newest writable `used` came after it, every briefing section drops the claim and
-  recall marks it `⚠ rated wrong`; `expand` returns the note as `rated_wrong`. It is read-side only and
+  recall marks it `⚠ a session rated this wrong`; `expand` returns `rated_wrong: {at}`. The note is never
+  shown to agents: it skips the write gate, so it would be an unscreened channel. It is read-side only and
   keyed on the claim id, so a new version under the subject starts clean and no status changes.
-  Verdict order is the row order (`created_at`, then `rowid`), not the timestamp alone. Only writable
-  ratings count, for the same reason only they confirm. A new read path that renders claims into a
+  Verdict order is the row order (`created_at`, then `rowid`), not the timestamp alone. Unmarked
+  (non-writable) rows are dropped before each session's newest is picked, so a session id reused with a
+  read-only token can't lift its own dispute. A new read path that renders claims into a
   briefing must call `markDisputed` and filter. The local store has no feedback, so local briefings don't drop them.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call

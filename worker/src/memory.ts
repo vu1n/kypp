@@ -214,7 +214,7 @@ export function compactLine(c: Claim): string {
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
   const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
   if (path) line += ` → ${path}`;
-  if (c.disputed) line += ` ⚠ rated wrong (expand ${c.id.slice(0, 8)} for why)`;
+  if (c.disputed) line += " ⚠ a session rated this wrong; check it before relying on it";
   return line;
 }
 

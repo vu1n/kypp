@@ -1,5 +1,5 @@
 // A claim a writable session rated `wrong` leaves the briefing until a later `used` clears it or a new
-// version replaces it; recall still shows it, marked, and expand shows the note.
+// version replaces it; recall still shows it, marked. The rater's note is never shown to other agents.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Caller, handleMcp } from "../src/mcp.ts";
@@ -30,7 +30,7 @@ async function accepted(db: D1Database, subject: string, content: string) {
 const WRONG = { verdict: "wrong", note: "the port moved to 8788" };
 const USED = { verdict: "used", note: "ran wrangler dev; it answered on 8787" };
 
-test("a wrong rating takes the claim out of the briefing; recall marks it and expand says why", async () => {
+test("a wrong rating takes the claim out of the briefing; recall and expand mark it without the note", async () => {
   const db = await setup();
   const id = await accepted(db, "wrangler port", "wrangler dev listens on 8787");
   const r = agent(db, "r");
@@ -39,9 +39,10 @@ test("a wrong rating takes the claim out of the briefing; recall marks it and ex
 
   const next = agent(db, "n");
   assert.doesNotMatch(await next("briefing"), /wrangler port/);
-  assert.match(await next("recall", { query: "wrangler port" }), new RegExp(`wrangler port .*⚠ rated wrong \\(expand ${id.slice(0, 8)} for why\\)`));
+  assert.match(await next("recall", { query: "wrangler port" }), /wrangler port .*⚠ a session rated this wrong; check it before relying on it$/);
   const full = JSON.parse(await next("expand", { handle: id }));
-  assert.equal(full.rated_wrong.note, "the port moved to 8788");
+  assert.ok(full.rated_wrong.at);
+  assert.doesNotMatch(JSON.stringify(full), /8788/, "the note skipped the write gate, so no agent reads it");
   assert.equal(full.status, "accepted", "a rating changes no claim");
 });
 
@@ -54,7 +55,7 @@ test("a later used from another session clears the dispute", async () => {
   assert.doesNotMatch(await agent(db, "x")("briefing"), /wrangler port/);
   await b("feedback", { ratings: [{ handle: id, ...USED }] });
   assert.match(await agent(db, "y")("briefing"), /wrangler port/);
-  assert.doesNotMatch(await agent(db, "y")("recall", { query: "wrangler port" }), /rated wrong/);
+  assert.doesNotMatch(await agent(db, "y")("recall", { query: "wrangler port" }), /rated this wrong/);
 });
 
 test("a used made before the wrong doesn't clear it, and the rater withdrawing does", async () => {
@@ -87,5 +88,15 @@ test("a new version under the subject is not disputed by the old one's rating", 
   await accepted(db, "wrangler port", "wrangler dev listens on 8788");
   const brief = await agent(db, "x")("briefing");
   assert.match(brief, /wrangler port — wrangler dev listens on 8788/);
-  assert.doesNotMatch(brief, /rated wrong/);
+  assert.doesNotMatch(brief, /rated this wrong/);
+});
+
+test("a later rating from the same session without write access doesn't lift its dispute", async () => {
+  const db = await setup();
+  const id = await accepted(db, "wrangler port", "wrangler dev listens on 8787");
+  const a = agent(db, "a"), aRo = agent(db, "a", { ...OWNER, readOnly: true });
+  await a("briefing");
+  await a("feedback", { ratings: [{ handle: id, ...WRONG }] });
+  await aRo("feedback", { ratings: [{ handle: id, ...USED }] });
+  assert.doesNotMatch(await agent(db, "x")("briefing"), /wrangler port/);
 });

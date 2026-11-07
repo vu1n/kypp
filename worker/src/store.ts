@@ -115,8 +115,8 @@ const CONFIRMING = "CASE WHEN json_extract(u.metadata, '$.writable') = 1 THEN u.
 /** A claim's level, keyed the way its group is: a project, a person's own scope, or a room's lane. */
 export type Lane = { project: string } | { user: string } | { room: string };
 /** An earlier claim of this session's with the same content under another subject, and its provenance. */
-/** A standing `wrong` rating on a claim: the rater's note and when it was made. */
-export interface Dispute { note: string | null; at: string }
+/** A standing `wrong` rating on a claim: when it was made. */
+export interface Dispute { at: string }
 export interface Renamed { id: string; subject: string; stamped: boolean; echoOf: string[] }
 const laneSql = (at: Lane): [string, string] => "project" in at ? ["c.scope = 'project' AND c.project = ?", at.project]
   : "room" in at ? ["c.scope = 'room' AND c.user = ?", at.room] : ["c.scope = 'user' AND c.user = ?", at.user];
@@ -567,14 +567,16 @@ export class D1Store {
     return out;
   }
 
-  // Per claim, the newest standing `wrong` and its note. A claim is disputed while some session's newest
+  // Per claim, when its standing `wrong` was made. A claim is disputed while some session's newest
   // writable verdict on it is `wrong` and no session's newest writable verdict is a `used` made after it.
+  // Unmarked rows are dropped before picking each session's newest, so a later read-only rating can't
+  // lift a dispute. The note is never returned: it skipped the write gate, so other agents don't read it.
   async disputes(ids: string[]): Promise<Map<string, Dispute>> {
     const out = new Map<string, Dispute>();
     if (!ids.length) return out;
     const { results } = await this.db.prepare(
-      `SELECT u.claim_id, u.consumer, ${CONFIRMING} AS score, json_extract(u.metadata, '$.note') AS note, u.created_at`
-      + " FROM claim_usages u JOIN json_each(?) j ON j.value = u.claim_id WHERE u.surface = 'feedback' ORDER BY u.created_at, u.rowid",
+      "SELECT u.claim_id, u.consumer, u.score, u.created_at FROM claim_usages u JOIN json_each(?) j ON j.value = u.claim_id"
+      + " WHERE u.surface = 'feedback' AND json_extract(u.metadata, '$.writable') = 1 ORDER BY u.created_at, u.rowid",
     ).bind(JSON.stringify([...new Set(ids)])).all();
     // Rows arrive in rating order (created_at, then rowid), so the index orders verdicts made in the same millisecond.
     const latest = new Map<string, [Record<string, unknown>, number]>();
@@ -585,7 +587,7 @@ export class D1Store {
       if (r.score === 1 && i > (used.get(id) ?? -1)) used.set(id, i);
       if (r.score === -1 && i > (wrong.get(id) ?? -1)) {
         wrong.set(id, i);
-        out.set(id, { note: (r.note as string | null) ?? null, at: r.created_at as string });
+        out.set(id, { at: r.created_at as string });
       }
     }
     for (const id of out.keys()) if ((used.get(id) ?? -1) > wrong.get(id)!) out.delete(id);
