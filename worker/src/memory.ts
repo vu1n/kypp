@@ -226,20 +226,39 @@ export function compactLine(c: Claim): string {
   return line;
 }
 
-export function renderClaims(claims: Claim[], empty = "(no matching memory)"): string {
-  return claims.map(compactLine).join("\n") || empty;
+export function renderClaims(claims: Claim[], empty = "(no matching memory)", line: (c: Claim) => string = compactLine): string {
+  return claims.map(line).join("\n") || empty;
 }
 
 // The briefing, one heading per type in briefingOrder's order.
-export function renderBriefing(claims: Claim[]): string {
+export function renderBriefing(claims: Claim[], line: (c: Claim) => string = compactLine): string {
   if (!claims.length) return "(no accepted memory yet)";
   const out: string[] = [];
   for (const c of claims) {
     const head = `# ${c.type}`;
     if (!out.includes(head)) out.push(head);
-    out.push(compactLine(c));
+    out.push(line(c));
   }
   return out.join("\n");
+}
+
+// The briefing loads into every session, so its claim lines share one budget: a longer briefing is
+// followed less, and a wrong line in it misleads every session.
+export const BRIEFING_CHARS = 4000;
+export const shortLine = (c: Claim) =>
+  `${c.id.slice(0, 8)} [${c.type} ${c.status === "accepted" ? "✓" : "?"}${c.confidence.toFixed(1)} @${level(c)}] ${c.subject} (expand for the lesson)`;
+
+// Lines in render order: full while the budget lasts, then subject-only, then left out. Returns how each
+// kept claim renders; a claim not in the map was left out.
+export function fitBriefing(claims: Claim[], budget = BRIEFING_CHARS): Map<string, "full" | "short"> {
+  const fit = new Map<string, "full" | "short">();
+  let left = budget;
+  for (const c of claims) {
+    const full = compactLine(c).length + 1, short = shortLine(c).length + 1;
+    if (full <= left) { fit.set(c.id, "full"); left -= full; }
+    else if (short <= left) { fit.set(c.id, "short"); left -= short; }
+  }
+  return fit;
 }
 
 // view.briefing_claims ordering: traps first, then choices made, then how-tos. Stable sort keeps

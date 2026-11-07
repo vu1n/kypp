@@ -1,7 +1,7 @@
 // mcp.ts — kypp's agent tools as a stateless streamable-HTTP MCP endpoint (JSON responses, no SSE,
 // no Durable Object). The same contract as kypp/mcp_server.py's briefing / recall / claim / expand /
 // correct; consolidation is the scheduled pass in index.ts, not an agent tool.
-import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, gatedText, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
+import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, compactLine, fitBriefing, gatedText, shortLine, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
 import { consolidate } from "./consolidate.ts";
 import { fileClaim } from "./defrag.ts";
 import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, RERANK_POOL, type S1Client, judge, rankForQuery } from "./s1.ts";
@@ -181,6 +181,16 @@ async function markDisputed(store: D1Store, claims: Claim[]): Promise<void> {
   for (const c of claims) if (d.has(c.id)) c.disputed = true;
 }
 
+// A briefing's sections, in render order, cut to the briefing budget; `more` says how many were left out.
+function fitted(sections: Claim[][]) {
+  const fit = fitBriefing(sections.flat());
+  const keep = sections.map((cs) => cs.filter((c) => fit.has(c.id)));
+  const line = (c: Claim) => (fit.get(c.id) === "short" ? shortLine(c) : compactLine(c));
+  const left = sections.flat().length - keep.flat().length;
+  const more = left ? `\n(${left} more left out to keep the briefing short; \`recall\` finds them)` : "";
+  return { keep, line, more };
+}
+
 async function expanded(store: D1Store, c: Claim): Promise<string> {
   const d = (await store.disputes([c.id])).get(c.id);
   return JSON.stringify(claimDict(c, d), null, 2);
@@ -233,7 +243,7 @@ export async function verifySession(key: string | undefined, header: string | nu
 
 const RECENT = 3; // other agents' unconfirmed claims shown at the end of a briefing
 const ORG_RULES = 8; // accepted claims at the caller's org, listed first in a briefing
-const RECENT_USER = 5; // the user's own unconfirmed process and preferences, from their other sessions
+const RECENT_USER = 3; // the user's own unconfirmed process and preferences, from their other sessions
 const known = (projects: ProjectInfo[]) => projects.map((p) => p.name).join(", ") || "none registered";
 
 const NEAR_SUBJECTS = 3;
@@ -285,16 +295,16 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       const limit = Math.min(a.limit ?? 12, 30);
       // Why a read of its own, as in a repo briefing: recall ranks the org last, so a busy room's
       // capped list would crowd its rules out.
-      const [settled, { orgs, org }, yours] = await Promise.all([
+      const [settled, { orgs, org: allOrg }, allYours] = await Promise.all([
         store.recall("", null, null, { room, candidates: "none", limit: limit * 3, undisputed: true }),
         orgRules(store, groups),
         store.recentUserCandidates(identity, ctx.session, RECENT_USER, "room"),
       ]);
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
-      const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
+      const { keep: [org, claims, yours], line, more } = fitted([allOrg, briefingOrder(settled.filter((c) => !isOrg(c)), limit), allYours]);
       await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours]], "briefing", null);
-      return (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
-        + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours)}` : "");
+      return (org.length ? `# how this org works\n${renderClaims(org, undefined, line)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims, line) : "")
+        + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours, undefined, line)}` : "") + more;
     }
     case "recall": {
       const query = String(a.query ?? ""), limit = recallLimit(a.limit);
@@ -439,7 +449,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
       // An org's rules apply to every contributor, so they come first under their own heading.
-      const [settled, { orgs, org }, recent, yours] = await Promise.all([
+      const [settled, { orgs, org: allOrg }, allRecent, allYours] = await Promise.all([
         store.recall("", project, user, { candidates: "none", groups, limit: limit * 3, undisputed: true }),
         orgRules(store, groups),
         // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
@@ -448,12 +458,13 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
       ]);
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
-      const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
       // In the order the reply renders them: yours comes before recent.
+      const { keep: [org, claims, yours, recent], line, more } = fitted([allOrg,
+        briefingOrder(settled.filter((c) => !isOrg(c)), limit), allYours, allRecent]);
       await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours], ["recent", recent]], "briefing", project);
-      return note + (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
-        + (yours.length ? `\n# how you work, from your other sessions (unconfirmed)\n${renderClaims(yours)}` : "")
-        + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
+      return note + (org.length ? `# how this org works\n${renderClaims(org, undefined, line)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims, line) : "")
+        + (yours.length ? `\n# how you work, from your other sessions (unconfirmed)\n${renderClaims(yours, undefined, line)}` : "")
+        + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent, undefined, line)}` : "") + more;
     }
     case "recall": {
       const query = String(a.query ?? ""), limit = recallLimit(a.limit);

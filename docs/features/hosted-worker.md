@@ -16,6 +16,7 @@ tests:
   - "worker/test/readonly.test.ts"
   - "worker/test/feedback.test.ts"
   - "worker/test/confirm.test.ts"
+  - "worker/test/briefing-budget.test.ts"
   - "worker/test/dispute.test.ts"
   - "worker/test/evidence.test.ts"
   - "tests/test_usefulness.py"
@@ -228,6 +229,11 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   builds its own column list has to add it too. Agents read it, so the write gate and `judgeLate` judge
   `gatedText(content, evidence)`, never the content alone. Purge resets `metadata`, which erases it.
   Local claims have no evidence yet.
+- Every briefing section's claim lines share `BRIEFING_CHARS` in render order (`fitBriefing`): full
+  lines while it lasts, then subject-only lines, then a count of what was left out. Only kept claims are
+  passed to `recordUsage`, so a slot's used rate is over what the reply showed. A new briefing section
+  goes through `fitted` with the others, or it escapes the budget. Unconfirmed user-scope lines
+  (`RECENT_USER`) are capped at 3 because they reach every repo's briefing.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
   a tool it lacks.
