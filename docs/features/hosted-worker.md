@@ -16,6 +16,7 @@ tests:
   - "worker/test/readonly.test.ts"
   - "worker/test/feedback.test.ts"
   - "worker/test/confirm.test.ts"
+  - "worker/test/check.test.ts"
   - "worker/test/briefing-budget.test.ts"
   - "worker/test/dispute.test.ts"
   - "worker/test/evidence.test.ts"
@@ -234,6 +235,11 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   passed to `recordUsage`, so a slot's used rate is over what the reply showed. A new briefing section
   goes through `fitted` with the others, or it escapes the budget. Unconfirmed user-scope lines
   (`RECENT_USER`) are capped at 3 because they reach every repo's briefing.
+- Agents are memory's recheck pass (a System One model returns probabilities, never text, so it can't
+  rewrite a claim). Each briefing moves up to `CHECK` claims into a "check these" section (`toCheck`):
+  disputed ones first (`recall(..., { disputed: true })`), then accepted ones shown at least `CHECK_SHOWN` times with no writable `used` in
+  `CHECK_DAYS`. A disputed claim reaches a briefing only there. They render after "yours" and before
+  "recent", inside the same budget, and are recorded under section `check`.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
   a tool it lacks.

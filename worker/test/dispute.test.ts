@@ -27,6 +27,9 @@ async function accepted(db: D1Database, subject: string, content: string) {
   return (await agent(db, "w")("correct", { subject, content, type: "pitfall" })).split("\n")[0].trim();
 }
 
+// The briefing without its "check these" section, where a disputed claim comes back to be checked.
+const settled = (briefing: string) => briefing.split("\n# check these")[0];
+
 const WRONG = { verdict: "wrong", note: "the port moved to 8788" };
 const USED = { verdict: "used", note: "ran wrangler dev; it answered on 8787" };
 
@@ -38,7 +41,10 @@ test("a wrong rating takes the claim out of the briefing; recall and expand mark
   await r("feedback", { ratings: [{ handle: id, ...WRONG }] });
 
   const next = agent(db, "n");
-  assert.doesNotMatch(await next("briefing"), /wrangler port/);
+  const brief = await next("briefing");
+  assert.doesNotMatch(settled(brief), /wrangler port/);
+  assert.match(brief, /\n# check these if your work touches them, then rate them with `feedback`\n.*wrangler port .*⚠ a session rated this wrong/,
+    "a disputed claim comes back only to be checked");
   assert.match(await next("recall", { query: "wrangler port" }), /wrangler port .*⚠ a session rated this wrong; check it before relying on it$/);
   const full = JSON.parse(await next("expand", { handle: id }));
   assert.ok(full.rated_wrong.at);
@@ -52,7 +58,7 @@ test("a later used from another session clears the dispute", async () => {
   const a = agent(db, "a"), b = agent(db, "b");
   await a("briefing"); await b("briefing");
   await a("feedback", { ratings: [{ handle: id, ...WRONG }] });
-  assert.doesNotMatch(await agent(db, "x")("briefing"), /wrangler port/);
+  assert.doesNotMatch(settled(await agent(db, "x")("briefing")), /wrangler port/);
   await b("feedback", { ratings: [{ handle: id, ...USED }] });
   assert.match(await agent(db, "y")("briefing"), /wrangler port/);
   assert.doesNotMatch(await agent(db, "y")("recall", { query: "wrangler port" }), /rated this wrong/);
@@ -65,7 +71,7 @@ test("a used made before the wrong doesn't clear it, and the rater withdrawing d
   await a("briefing"); await b("briefing");
   await b("feedback", { ratings: [{ handle: id, ...USED }] });
   await a("feedback", { ratings: [{ handle: id, ...WRONG }] });
-  assert.doesNotMatch(await agent(db, "x")("briefing"), /wrangler port/);
+  assert.doesNotMatch(settled(await agent(db, "x")("briefing")), /wrangler port/);
   await a("feedback", { ratings: [{ handle: id, verdict: "not_used" }] });
   assert.match(await agent(db, "y")("briefing"), /wrangler port/);
 });
@@ -98,7 +104,7 @@ test("a later rating from the same session without write access doesn't lift its
   await a("briefing");
   await a("feedback", { ratings: [{ handle: id, ...WRONG }] });
   await aRo("feedback", { ratings: [{ handle: id, ...USED }] });
-  assert.doesNotMatch(await agent(db, "x")("briefing"), /wrangler port/);
+  assert.doesNotMatch(settled(await agent(db, "x")("briefing")), /wrangler port/);
 });
 
 test("disputed claims don't use up a section's limit: the briefing fills past them", async () => {
@@ -129,5 +135,5 @@ test("the briefing finds undisputed memory past more disputed claims than one qu
   await a("feedback", { ratings: disputed.slice(50).map((handle) => ({ handle, ...WRONG })) });
   const brief = await agent(db, "x")("briefing", { limit: 30 });
   assert.match(brief, /a lesson that held/);
-  assert.doesNotMatch(brief, /trap \d/);
+  assert.doesNotMatch(settled(brief), /trap \d/);
 });

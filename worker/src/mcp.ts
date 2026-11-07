@@ -191,6 +191,25 @@ function fitted(sections: Claim[][]) {
   return { keep, line, more };
 }
 
+// Memory is checked by the agents that read it: each briefing asks for a check of up to CHECK claims,
+// disputed ones first, then accepted ones read at least CHECK_SHOWN times with no `used` in CHECK_DAYS.
+// A disputed claim comes back only here, under a heading that says to check it.
+const CHECK = 2, CHECK_SHOWN = 10, CHECK_DAYS = 30;
+const CHECK_HEADING = "# check these if your work touches them, then rate them with `feedback`";
+async function toCheck(store: D1Store, claims: Claim[], disputed: Claim[], session: string | null): Promise<Claim[]> {
+  for (const c of disputed) c.disputed = true;
+  const mine = (c: Claim) => !!session && c.session === session; // never ask a session to check its own claim
+  const seen = await store.checkedness(claims.map((c) => c.id));
+  const since = new Date(Date.now() - CHECK_DAYS * 86_400_000).toISOString();
+  const stale = (c: Claim) => {
+    const k = seen.get(c.id);
+    return c.status === "accepted" && !!k && k.shown >= CHECK_SHOWN && (k.lastUsed ?? "") < since;
+  };
+  const byShown = (a: Claim, b: Claim) => (seen.get(b.id)?.shown ?? 0) - (seen.get(a.id)?.shown ?? 0);
+  const unique = [...new Map(claims.map((c) => [c.id, c])).values()].filter((c) => !mine(c) && stale(c)).sort(byShown);
+  return [...disputed.filter((c) => !mine(c)), ...unique].slice(0, CHECK);
+}
+
 async function expanded(store: D1Store, c: Claim): Promise<string> {
   const d = (await store.disputes([c.id])).get(c.id);
   return JSON.stringify(claimDict(c, d), null, 2);
@@ -295,16 +314,20 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       const limit = Math.min(a.limit ?? 12, 30);
       // Why a read of its own, as in a repo briefing: recall ranks the org last, so a busy room's
       // capped list would crowd its rules out.
-      const [settled, { orgs, org: allOrg }, allYours] = await Promise.all([
+      const [settled, { orgs, org: allOrg }, allYours, disputed] = await Promise.all([
         store.recall("", null, null, { room, candidates: "none", limit: limit * 3, undisputed: true }),
         orgRules(store, groups),
         store.recentUserCandidates(identity, ctx.session, RECENT_USER, "room"),
+        store.recall("", null, null, { room, candidates: "none", limit: CHECK, disputed: true }),
       ]);
+      const check = await toCheck(store, [...allOrg, ...settled], disputed, ctx.session);
+      const checking = new Set(check.map((c) => c.id)), shown = (cs: Claim[]) => cs.filter((c) => !checking.has(c.id));
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
-      const { keep: [org, claims, yours], line, more } = fitted([allOrg, briefingOrder(settled.filter((c) => !isOrg(c)), limit), allYours]);
-      await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours]], "briefing", null);
+      const { keep: [org, claims, yours, chk], line, more } = fitted([shown(allOrg), briefingOrder(shown(settled).filter((c) => !isOrg(c)), limit), allYours, check]);
+      await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours], ["check", chk]], "briefing", null);
       return (org.length ? `# how this org works\n${renderClaims(org, undefined, line)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims, line) : "")
-        + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours, undefined, line)}` : "") + more;
+        + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours, undefined, line)}` : "")
+        + (chk.length ? `\n${CHECK_HEADING}\n${renderClaims(chk, undefined, line)}` : "") + more;
     }
     case "recall": {
       const query = String(a.query ?? ""), limit = recallLimit(a.limit);
@@ -449,21 +472,25 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     case "briefing": {
       const limit = Math.min(a.limit ?? 12, 30);
       // An org's rules apply to every contributor, so they come first under their own heading.
-      const [settled, { orgs, org: allOrg }, allRecent, allYours] = await Promise.all([
+      const [settled, { orgs, org: allOrg }, allRecent, allYours, disputed] = await Promise.all([
         store.recall("", project, user, { candidates: "none", groups, limit: limit * 3, undisputed: true }),
         orgRules(store, groups),
         // Why: the briefing stays settled memory; others' unconfirmed claims get a short, labelled section.
         project ? store.recentCandidates(project, ctx.session, RECENT) : [],
         // User scope is how this person works, read from every repo; unconfirmed lessons stay labelled and apart.
         user ? store.recentUserCandidates(user, ctx.session, RECENT_USER) : [],
+        store.recall("", project, user, { candidates: "none", groups, limit: CHECK, disputed: true }),
       ]);
+      const check = await toCheck(store, [...allOrg, ...settled], disputed, ctx.session);
+      const checking = new Set(check.map((c) => c.id)), shown = (cs: Claim[]) => cs.filter((c) => !checking.has(c.id));
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       // In the order the reply renders them: yours comes before recent.
-      const { keep: [org, claims, yours, recent], line, more } = fitted([allOrg,
-        briefingOrder(settled.filter((c) => !isOrg(c)), limit), allYours, allRecent]);
-      await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours], ["recent", recent]], "briefing", project);
+      const { keep: [org, claims, yours, chk, recent], line, more } = fitted([shown(allOrg),
+        briefingOrder(shown(settled).filter((c) => !isOrg(c)), limit), allYours, check, allRecent]);
+      await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours], ["check", chk], ["recent", recent]], "briefing", project);
       return note + (org.length ? `# how this org works\n${renderClaims(org, undefined, line)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims, line) : "")
         + (yours.length ? `\n# how you work, from your other sessions (unconfirmed)\n${renderClaims(yours, undefined, line)}` : "")
+        + (chk.length ? `\n${CHECK_HEADING}\n${renderClaims(chk, undefined, line)}` : "")
         + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent, undefined, line)}` : "") + more;
     }
     case "recall": {

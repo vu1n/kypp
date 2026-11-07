@@ -393,7 +393,7 @@ export class D1Store {
   // The id is last so equal rows come back in the same order on every engine.
   async recall(match: string, project: string | null, user: string | null,
     opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null; room?: RoomScope;
-      undisputed?: boolean } = {}): Promise<Claim[]> {
+      undisputed?: boolean; disputed?: boolean } = {}): Promise<Claim[]> {
     match = match.trim();
     const [where, params] = opts.room
       ? roomVisible("c", opts.room, opts.candidates ?? "origin")
@@ -405,6 +405,7 @@ export class D1Store {
     if (opts.agent) { filter += " AND c.agent = ?"; fparams.push(opts.agent); }
     // Briefings leave disputed claims out in the query itself, so they can't use up its LIMIT.
     if (opts.undisputed) filter += ` AND NOT ${DISPUTED("c")}`;
+    if (opts.disputed) filter += ` AND ${DISPUTED("c")}`;
     // `groups` comes nearest first, so a parent's claim outranks a grandparent's.
     const groups = opts.room?.groups ?? opts.groups ?? [];
     const near = groups.length ? `1 + (CASE c.project ${groups.map((_, i) => `WHEN ? THEN ${i}`).join(" ")} END) * 0.01` : "1";
@@ -593,6 +594,17 @@ export class D1Store {
       + ` FROM memory_claims c JOIN json_each(?) j ON j.value = c.id WHERE ${DISPUTED("c")}`,
     ).bind(JSON.stringify([...new Set(ids)])).all();
     return new Map(results.map((r) => [r.id as string, { at: r.at as string }]));
+  }
+
+  // Per claim, how many times reads showed it and when a writable `used` last confirmed it held.
+  async checkedness(ids: string[]): Promise<Map<string, { shown: number; lastUsed: string | null }>> {
+    if (!ids.length) return new Map();
+    const { results } = await this.db.prepare(
+      "SELECT u.claim_id, SUM(CASE WHEN u.surface != 'feedback' THEN 1 ELSE 0 END) AS shown,"
+      + " MAX(CASE WHEN u.surface = 'feedback' AND u.score = 1 AND json_extract(u.metadata, '$.writable') = 1 THEN u.created_at END) AS last_used"
+      + " FROM claim_usages u JOIN json_each(?) j ON j.value = u.claim_id GROUP BY u.claim_id",
+    ).bind(JSON.stringify([...new Set(ids)])).all();
+    return new Map(results.map((r) => [r.claim_id as string, { shown: Number(r.shown), lastUsed: (r.last_used as string | null) ?? null }]));
   }
 
   // Every group or org `project` rolls up to, nearest first, through parents of parents up to three
