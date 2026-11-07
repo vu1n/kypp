@@ -17,6 +17,7 @@ tests:
   - "worker/test/feedback.test.ts"
   - "worker/test/confirm.test.ts"
   - "worker/test/dispute.test.ts"
+  - "worker/test/evidence.test.ts"
   - "tests/test_usefulness.py"
 ---
 # Hosted Worker
@@ -222,6 +223,11 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   returns `rated_wrong: {at}` (`store.disputes`). The note is never shown to agents: it skips the write
   gate. Keyed on the claim id, so a new version under the subject starts clean; no status changes. The
   local store has no feedback, so local briefings don't drop them.
+- A claim's `evidence` (how the writer knew it, at most `MAX_EVIDENCE` chars) lives in
+  `metadata.evidence`; `claimColumns` and `unjudged` lift it out as `Claim.evidence`, so a read that
+  builds its own column list has to add it too. Agents read it, so the write gate and `judgeLate` judge
+  `gatedText(content, evidence)`, never the content alone. Purge resets `metadata`, which erases it.
+  Local claims have no evidence yet.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
   a tool it lacks.

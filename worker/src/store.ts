@@ -39,7 +39,9 @@ const HANDLE = /^[0-9a-f]{8,32}$/;
 // The columns a Claim carries; metadata and file_tried_at stay in the table for the passes that need them.
 const CLAIM_COLUMNS = ["id", "type", "subject", "content", "scope", "project", "origin", "session", "agent", "user",
   "status", "authority", "confidence", "source_ids", "code_refs", "verify", "created_at", "updated_at"];
-const claimColumns = (t?: string) => CLAIM_COLUMNS.map((c) => (t ? `${t}.${c}` : c)).join(", ");
+// How the writer knew the claim lives in metadata; reads lift it out so a hydrated Claim carries it.
+const claimColumns = (t?: string) => [...CLAIM_COLUMNS.map((c) => (t ? `${t}.${c}` : c)),
+  `json_extract(${t ? `${t}.` : ""}metadata, '$.evidence') AS evidence`].join(", ");
 
 // A claim's key is a feature ref; a file path is a hint, and line numbers are not stored.
 function pointerRow(claimId: string, entryRef: string, path: string, symbol: string, kind: string,
@@ -742,7 +744,7 @@ export class D1Store {
   // never-retried first, so defrag can judge them late.
   async unjudged(limit: number): Promise<Claim[]> {
     const { results } = await this.db.prepare(
-      "SELECT * FROM memory_claims WHERE status IN ('candidate','accepted') AND authority = 'agent'"
+      "SELECT *, json_extract(metadata, '$.evidence') AS evidence FROM memory_claims WHERE status IN ('candidate','accepted') AND authority = 'agent'"
       + " AND json_extract(metadata, '$.s1') IS NULL"
       + " ORDER BY json_extract(metadata, '$.s1_tried') IS NOT NULL, json_extract(metadata, '$.s1_tried'), created_at LIMIT ?",
     ).bind(limit).all();

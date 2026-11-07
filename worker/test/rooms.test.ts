@@ -239,7 +239,7 @@ test("a room is offered only its own tools", async () => {
   const tools = result.tools.map((t: any) => t.name);
   assert.deepEqual(tools, ["briefing", "recall", "claim", "expand", "feedback"]);
   const claim = result.tools.find((t: any) => t.name === "claim");
-  assert.deepEqual(Object.keys(claim.inputSchema.properties).sort(), ["confidence", "content", "share_to", "subject", "type"]);
+  assert.deepEqual(Object.keys(claim.inputSchema.properties).sort(), ["confidence", "content", "evidence", "share_to", "subject", "type"]);
   assert.equal((await call(db, caller, "s1")("correct", { subject: "x", content: "y" })).error, true);
 });
 
