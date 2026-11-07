@@ -221,7 +221,8 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   Verdict order is the row order (`created_at`, then `rowid`), not the timestamp alone. Unmarked
   (non-writable) rows are dropped before each session's newest is picked, so a session id reused with a
   read-only token can't lift its own dispute. A new read path that renders claims into a
-  briefing must call `markDisputed` and filter. The local store has no feedback, so local briefings don't drop them.
+  briefing must fetch through `filled`, which marks disputes and widens the page while too few
+  undisputed claims came back, so disputed claims can't use up a section's limit. The local store has no feedback, so local briefings don't drop them.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
   a tool it lacks.

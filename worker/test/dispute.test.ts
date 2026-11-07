@@ -100,3 +100,16 @@ test("a later rating from the same session without write access doesn't lift its
   await aRo("feedback", { ratings: [{ handle: id, ...USED }] });
   assert.doesNotMatch(await agent(db, "x")("briefing"), /wrangler port/);
 });
+
+test("disputed claims don't use up a section's limit: the briefing fills past them", async () => {
+  const db = await setup();
+  const w = agent(db, "w"), a = agent(db, "a");
+  await w("claim", { subject: "older lesson", content: "an older lesson about ports" });
+  const newer: string[] = [];
+  for (const s of ["one", "two", "three"]) newer.push((await w("claim", { subject: `lesson ${s}`, content: `a lesson about ports ${s}` })).split("\n")[0]);
+  await a("recall", { query: "ports", include_candidates: true });
+  await a("feedback", { ratings: newer.map((handle) => ({ handle, ...WRONG })) });
+  const recent = (await agent(db, "x")("briefing")).split("# recent from other agents (unconfirmed)\n")[1] ?? "";
+  assert.match(recent, /older lesson/, `the older undisputed candidate fills the section: ${recent}`);
+  assert.doesNotMatch(recent, /lesson (one|two|three)/);
+});
