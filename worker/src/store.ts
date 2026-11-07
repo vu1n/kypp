@@ -112,9 +112,24 @@ const UNSORTED = "scope = 'project' AND project IS NULL";
 // A session's verdict is its newest rating of the claim; it confirms only if that rating is `used` and marked writable.
 const CONFIRMING = "CASE WHEN json_extract(u.metadata, '$.writable') = 1 THEN u.score END";
 
+// A claim is disputed while some session's newest writable verdict on it is `wrong` and no session's
+// newest writable verdict is a `used` made after that. Only writable ratings count, and unmarked rows
+// are ignored when picking a session's newest, so a read-only rating can't lift a dispute.
+// Verdict order is (created_at, rowid), so two ratings in one millisecond still have an order.
+const RATED = (a: string) => `${a}.surface = 'feedback' AND json_extract(${a}.metadata, '$.writable') = 1`;
+const LATER = (a: string, b: string) => `(${a}.created_at > ${b}.created_at OR (${a}.created_at = ${b}.created_at AND ${a}.rowid > ${b}.rowid))`;
+const NEWEST = (a: string, n: string) =>
+  `NOT EXISTS (SELECT 1 FROM claim_usages ${n} WHERE ${n}.claim_id = ${a}.claim_id AND ${n}.consumer = ${a}.consumer AND ${RATED(n)} AND ${LATER(n, a)})`;
+const STANDING_WRONG = (t: string) => `SELECT w.created_at FROM claim_usages w WHERE w.claim_id = ${t}.id AND ${RATED("w")} AND w.score = -1`
+  + ` AND ${NEWEST("w", "wn")} AND NOT EXISTS (SELECT 1 FROM claim_usages u WHERE u.claim_id = w.claim_id AND ${RATED("u")}`
+  + ` AND u.score = 1 AND ${LATER("u", "w")} AND ${NEWEST("u", "un")})`;
+const DISPUTED = (t: string) => `EXISTS (${STANDING_WRONG(t)})`;
+
 /** A claim's level, keyed the way its group is: a project, a person's own scope, or a room's lane. */
 export type Lane = { project: string } | { user: string } | { room: string };
 /** An earlier claim of this session's with the same content under another subject, and its provenance. */
+/** A standing `wrong` rating on a claim: when it was made. */
+export interface Dispute { at: string }
 export interface Renamed { id: string; subject: string; stamped: boolean; echoOf: string[] }
 const laneSql = (at: Lane): [string, string] => "project" in at ? ["c.scope = 'project' AND c.project = ?", at.project]
   : "room" in at ? ["c.scope = 'room' AND c.user = ?", at.room] : ["c.scope = 'user' AND c.user = ?", at.user];
@@ -375,7 +390,8 @@ export class D1Store {
   // store.recall: accepted, nearer level (project, then its groups, then user, then global), confidence.
   // The id is last so equal rows come back in the same order on every engine.
   async recall(match: string, project: string | null, user: string | null,
-    opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null; room?: RoomScope } = {}): Promise<Claim[]> {
+    opts: { candidates?: Candidates; groups?: string[]; types?: string[]; agent?: string; limit?: number; session?: string | null; room?: RoomScope;
+      undisputed?: boolean } = {}): Promise<Claim[]> {
     match = match.trim();
     const [where, params] = opts.room
       ? roomVisible("c", opts.room, opts.candidates ?? "origin")
@@ -385,6 +401,8 @@ export class D1Store {
     let filter = screen + (types.length ? ` AND c.type IN (${types.map(() => "?").join(",")})` : "");
     const fparams: unknown[] = [...sparams, ...types];
     if (opts.agent) { filter += " AND c.agent = ?"; fparams.push(opts.agent); }
+    // Briefings leave disputed claims out in the query itself, so they can't use up its LIMIT.
+    if (opts.undisputed) filter += ` AND NOT ${DISPUTED("c")}`;
     // `groups` comes nearest first, so a parent's claim outranks a grandparent's.
     const groups = opts.room?.groups ?? opts.groups ?? [];
     const near = groups.length ? `1 + (CASE c.project ${groups.map((_, i) => `WHEN ? THEN ${i}`).join(" ")} END) * 0.01` : "1";
@@ -565,6 +583,16 @@ export class D1Store {
     return out;
   }
 
+  // Per claim, when its newest standing `wrong` was made, for the claims that are disputed.
+  async disputes(ids: string[]): Promise<Map<string, Dispute>> {
+    if (!ids.length) return new Map();
+    const { results } = await this.db.prepare(
+      `SELECT c.id, (SELECT MAX(created_at) FROM (${STANDING_WRONG("c")})) AS at`
+      + ` FROM memory_claims c JOIN json_each(?) j ON j.value = c.id WHERE ${DISPUTED("c")}`,
+    ).bind(JSON.stringify([...new Set(ids)])).all();
+    return new Map(results.map((r) => [r.id as string, { at: r.at as string }]));
+  }
+
   // Every group or org `project` rolls up to, nearest first, through parents of parents up to three
   // levels (a cycle in the table just stops). The roll-up table is the only thing that decides what a
   // project can see.
@@ -594,7 +622,7 @@ export class D1Store {
     const [screen, sparams] = this.screen("memory_claims", session);
     const { results } = await this.db.prepare(
       `SELECT ${claimColumns()} FROM memory_claims WHERE status = 'candidate' AND scope = ? AND user = ? AND session IS NOT ?`
-      + screen + " ORDER BY created_at DESC LIMIT ?",
+      + screen + ` AND NOT ${DISPUTED("memory_claims")} ORDER BY created_at DESC LIMIT ?`,
     ).bind(scope, user, session, ...sparams, limit).all();
     return results.map(hydrate);
   }
@@ -604,7 +632,7 @@ export class D1Store {
     const [screen, sparams] = this.screen("memory_claims", session);
     const { results } = await this.db.prepare(
       `SELECT ${claimColumns()} FROM memory_claims WHERE status = 'candidate' AND scope = 'project' AND project = ? AND session IS NOT ?`
-      + screen + " ORDER BY created_at DESC LIMIT ?",
+      + screen + ` AND NOT ${DISPUTED("memory_claims")} ORDER BY created_at DESC LIMIT ?`,
     ).bind(project, session, ...sparams, limit).all();
     return results.map(hydrate);
   }

@@ -16,6 +16,7 @@ tests:
   - "worker/test/readonly.test.ts"
   - "worker/test/feedback.test.ts"
   - "worker/test/confirm.test.ts"
+  - "worker/test/dispute.test.ts"
   - "tests/test_usefulness.py"
 ---
 # Hosted Worker
@@ -212,6 +213,15 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   claim rows the version guard reads. This is the only way a session that was
   shown a candidate can help accept it: its re-claim is an echo, and the claim reply says so. The
   Python arbiter doesn't count ratings, so local and hosted promote differently here.
+- A `wrong` rating disputes its claim. The rule is one SQL fragment, `DISPUTED` in `store.ts`: some
+  session's newest writable verdict is `wrong` and no newest writable `used` came after it, in
+  (`created_at`, `rowid`) order. Unmarked rows are ignored when picking a session's newest, so a session
+  id reused with a read-only token can't lift its own dispute. Briefing queries exclude disputed claims
+  in SQL (`recall(..., { undisputed: true })`, both `recent*Candidates`), so they never use up a LIMIT;
+  a new briefing read must do the same. Recall marks them `⚠ a session rated this wrong` and `expand`
+  returns `rated_wrong: {at}` (`store.disputes`). The note is never shown to agents: it skips the write
+  gate. Keyed on the claim id, so a new version under the subject starts clean; no status changes. The
+  local store has no feedback, so local briefings don't drop them.
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
   a tool it lacks.
