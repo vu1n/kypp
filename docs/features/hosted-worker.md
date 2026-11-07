@@ -20,6 +20,7 @@ tests:
   - "worker/test/briefing-budget.test.ts"
   - "worker/test/dispute.test.ts"
   - "worker/test/evidence.test.ts"
+  - "worker/test/rewrite.test.ts"
   - "tests/test_usefulness.py"
 ---
 # Hosted Worker
@@ -27,7 +28,8 @@ tests:
 The optional hosted store: a Cloudflare Worker over D1 serving `briefing`, `recall`, `claim`,
 `expand`, `feedback` and `correct` as a remote MCP server behind OAuth, so cloud sessions share one memory.
 `worker/src/memory.ts` ports the arbiter's ranking and promotion rules; an hourly cron runs the
-defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It adds a `user` scope (the signed-in person, every repo) beside `project` and
+defrag pass (`worker/src/defrag.ts`: judge late claims, draft corrections for disputed ones
+(`worker/src/rewrite.ts`), file unsorted claims, then consolidate). It adds a `user` scope (the signed-in person, every repo) beside `project` and
 `global`, and an optional System One write gate (`worker/src/s1.ts`, TypeSafe JS SDK).
 `worker/src/systemone.ts` serves the same Clef model to other tools at `POST /v1/systemone` in the
 TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and static `KYPP_S1_TOKENS`.
@@ -243,3 +245,10 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
 - `initialize` instructions are built from `STEPS` in `mcp.ts`, keeping only the steps whose tool the
   caller can see (`visibleTools`), so a read-only or `KYPP_CORRECT=off` caller is never told to call
   a tool it lacks.
+- Defrag's rewrite step (`rewrite.ts`) is the only place kypp writes claim text itself. A Workers AI
+  text model (`REWRITE_MODEL`, override `KYPP_REWRITE_MODEL`, off with `KYPP_REWRITE=off`) drafts a
+  correction for a disputed claim from the writable raters' notes; the draft passes the write gate
+  and lands as an unstamped candidate (agent `kypp-defrag`, `metadata.rewrite_of`) under the same
+  subject, so only later `used` ratings can accept it. Notes reach only that model, never a reader.
+  Each claim gets one attempt per newest standing `wrong` (`metadata.rewrite_tried`), at most
+  `REWRITE_BATCH` per pass, and a failing model still costs the attempt.

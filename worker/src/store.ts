@@ -763,6 +763,35 @@ export class D1Store {
     return results.map(hydrate);
   }
 
+  // Disputed live claims in a lane agents write to (a filed project, a user, a room) whose newest
+  // standing `wrong` came after the last rewrite attempt, longest-waiting first.
+  async toRewrite(limit: number): Promise<(Claim & { disputedAt: string })[]> {
+    const at = `(SELECT MAX(created_at) FROM (${STANDING_WRONG("c")}))`;
+    const { results } = await this.db.prepare(
+      `SELECT ${claimColumns("c")}, ${at} AS disputed_at FROM memory_claims c`
+      + " WHERE c.status IN ('candidate','accepted') AND ((c.scope = 'project' AND c.project IS NOT NULL) OR c.scope IN ('user','room'))"
+      + ` AND ${DISPUTED("c")} AND IFNULL(json_extract(c.metadata, '$.rewrite_tried'), '') < ${at} ORDER BY disputed_at, c.id LIMIT ?`,
+    ).bind(limit).all();
+    return results.map((r) => ({ ...hydrate(r), disputedAt: r.disputed_at as string }));
+  }
+
+  // The notes of each session's standing writable `wrong` and `used` on a claim, oldest first. Only the
+  // rewrite model reads them; agents never do, since notes skip the write gate.
+  async ratingNotes(id: string): Promise<{ wrong: string[]; used: string[] }> {
+    const { results } = await this.db.prepare(
+      "SELECT u.score, json_extract(u.metadata, '$.note') AS note FROM claim_usages u"
+      + ` WHERE u.claim_id = ? AND ${RATED("u")} AND u.score IN (1, -1) AND ${NEWEST("u", "un")}`
+      + " AND json_extract(u.metadata, '$.note') IS NOT NULL ORDER BY u.created_at, u.rowid",
+    ).bind(id).all();
+    return { wrong: results.filter((r) => r.score === -1).map((r) => r.note as string),
+      used: results.filter((r) => r.score === 1).map((r) => r.note as string) };
+  }
+
+  // Marks a rewrite attempt, so the claim waits for a newer `wrong` before the next one.
+  async rewriteTried(id: string): Promise<void> {
+    await this.db.prepare("UPDATE memory_claims SET metadata = json_set(metadata, '$.rewrite_tried', ?) WHERE id = ?").bind(now(), id).run();
+  }
+
   // Records a late verdict, or (verdict null) that the model still had no opinion, for rotation.
   async judged(id: string, verdict: Record<string, unknown> | null): Promise<void> {
     await (verdict
