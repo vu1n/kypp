@@ -122,6 +122,8 @@ const laneSql = (at: Lane): [string, string] => "project" in at ? ["c.scope = 'p
 // Which unconfirmed (candidate) claims a read returns besides accepted memory: none (briefing),
 // other agents' claims in the caller's own project (the default), or candidates at every level.
 export type Candidates = "none" | "origin" | "all";
+// A read's reply as shown: [section label, its claims in order], in the order the reply renders them.
+export type Shown = [section: string, claims: Claim[]][];
 
 // What a caller sees: this project, the groups it rolls up to, their own user scope, the global
 // scope, and the unsorted claims their own session wrote; never superseded/rejected history.
@@ -488,13 +490,17 @@ export class D1Store {
     return results.length ? hydrate(results[0]) : null;
   }
 
-  async recordUsage(consumer: string | null, claims: Claim[], surface: "recall" | "briefing" | "expand",
+  // What a read showed, in the order it rendered it: each section's label and claims. Every row keeps
+  // where its claim sat (`position` in the whole reply, `section`, `rank` within it), so a rating can
+  // be read against what that slot gets anyway: the top of a briefing is used more whatever is there.
+  async recordUsage(consumer: string | null, shown: Shown, surface: "recall" | "briefing" | "expand",
     project: string | null, query: string | null = null): Promise<void> {
-    if (!consumer || !claims.length) return;
+    const rows = shown.flatMap(([section, claims]) => claims.map((c, i) => ({ c, section, rank: i + 1 })));
+    if (!consumer || !rows.length) return;
     const ts = now();
-    await this.db.batch(claims.map((c) => this.db.prepare(
-      "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,query,created_at) VALUES(?,?,?,?,?,?,?,?)",
-    ).bind(uid(), consumer, c.id, project, c.scope, surface, query, ts)));
+    await this.db.batch(rows.map(({ c, section, rank }, i) => this.db.prepare(
+      "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,query,metadata,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+    ).bind(uid(), consumer, c.id, project, c.scope, surface, query, JSON.stringify({ position: i + 1, section, rank }), ts)));
   }
 
   // The shown claim `handle` names for this session: one a read showed it, never a claim it only knows the id of.

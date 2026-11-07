@@ -143,3 +143,25 @@ test("instructions name feedback for every caller that has it", async () => {
   assert.match(ro, /\n3\. BEFORE YOU FINISH — `feedback`/);
   assert.doesNotMatch(ro, /claim`/);
 });
+
+test("every shown row keeps where its claim sat, so a rating can be read against its slot", async () => {
+  const db = await setup();
+  const writer = agent(db, "w");
+  const ids = [];
+  for (const n of [1, 2, 3]) ids.push((await writer("claim", { subject: `port ${n}`, content: `wrangler port lesson ${n}` })).text.split("\n")[0]);
+  const reader = agent(db, "r");
+  await reader("recall", { query: "wrangler port", include_candidates: true });
+  await reader("briefing");
+  await reader("expand", { handle: ids[0] });
+  const rows = (await db.prepare("SELECT claim_id, surface, metadata FROM claim_usages WHERE consumer = 'r' ORDER BY rowid").all()).results as any[];
+  const recall = rows.filter((r) => r.surface === "recall").map((r) => JSON.parse(r.metadata));
+  assert.deepEqual(recall, [1, 2, 3].map((n) => ({ position: n, section: "results", rank: n })));
+  // The briefing renders others' unconfirmed claims under "recent", after any settled ones.
+  const briefing = rows.filter((r) => r.surface === "briefing").map((r) => JSON.parse(r.metadata));
+  assert.ok(briefing.length > 0);
+  briefing.forEach((m, i) => assert.equal(m.position, i + 1));
+  assert.ok(briefing.every((m) => m.section === "recent"), JSON.stringify(briefing));
+  assert.deepEqual(briefing.map((m) => m.rank), briefing.map((_, i) => i + 1));
+  const expand = rows.filter((r) => r.surface === "expand").map((r) => JSON.parse(r.metadata));
+  assert.deepEqual(expand, [{ position: 1, section: "expand", rank: 1 }]);
+});

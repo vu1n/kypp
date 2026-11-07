@@ -2,6 +2,7 @@
 id: hosted-worker
 paths:
   - "worker/**"
+  - "scripts/usefulness.py"
 entry:
   - "worker/src/index.ts"
   - "worker/src/memory.ts"
@@ -15,6 +16,7 @@ tests:
   - "worker/test/readonly.test.ts"
   - "worker/test/feedback.test.ts"
   - "worker/test/confirm.test.ts"
+  - "tests/test_usefulness.py"
 ---
 # Hosted Worker
 
@@ -27,6 +29,11 @@ defrag pass (`worker/src/defrag.ts`: file unsorted claims, then consolidate). It
 TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and static `KYPP_S1_TOKENS`.
 
 ## Gotchas
+- Every shown `claim_usages` row keeps where its claim sat: `metadata` `{position, section, rank}`,
+  in the order the reply renders. `recordUsage` takes the reply's sections in that order, so a new
+  briefing section is passed there in render order too. `scripts/usefulness.py` scores each rating
+  against the used rate of its slot (read-only, one SELECT on production D1); act on its `lift`, not
+  on raw `used` counts, which favour whatever the briefing shows first.
 - Recall, briefing reads and `get` select `CLAIM_COLUMNS` (`worker/src/store.ts`), not `*`, so
   `metadata` and `file_tried_at` never reach a hydrated `Claim`. A field read off a claim on those
   paths has to be added to that list.
