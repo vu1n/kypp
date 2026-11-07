@@ -477,7 +477,10 @@ class MemoryStore:
         self._write([(
             "INSERT INTO claim_usages(id,consumer,claim_id,project,scope,surface,query,metadata,created_at)"
             " VALUES(?,?,?,?,?,?,?,?,?)",
-            (_uid(), consumer, cid, project, scope, surface, query, "{}", now)) for cid in ids])
+            # Where each claim sat in what was shown, as the hosted store keeps it: a rating is read
+            # against what that slot gets anyway.
+            (_uid(), consumer, cid, project, scope, surface, query,
+             json.dumps({"position": i + 1, "section": surface, "rank": i + 1}), now)) for i, cid in enumerate(ids)])
         return len(ids)
 
     def usages_for(self, consumer: str) -> list[dict]:

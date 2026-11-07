@@ -270,7 +270,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       ]);
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
-      await store.recordUsage(ctx.session, [...org, ...claims, ...yours], "briefing", null);
+      await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours]], "briefing", null);
       return (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
         + (yours.length ? `\n# unconfirmed in this room\n${renderClaims(yours)}` : "");
     }
@@ -278,7 +278,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       const query = String(a.query ?? ""), limit = recallLimit(a.limit);
       const claims = await rankForQuery(ctx.s1, query, await store.recall(query, null, null,
         { room, candidates: a.include_candidates ? "all" : "origin", types: a.types, limit: poolSize(ctx.s1, query, limit), session: ctx.session }), limit);
-      await store.recordUsage(ctx.session, claims, "recall", null, a.query || null);
+      await store.recordUsage(ctx.session, [["results", claims]], "recall", null, a.query || null);
       return renderClaims(claims);
     }
     case "claim": {
@@ -311,7 +311,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
     case "expand": {
       const c = await store.get(String(a.handle ?? ""), identity, ctx.session, room);
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
-      await store.recordUsage(ctx.session, [c], "expand", c.project);
+      await store.recordUsage(ctx.session, [["expand", [c]]], "expand", c.project);
       return JSON.stringify(claimDict(c), null, 2);
     }
   }
@@ -397,7 +397,7 @@ async function pinnedTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, p
     const groups = new Set(ancestors.flat());
     const visible = c && (c.scope === "project" ? c.project === null || names.includes(c.project) : c.scope === "group" ? groups.has(c.project ?? "") : true);
     if (!c || !visible) throw new Error(`unknown claim handle ${a.handle}`);
-    await store.recordUsage(ctx.session, [c], "expand", c.project);
+    await store.recordUsage(ctx.session, [["expand", [c]]], "expand", c.project);
     return JSON.stringify(claimDict(c), null, 2);
   }
   // Why: an unsorted claim from a pinned token could be filed anywhere, so it must name its project.
@@ -426,7 +426,8 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
       ]);
       const isOrg = (c: Claim) => c.scope === "group" && orgs.has(c.project ?? "");
       const claims = briefingOrder(settled.filter((c) => !isOrg(c)), limit);
-      await store.recordUsage(ctx.session, [...org, ...claims, ...recent, ...yours], "briefing", project);
+      // In the order the reply renders them: yours comes before recent.
+      await store.recordUsage(ctx.session, [["org", org], ["settled", claims], ["yours", yours], ["recent", recent]], "briefing", project);
       return note + (org.length ? `# how this org works\n${renderClaims(org)}\n` : "") + (claims.length || !org.length ? renderBriefing(claims) : "")
         + (yours.length ? `\n# how you work, from your other sessions (unconfirmed)\n${renderClaims(yours)}` : "")
         + (recent.length ? `\n# recent from other agents (unconfirmed)\n${renderClaims(recent)}` : "");
@@ -435,7 +436,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
       const query = String(a.query ?? ""), limit = recallLimit(a.limit);
       const claims = await rankForQuery(ctx.s1, query, await store.recall(query, project, user,
         { candidates: a.include_candidates ? "all" : "origin", groups, types: a.types, agent: a.agent, limit: poolSize(ctx.s1, query, limit), session: ctx.session }), limit);
-      await store.recordUsage(ctx.session, claims, "recall", project, a.query || null);
+      await store.recordUsage(ctx.session, [["results", claims]], "recall", project, a.query || null);
       return note + renderClaims(claims);
     }
     case "claim": {
@@ -482,7 +483,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     case "expand": {
       const c = await store.get(String(a.handle ?? ""), user, ctx.session);
       if (!c) throw new Error(`unknown claim handle ${a.handle}`);
-      await store.recordUsage(ctx.session, [c], "expand", c.project);
+      await store.recordUsage(ctx.session, [["expand", [c]]], "expand", c.project);
       return JSON.stringify(claimDict(c), null, 2);
     }
     case "correct": {

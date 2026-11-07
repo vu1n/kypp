@@ -247,7 +247,7 @@ test("purge erases a claim's text from every place recall reads, keeps a tombsto
   const other = await store.claim({ type: "fact", subject: "deploys", content: "deploys go out on green", scope: "user", project: null,
     confidence: 0.7, sourceIds: [], codeRefs: [], accept: true, agent: "t", user: "someone" });
   // One recall returned both claims, so its query (and the key) is copied onto both usage rows.
-  await store.recordUsage("s", [(await store.anyClaim(id))!, (await store.anyClaim(other))!], "recall", null, `which ${KEY}`);
+  await store.recordUsage("s", [["results", [(await store.anyClaim(id))!, (await store.anyClaim(other))!]]], "recall", null, `which ${KEY}`);
   // An earlier reject whose reason quotes the leaked text.
   await store.operatorReject(id, `wrong: ${KEY}`);
   assert.equal((await call({ op: "purge", handle: id.slice(0, 8) })).status, 400, "a reason is required");
