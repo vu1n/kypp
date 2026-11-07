@@ -111,7 +111,7 @@ def report(rows: list[dict], min_rated: int) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--since", default="2026-11-07", help="YYYY-MM-DD; feedback began on 2026-11-07")
+    parser.add_argument("--since", default="2026-11-06", help="YYYY-MM-DD; feedback began on 2026-11-06")
     parser.add_argument("--min", type=int, default=3, help="ratings a claim needs to be listed")
     parser.add_argument("--from", dest="source", type=Path, help="rows as JSON, instead of querying D1")
     args = parser.parse_args(argv)
