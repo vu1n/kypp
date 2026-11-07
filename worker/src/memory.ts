@@ -60,6 +60,7 @@ export interface Claim {
   created_at: string;
   updated_at: string;
   verify?: string | null; // the operator's freshness command; set only through POST /v1/operator
+  evidence?: string | null; // how the writer knew it: what they ran or read (metadata.evidence)
   pointer?: boolean;      // set by recall when a path, anchor or doc:// ref in the query matched the claim, not its words
   confirmations?: Confirmation[]; // set by consolidate: other sessions whose newest feedback on this claim is `used`
   disputed?: boolean;     // set by reads: a session rated it `wrong` and no later `used` cleared it
@@ -202,9 +203,13 @@ export function planConsolidation(live: Claim[], policy: Policy = DEFAULT_POLICY
   return groupClaims(live).map((m) => planGroup(m, policy)).filter(hasWork);
 }
 
+// What the write gate reads: the lesson and, when given, how it is known, since agents read both.
+export const gatedText = (content: string, evidence?: string | null) => (evidence ? `${content}\n\nHow it is known: ${evidence}` : content);
+
 // view.compact_line, minus code grounding (the Worker has no checkout to resolve anchors against;
 // it names the first anchored path instead).
 const CLIP = 240;
+const EVIDENCE_CLIP = 100;
 const WHITESPACE = /\s+/;
 export function compactLine(c: Claim): string {
   const mark = c.status === "accepted" ? "✓" : "?";
@@ -214,6 +219,9 @@ export function compactLine(c: Claim): string {
   if (body.length > CLIP) line += `… (expand ${c.id.slice(0, 8)} for full)`;
   const path = c.code_refs.find((r) => r && typeof r === "object" && typeof r.path === "string")?.path;
   if (path) line += ` → ${path}`;
+  const how = (c.evidence ?? "").split(WHITESPACE).filter(Boolean).join(" ");
+  // A claim that says how it is known is marked apart from a bare assertion; expand gives the whole of it.
+  line += how ? ` [checked: ${how.slice(0, EVIDENCE_CLIP)}${how.length > EVIDENCE_CLIP ? "…" : ""}]` : "";
   if (c.disputed) line += " ⚠ a session rated this wrong; check it before relying on it";
   return line;
 }

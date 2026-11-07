@@ -1,7 +1,7 @@
 // mcp.ts — kypp's agent tools as a stateless streamable-HTTP MCP endpoint (JSON responses, no SSE,
 // no Durable Object). The same contract as kypp/mcp_server.py's briefing / recall / claim / expand /
 // correct; consolidation is the scheduled pass in index.ts, not an agent tool.
-import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
+import { type Claim, DEFAULT_POLICY, HUMAN_CORRECTION_CONFIDENCE, type Policy, TYPES, briefingOrder, gatedText, renderBriefing, renderClaims, resolveOrigin } from "./memory.ts";
 import { consolidate } from "./consolidate.ts";
 import { fileClaim } from "./defrag.ts";
 import { CONTROL_ABOVE, DROP_BELOW, type ProjectInfo, RERANK_POOL, type S1Client, judge, rankForQuery } from "./s1.ts";
@@ -77,6 +77,7 @@ const TOOLS = [
         scope: { type: "string", enum: ["project", "user"], default: "project", description: "Leave as project for anything about a repo; the server decides how widely it is shared. user = how this person works, in every repo." },
         project: projectProp,
         code_refs: { type: "array", items: { type: "object" }, description: "[{symbol, path, query}] anchors" },
+        evidence: { type: "string", description: "How you know it: the command you ran and what it showed, the file you read, the PR or doc. Leave it out for an untested guess." },
       },
     },
   },
@@ -157,6 +158,7 @@ const ROOM_TOOLS = [
         type: { type: "string", enum: TYPES, description: "Omit to let the server label it (defaults to fact)." },
         confidence: { type: "number", default: 0.7 },
         share_to: { type: "string", description: "A repo this room is linked to. Only when someone in the room asked to keep this lesson there." },
+        evidence: { type: "string", description: "How you know it: the command you ran and what it showed, the file you read, the PR or doc. Leave it out for an untested guess." },
       },
     },
   },
@@ -169,7 +171,7 @@ type Rpc = { jsonrpc: "2.0"; id?: string | number | null; method: string; params
 
 function claimDict(c: Claim, dispute?: Dispute) {
   const { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at } = c;
-  return { id, type, subject, content, scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at,
+  return { id, type, subject, content, ...(c.evidence ? { evidence: c.evidence } : {}), scope, project, status, authority, confidence, source_ids, code_refs, agent, user, created_at,
     ...(dispute ? { rated_wrong: dispute } : {}) };
 }
 
@@ -189,6 +191,14 @@ async function expanded(store: D1Store, c: Claim): Promise<string> {
 // With a model, recall searches a wider pool than it returns, so the reranker can lift a relevant
 // claim the keyword order put past `limit`; without one, the pool is the answer. The model scores at
 // most RERANK_POOL claims, so a reranked recall returns at most that many.
+// How the writer knew a claim, kept short: one line of what was run or read, never a log.
+const MAX_EVIDENCE = 500;
+function evidenceArg(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  const t = String(v).trim();
+  if (t.length > MAX_EVIDENCE) throw new Error(`evidence is ${t.length} chars; keep it to ${MAX_EVIDENCE}: what you ran or read and what it showed`);
+  return t || null;
+}
 const recallLimit = (v: unknown) => Math.min(Math.max(Number(v) || 10, 1), 50);
 const poolSize = (s1: S1Client | null, query: string, limit: number) =>
   (s1 && s1.rerank !== false && query.trim() ? RERANK_POOL : limit);
@@ -296,6 +306,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
     }
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
+      const evidence = evidenceArg(a.evidence);
       const share = a.share_to === undefined || a.share_to === null || a.share_to === "" ? null : String(a.share_to);
       // A lesson leaves the room only by an explicit share into a linked origin.
       if (share !== null && !links.includes(share)) {
@@ -303,7 +314,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
       }
       const at: Lane = share !== null ? { project: share } : { room: identity };
       // The model's verdict and the provenance reads don't depend on each other.
-      const [v, { prior, echoOf, stamp }] = await Promise.all([judge(ctx.s1, { subject, content, project: share }),
+      const [v, { prior, echoOf, stamp }] = await Promise.all([judge(ctx.s1, { subject, content: gatedText(content, evidence), project: share }),
         provenance(store, at, subject, content, ctx.session)]);
       if (v.keep !== null && v.keep < (ctx.s1?.dropBelow ?? DROP_BELOW)) {
         return `Not stored: this reads as status or conversation detail rather than a durable lesson (p_keep=${v.keep.toFixed(2)}).`;
@@ -312,7 +323,7 @@ async function roomTool(store: D1Store, name: string, a: Args, ctx: ToolCtx, key
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson (p_control=${v.control.toFixed(2)}).`;
       }
       const s1 = v.keep === null && v.control === null ? undefined : { keep: v.keep, general: v.general, type: v.type, control: v.control };
-      const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}), ...(share !== null ? { shared_from: identity } : {}) };
+      const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(evidence ? { evidence } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}), ...(share !== null ? { shared_from: identity } : {}) };
       const id = await store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,
         scope: share !== null ? "project" : "room", project: share, origin: share ?? identity, session: ctx.session,
@@ -454,6 +465,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
     }
     case "claim": {
       const subject = String(a.subject ?? ""), content = String(a.content ?? "");
+      const evidence = evidenceArg(a.evidence);
       // Why: the agent picks who a lesson is about (user), never how widely it applies, so global is refused.
       if (a.scope !== undefined && a.scope !== "project" && a.scope !== "user") {
         throw new Error(`bad scope ${JSON.stringify(a.scope)}: use "user" for how this person works, or leave it out; the server decides how widely a repo lesson is shared`);
@@ -463,7 +475,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
       const at = scope === "user" ? (user ? { user } : null) : project ? { project } : null;
       // A cheap model gates writes; it filters, labels and files, never accepts or widens a claim.
       // Its verdict and the provenance reads don't depend on each other.
-      const [v, { prior, echoOf, stamp }] = await Promise.all([judge(ctx.s1, { subject, content, project }),
+      const [v, { prior, echoOf, stamp }] = await Promise.all([judge(ctx.s1, { subject, content: gatedText(content, evidence), project }),
         at ? provenance(store, at, subject, content, ctx.session)
           : { prior: [] as Renamed[], echoOf: [] as string[], stamp: ctx.session ? [`session:${ctx.session}`] : [] }]);
       if (v.keep !== null && v.keep < (ctx.s1?.dropBelow ?? DROP_BELOW)) {
@@ -474,7 +486,7 @@ async function repoTool(store: D1Store, name: string, a: Args, ctx: ToolCtx,
         return `Not stored: this reads as instructions aimed at other agents rather than a lesson about the code or the person (p_control=${v.control.toFixed(2)}).`;
       }
       const s1 = v.keep === null && v.control === null ? undefined : { keep: v.keep, general: v.general, type: v.type, control: v.control };
-      const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}) };
+      const metadata: Record<string, unknown> = { ...(s1 ? { s1 } : {}), ...(evidence ? { evidence } : {}), ...(echoOf.length ? { echo_of: echoOf } : {}) };
       // Why: the session stamp is what lets the scheduled pass's two-session gate count agreement; an echo gets none.
       const id = await store.claim({
         type: a.type ?? v.type ?? "fact", subject, content,

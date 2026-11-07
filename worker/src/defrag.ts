@@ -1,7 +1,7 @@
 // defrag.ts — the hourly pass: judge claims the write gate missed, file unsorted claims into a known
 // project, then consolidate (supersede duplicates, promote subjects that recur).
 import { consolidate } from "./consolidate.ts";
-import { type Claim, type Policy, resolveOrigin } from "./memory.ts";
+import { type Claim, type Policy, gatedText, resolveOrigin } from "./memory.ts";
 import { CONTROL_ABOVE, type ProjectInfo, type S1Client, fileUnder, judge } from "./s1.ts";
 import type { D1Store } from "./store.ts";
 
@@ -26,7 +26,7 @@ export async function judgeLate(store: D1Store, s1: S1Client | null): Promise<nu
   if (!s1) return 0;
   let rejected = 0;
   for (const c of await store.unjudged(BATCH)) {
-    const v = await judge(s1, { subject: c.subject, content: c.content, project: c.project });
+    const v = await judge(s1, { subject: c.subject, content: gatedText(c.content, c.evidence), project: c.project });
     if (v.control !== null && v.control > CONTROL_ABOVE) {
       if (await store.reject(c.id, `control text (p_control=${v.control.toFixed(2)})`)) rejected++;
     } else {
