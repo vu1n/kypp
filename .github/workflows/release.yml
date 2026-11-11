@@ -4,6 +4,7 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:  # cut-release.yml dispatches it on the tag it made: its token's tag push starts nothing
 concurrency:
   group: release
   cancel-in-progress: false
