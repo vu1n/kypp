@@ -1,0 +1,41 @@
+name: release
+# A v* tag is the release: once both test suites pass on the tagged commit, this job deploys
+# kypp.vu1n.dev. A push to main never deploys.
+on:
+  push:
+    tags: ["v*"]
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  python:
+    uses: ./.github/workflows/python.yml
+  worker:
+    uses: ./.github/workflows/worker.yml
+  deploy:
+    needs: [python, worker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # the job's OIDC token is its tumbler caller (token row kypp-release)
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.21"
+      - run: npm ci
+      - name: deploy kypp.vu1n.dev
+        env:
+          TUMBLER_URL: https://tumbler.vu1n.dev
+        run: |
+          curl -fsSL "$TUMBLER_URL/cli" -o "$RUNNER_TEMP/tumbler" && chmod +x "$RUNNER_TEMP/tumbler"
+          export TUMBLER_TOKEN=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$TUMBLER_URL" | jq -r .value)
+          "$RUNNER_TEMP/tumbler" run -p kypp --scope workers:write -k CLOUDFLARE_API_TOKEN,CLOUDFLARE_ACCOUNT_ID -- npm run deploy:production
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"

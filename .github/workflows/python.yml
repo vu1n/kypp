@@ -12,6 +12,20 @@ on:
       - ".github/workflows/python.yml"
       - "pyproject.toml"
       - "uv.lock"
+  push:
+    branches: [main]
+    paths:
+      - "kypp/**"
+      - "tests/**"
+      - "worker/src/**"
+      - "worker/test/**"
+      - "worker/migrations/**"
+      - "docs/features/**"
+      - "scripts/featuremap.py"
+      - ".github/workflows/python.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_call:
   workflow_dispatch:
 concurrency:
   group: python-${{ github.ref }}
