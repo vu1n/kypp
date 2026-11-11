@@ -9,7 +9,7 @@ if (process.env.WORKERS_CI) {
 const git = (...a) => execFileSync("git", a, { encoding: "utf8" }).trim();
 const tag = git("tag", "--points-at", "HEAD", "--list", "v*").split("\n")[0];
 if (!tag) { console.error("kypp: HEAD is not a v* tag; production deploys only a release"); process.exit(1); }
-if (git("status", "--porcelain", "--untracked-files=no")) { console.error(`kypp: ${tag} has uncommitted changes`); process.exit(1); }
+if (git("status", "--porcelain")) { console.error(`kypp: ${tag} has uncommitted or untracked files (wrangler would deploy or migrate them too)`); process.exit(1); }
 console.log(`kypp: deploying ${tag}`);
 const run = (...a) => execFileSync("npx", ["wrangler", ...a], { stdio: "inherit" });
 run("d1", "migrations", "apply", "DB", "--remote", "--env", "production");
