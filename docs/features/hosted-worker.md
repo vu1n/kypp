@@ -74,6 +74,8 @@ TypeSafe API's shape, for GitHub Actions OIDC tokens (`worker/src/oidc.ts`) and 
   `env.production`, which repeats every binding and var because envs don't inherit them. Change one,
   change both. Deploy the install only with `npm run deploy:production`: a plain `wrangler deploy`
   targets the template and turns workers.dev back on.
+- kypp.vu1n.dev deploys from the `release` branch (Workers Builds), which only `release.yml` moves, and
+  only to a `v*` tag whose tests passed. A push to main deploys nothing.
 - The OAuth resource id is exactly `<KYPP_PUBLIC_URL>/mcp`. A path or query suffix on the MCP URL
   breaks token audience checks, so the project travels as a tool argument or the
   `X-Kypp-Project` header.

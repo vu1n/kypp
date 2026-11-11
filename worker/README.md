@@ -158,9 +158,10 @@ npm run deploy                               # applies migrations, then deploys;
 The owner's install (`kypp.vu1n.dev`) is the `production` environment in `wrangler.jsonc`: its D1
 and KV ids, custom domain, `workers_dev: false` and vars are committed there, and the top level stays
 the template the button copies. Deploy it with `npm run deploy:production` (migrations, then
-`wrangler deploy --env production`). To deploy it on every push to main without keeping a Cloudflare
-token in GitHub, connect the Worker to the repo with Workers Builds (Worker > Settings > Builds): root
-`worker`, deploy command `npm run deploy:production`, no build variables. A deploy without
+`wrangler deploy --env production`). It deploys on release, not on every push: a `v*` tag runs
+`.github/workflows/release.yml`, which fast-forwards the `release` branch to the tag once both test
+suites pass on it, and Workers Builds (root `worker`, deploy command `npm run deploy:production`, no
+build variables) deploys `release`. No Cloudflare token lives in GitHub. Roll back by tagging a revert. A deploy without
 `--env production` targets the template and would turn workers.dev back on, so don't run plain
 `wrangler deploy` against this install. For your own install, add your own env block the same way.
 
