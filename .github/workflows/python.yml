@@ -30,9 +30,12 @@ on:
 concurrency:
   group: python-${{ github.ref }}
   cancel-in-progress: true
+permissions:
+  contents: read
 jobs:
   test:
-    runs-on: ${{ vars.RUNNER_LABEL == 'netcup' && fromJSON('["self-hosted","netcup"]') || 'ubuntu-latest' }}
+    # A fork's PR never runs on the self-hosted runner: its code would run on our own host.
+    runs-on: ${{ vars.RUNNER_LABEL == 'netcup' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","netcup"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:

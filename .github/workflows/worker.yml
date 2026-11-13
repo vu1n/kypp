@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths: ["worker/**", ".github/workflows/worker.yml"]
   workflow_call:
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
